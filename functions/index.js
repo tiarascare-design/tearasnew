@@ -45,3 +45,39 @@ exports.adminUpdateOrderStatus = onCall(async (request) => {
     throw new HttpsError('internal', err?.message || 'Unknown error');
   }
 });
+
+// Callable: adminResetUserCarts
+// Deletes artifacts/{appId}/users/*/cart/user_cart using Admin SDK privileges
+exports.adminResetUserCarts = onCall(async (request) => {
+  try {
+    const context = request.auth;
+    const data = request.data || {};
+
+    if (!context || !context.uid || context.uid !== ADMIN_UID) {
+      throw new HttpsError('permission-denied', 'Only admin can reset user carts.');
+    }
+
+    const { appId } = data;
+    if (!appId) {
+      throw new HttpsError('invalid-argument', 'Missing appId.');
+    }
+
+    const usersSnap = await db.collection(`artifacts/${appId}/users`).get();
+    const bulk = db.bulkWriter();
+    let count = 0;
+    usersSnap.forEach((u) => {
+      const cartDoc = db.doc(`artifacts/${appId}/users/${u.id}/cart/user_cart`);
+      bulk.delete(cartDoc).catch((e) => {
+        console.warn('Bulk delete cart error', { userId: u.id, error: e?.message });
+      });
+      count++;
+    });
+
+    await bulk.close();
+    return { ok: true, deletedForUsers: count };
+  } catch (err) {
+    console.error('adminResetUserCarts failed:', err);
+    if (err instanceof HttpsError) throw err;
+    throw new HttpsError('internal', err?.message || 'Unknown error');
+  }
+});
