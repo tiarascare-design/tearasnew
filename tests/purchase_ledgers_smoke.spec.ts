@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 // NOTE: This is a smoke test scaffold. Start your local dev server first (see README).
 // Adjust baseURL or use playwright.config.ts webServer if you want the test to start the server automatically.
 
-test('purchase creation should create ledger entries and visible in ledgers', async ({ page }) => {
+test('purchase creation should create ledger entries and be visible in transactions', async ({ page }) => {
   // Update URL if your dev server runs on a different port
   const base = process.env.BASE_URL || 'http://localhost:3000';
   await page.goto(base);
