@@ -2114,7 +2114,7 @@ function renderAdminPurchasesPage() {
                         <div id="supplierGstBadge" class="text-sm mt-2 text-gray-600"></div>
                         <div id="purchaseSupplierWarning" class="text-xs mt-2 text-orange-600 hidden">Supplier is not GST-registered — any GST will be treated as part of item cost.</div>
                         <div id="newSupplierRow" class="mt-3 hidden border p-3 rounded bg-gray-50">
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div>
                                     <label class="block text-xs text-gray-600">GSTIN (optional)</label>
                                     <input type="text" id="newSupplierGstin" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="GSTIN">
@@ -2122,6 +2122,12 @@ function renderAdminPurchasesPage() {
                                 <div>
                                     <label class="block text-xs text-gray-600">Address (optional)</label>
                                     <input type="text" id="newSupplierAddress" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Address">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600">State (optional)</label>
+                                    <select id="newSupplierStateCode" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                                        ${GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('')}
+                                    </select>
                                 </div>
                             </div>
                             <div class="mt-3 flex gap-3">
@@ -2250,11 +2256,46 @@ function renderAdminPurchasesPage() {
     const newSupplierAddress = document.getElementById('newSupplierAddress');
     const addSupplierInlineBtn = document.getElementById('addSupplierInlineBtn');
     const cancelNewSupplierBtn = document.getElementById('cancelNewSupplierBtn');
+    const newSupplierStateSel = document.getElementById('newSupplierStateCode');
+
+    // Default the inline new-supplier State select to merchant home state (or merchant GSTIN derived state)
+    try {
+        if (newSupplierStateSel) {
+            newSupplierStateSel.value = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '') || '';
+        }
+    } catch (_) {}
+
+    // When GSTIN is entered for a new supplier, auto-select the GST state code derived from the GSTIN.
+    // The user can still override the select manually; this listener will only set the select when a GSTIN
+    // yields a recognizable two-digit state code.
+    try {
+        if (newSupplierGstin && newSupplierStateSel) {
+            const applyStateFromGstin = () => {
+                try {
+                    const v = (newSupplierGstin.value || '').trim();
+                    // Only auto-apply when GSTIN fully validates
+                    if (GSTIN_REGEX.test(v)) {
+                        const code = getStateCodeFromGstin(v);
+                        if (code) newSupplierStateSel.value = code;
+                    }
+                } catch (_) {}
+            };
+            // Use 'input' for live response and 'change' to catch paste/select scenarios
+            newSupplierGstin.addEventListener('input', applyStateFromGstin);
+            newSupplierGstin.addEventListener('change', applyStateFromGstin);
+        }
+    } catch (_) {}
     if (showNewSupplierBtn && newSupplierRow) {
         showNewSupplierBtn.addEventListener('click', (e) => {
             e.preventDefault();
             newSupplierRow.classList.toggle('hidden');
-            if (!newSupplierRow.classList.contains('hidden')) setTimeout(() => { newSupplierGstin && newSupplierGstin.focus(); }, 50);
+            if (!newSupplierRow.classList.contains('hidden')) setTimeout(() => {
+                // focus gstin input and ensure state select defaults to merchant home state
+                try { if (newSupplierGstin) newSupplierGstin.focus(); } catch(_){}
+                try {
+                    if (newSupplierStateSel) newSupplierStateSel.value = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '') || '';
+                } catch(_){}
+            }, 50);
         });
     }
     if (cancelNewSupplierBtn && newSupplierRow) {
@@ -2265,7 +2306,13 @@ function renderAdminPurchasesPage() {
             e.preventDefault();
             const name = (document.getElementById('supplierName')?.value || '').trim();
             const gstin = (newSupplierGstin?.value || '').trim();
+            // Validate GSTIN if provided
+            if (gstin && !GSTIN_REGEX.test(gstin)) {
+                showMessage('Invalid GSTIN format. Please check and enter a valid GSTIN or leave it empty.');
+                return;
+            }
             const address = (newSupplierAddress?.value || '').trim();
+            const stateCode = (document.getElementById('newSupplierStateCode')?.value || '').trim();
             if (!name) { showMessage('Enter supplier name first.'); return; }
             // Check for existing supplier (case-insensitive)
             const exists = (state.allSuppliers || []).some(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
@@ -2275,16 +2322,18 @@ function renderAdminPurchasesPage() {
                 const payload = { name, createdAt: serverTimestamp(), isDeleted: false };
                 if (gstin) payload.gstin = gstin;
                 if (address) payload.address = address;
+                if (stateCode) payload.stateCode = stateCode;
                 const ref = await addDoc(collection(db, suppliersColPath), payload);
                 // Update local state and datalist (avoid inserting undefined fields)
                 try {
                     const supEntry = { id: ref.id, name };
                     if (gstin) supEntry.gstin = gstin;
                     if (address) supEntry.address = address;
+                    if (stateCode) supEntry.stateCode = stateCode;
                     state.allSuppliers = [supEntry, ...(state.allSuppliers || [])];
                 } catch (_) {}
                 // Use optimistic upsert to trigger UI refreshes
-                try { upsertPartyInState('supplier', Object.assign({ name }, gstin ? { gstin } : {}, address ? { address } : {})); } catch(_){ }
+                try { upsertPartyInState('supplier', Object.assign({ name }, gstin ? { gstin } : {}, address ? { address } : {}, stateCode ? { stateCode } : {})); } catch(_){ }
                 const dl = document.getElementById('suppliersDatalistPurchase');
                 if (dl) { const opt = document.createElement('option'); opt.value = name; dl.appendChild(opt); }
                 // Select the supplier in input
@@ -2297,24 +2346,9 @@ function renderAdminPurchasesPage() {
                 console.error('Failed to add supplier inline:', err);
                 showMessage('Failed to add supplier.');
             }
+            updatePurchaseTotal();
         });
     }
-    // Toggle bank account row visibility based on Pay Now mode
-    const payNowModeSelect = document.getElementById('purchasePaymentMode');
-    const bankRowEl = document.getElementById('purchaseBankAccountRow');
-    const syncPayNowBankRow = () => {
-        if (!payNowModeSelect || !bankRowEl) return;
-        bankRowEl.classList.toggle('hidden', payNowModeSelect.value !== 'bank');
-    };
-    payNowModeSelect?.addEventListener('change', syncPayNowBankRow);
-    syncPayNowBankRow();
-    // Populate the purchase history pane (separate bills list under the entry form)
-    try { renderPurchaseHistory(); } catch (err) { console.error('renderPurchaseHistory failed:', err); }
-    container.addEventListener('input', e => {
-        if (e.target.classList.contains('purchase-price') || e.target.classList.contains('purchase-quantity')) {
-            updatePurchaseTotal();
-        }
-    });
     container.addEventListener('click', e => {
         if (e.target.closest('.remove-purchase-item-btn')) {
             if (document.querySelectorAll('.purchase-item-row').length > 1) {
@@ -3669,14 +3703,22 @@ function attachAdminListeners() {
        settingsForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             console.log('Saving settings...');
+            // Read settings inputs defensively: some deployments may omit certain inputs
+            const scrollingBarTextEl = document.getElementById('scrollingBarText');
+            const scrollingBarVisibleEl = document.getElementById('scrollingBarVisible');
+            const merchantGstRegisteredEl = document.getElementById('merchantGstRegistered');
+            const merchantGstinEl = document.getElementById('merchantGstin');
+            const merchantStateCodeEl = document.getElementById('merchantStateCode');
+            const businessAddressEl = document.getElementById('businessAddress');
+
             const newSettings = {
-                scrollingBarText: document.getElementById('scrollingBarText').value,
-                isScrollingBarVisible: document.getElementById('scrollingBarVisible').checked,
-                        merchantGstRegistered: document.getElementById('merchantGstRegistered')?.checked || false,
+                scrollingBarText: (scrollingBarTextEl?.value) || '',
+                isScrollingBarVisible: !!(scrollingBarVisibleEl?.checked),
+                merchantGstRegistered: !!(merchantGstRegisteredEl?.checked),
                 // --- UPDATED: Save new GST fields ---
-                merchantGstin: (document.getElementById('merchantGstRegistered')?.checked ? document.getElementById('merchantGstin').value : ''),
-                merchantStateCode: (document.getElementById('merchantStateCode')?.value || ''),
-                businessAddress: document.getElementById('businessAddress').value,
+                merchantGstin: (merchantGstRegisteredEl?.checked ? (merchantGstinEl?.value || '') : ''),
+                merchantStateCode: (merchantStateCodeEl?.value || ''),
+                businessAddress: (businessAddressEl?.value || ''),
                 // ------------------------------------
             };
             const adminEmailsInput = document.getElementById('adminEmails');
@@ -5634,7 +5676,8 @@ document.body.addEventListener('submit', async e => {
 
         // Determine merchant & supplier state codes for GST splitting
         const merchantStateCode = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '');
-        const supplierStateCode = getStateCodeFromGstin(supplierObj?.gstin || '');
+    // Prefer explicitly stored supplier.stateCode (from inline add) else derive from GSTIN
+    const supplierStateCode = (supplierObj?.stateCode) || getStateCodeFromGstin(supplierObj?.gstin || '');
 
         // Compute GST for items when supplier is registered; otherwise treat GST as part of cost
         let gstComputed = { total: 0, subtotalEx: 0, subtotalInc: 0, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
