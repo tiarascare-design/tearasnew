@@ -1,7 +1,8 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, signInAnonymously, signInWithCustomToken, GoogleAuthProvider, signInWithPopup, linkWithPopup, signInWithRedirect, getRedirectResult, linkWithRedirect, signInWithCredential } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFirestore, collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, updateDoc, serverTimestamp, query, where, getDocs, getDoc, writeBatch, increment, runTransaction } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
+import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, signInAnonymously, signInWithCustomToken, GoogleAuthProvider, signInWithPopup, linkWithPopup, signInWithRedirect, getRedirectResult, linkWithRedirect, signInWithCredential, connectAuthEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, updateDoc, serverTimestamp, query, where, getDocs, getDoc, writeBatch, increment, runTransaction, connectFirestoreEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getFunctions, httpsCallable, connectFunctionsEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
+import { GSTIN_REGEX, getStateCodeFromGstin, computeGstForItems, attachGstinValidation, GST_STATE_CODES } from '../../src/gst.js';
 
 // --- CONFIG & INITIALIZATION ---
 const firebaseConfig = {
@@ -23,6 +24,20 @@ const app = initializeApp(finalFirebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const functionsSvc = getFunctions(app, 'us-central1');
+
+// If running on localhost, connect the client SDKs to the local emulator suite so
+// the browser reads/writes the emulator data (siteSettings seeded in emulator).
+try {
+    const host = window && window.location && (window.location.hostname || '');
+    if (host === 'localhost' || host === '127.0.0.1') {
+        // Auth emulator (browser must be pointed at the emulator URL)
+        try { connectAuthEmulator(auth, 'http://127.0.0.1:9099'); } catch (e) { /* ignore if not available */ }
+        // Firestore emulator
+        try { connectFirestoreEmulator(db, '127.0.0.1', 8080); } catch (e) { /* ignore */ }
+        // Functions emulator
+        try { connectFunctionsEmulator(functionsSvc, '127.0.0.1', 5001); } catch (e) { /* ignore */ }
+    }
+} catch (e) { /* ignore in environments without window */ }
 
 // --- DOM ELEMENTS ---
 const pageContent = document.getElementById('pageContent');
@@ -285,216 +300,7 @@ function formatDate(input) {
     return `${dd}/${mm}/${yyyy}`;
 }
 
-// --- TAX HELPERS (GST) ---
-// GSTIN structure: 2 digits (state) + 10-char PAN (5 letters,4 digits,1 letter) + 1 entity code (alphanumeric) + 'Z' + checksum (alphanumeric)
-// GSTIN pattern: 15 characters total. Positions:
-// 1-2: state code digits
-// 3-12: PAN (5 letters + 4 digits + 1 letter)
-// 13-15: entity code + default char + checksum — be permissive and allow alphanumerics in final 3 chars
-// Allow '0' in entity position and do not hard-require a literal 'Z' at position 14 to accept valid variants.
-const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]{3}$/;
-// Indian states mapping for GST state codes (first two digits of GSTIN)
-const GST_STATE_CODES = [
-    { code: '01', name: 'Jammu & Kashmir' },
-    { code: '02', name: 'Himachal Pradesh' },
-    { code: '03', name: 'Punjab' },
-    { code: '04', name: 'Chandigarh' },
-    { code: '05', name: 'Uttarakhand' },
-    { code: '06', name: 'Haryana' },
-    { code: '07', name: 'Delhi' },
-    { code: '08', name: 'Rajasthan' },
-    { code: '09', name: 'Uttar Pradesh' },
-    { code: '10', name: 'Bihar' },
-    { code: '11', name: 'Sikkim' },
-    { code: '12', name: 'Arunachal Pradesh' },
-    { code: '13', name: 'Nagaland' },
-    { code: '14', name: 'Manipur' },
-    { code: '15', name: 'Mizoram' },
-    { code: '16', name: 'Tripura' },
-    { code: '17', name: 'Meghalaya' },
-    { code: '18', name: 'Assam' },
-    { code: '19', name: 'West Bengal' },
-    { code: '20', name: 'Jharkhand' },
-    { code: '21', name: 'Odisha' },
-    { code: '22', name: 'Chhattisgarh' },
-    { code: '23', name: 'Madhya Pradesh' },
-    { code: '24', name: 'Gujarat' },
-    { code: '25', name: 'Daman & Diu' },
-    { code: '26', name: 'Dadra & Nagar Haveli' },
-    { code: '27', name: 'Maharashtra' },
-    { code: '28', name: 'Andhra Pradesh (Old)' },
-    { code: '29', name: 'Karnataka' },
-    { code: '30', name: 'Goa' },
-    { code: '31', name: 'Lakshadweep' },
-    { code: '32', name: 'Kerala' },
-    { code: '33', name: 'Tamil Nadu' },
-    { code: '34', name: 'Pondicherry' },
-    { code: '35', name: 'Andaman & Nicobar Islands' },
-    { code: '36', name: 'Telangana' },
-    { code: '37', name: 'Andhra Pradesh (New)' }
-];
-
-function getStateCodeFromGstin(gstin) {
-    if (!gstin || typeof gstin !== 'string') return null;
-    const v = gstin.trim();
-    if (v.length < 2) return null;
-    return v.substring(0, 2);
-}
-
-// Utility: enforce uppercase characters on an input element (in-place) for GSTIN fields
-function enforceUppercaseInput(el) {
-    if (!el) return;
-    const applyUpper = () => {
-        try {
-            const val = (el.value || '').toString();
-            const up = val.toUpperCase();
-            if (up !== val) {
-                const pos = el.selectionStart || up.length;
-                el.value = up;
-                try { el.setSelectionRange(pos, pos); } catch (_) {}
-            }
-        } catch (_) {}
-    };
-    el.addEventListener('input', applyUpper);
-    el.addEventListener('change', applyUpper);
-    el.addEventListener('paste', () => setTimeout(applyUpper, 0));
-    // normalize initial value
-    applyUpper();
-}
-
-// UI helpers for GSTIN validation styling
-function setGstinValid(el) {
-    if (!el) return;
-    try { el.style.borderColor = '#16a34a'; el.setAttribute('aria-invalid', 'false'); } catch (_) {}
-}
-function setGstinInvalid(el) {
-    if (!el) return;
-    try { el.style.borderColor = '#dc2626'; el.setAttribute('aria-invalid', 'true'); } catch (_) {}
-}
-function clearGstinValidation(el) {
-    if (!el) return;
-    try { el.style.borderColor = ''; el.removeAttribute('aria-invalid'); } catch (_) {}
-}
-
-// Attach validation behavior to a GSTIN input element. feedbackEl is optional DOM element to show messages.
-function attachGstinValidation(el, feedbackEl) {
-    if (!el) return;
-    let _deb = null;
-    const run = () => {
-        try {
-            const v = (el.value || '').toString().trim().toUpperCase();
-            if (!v) {
-                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
-                clearGstinValidation(el);
-                return;
-            }
-            if (v.length < 15) {
-                // wait until full length entered
-                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
-                clearGstinValidation(el);
-                return;
-            }
-            const v15 = v.substring(0,15);
-            if (!GSTIN_REGEX.test(v15)) {
-                if (feedbackEl) { feedbackEl.style.display = 'block'; feedbackEl.textContent = 'Invalid GSTIN format. Enter 15 characters: digits and uppercase letters.'; }
-                setGstinInvalid(el);
-            } else {
-                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
-                setGstinValid(el);
-            }
-        } catch (_) {}
-        _deb = null;
-    };
-    const handler = () => {
-        try {
-            // normalize uppercase
-            el.value = (el.value || '').toString().toUpperCase();
-        } catch (_) {}
-        if (_deb) clearTimeout(_deb);
-        _deb = setTimeout(run, 350);
-    };
-    el.addEventListener('input', handler);
-    el.addEventListener('change', handler);
-    el.addEventListener('blur', handler);
-    // run once to initialize
-    handler();
-}
-
-// Enhanced GST computation returning CGST/SGST/IGST splits depending on intra-state vs inter-state
-// items: [{price, quantity, gstPercentage}]
-// pricesIncludeGst: boolean
-// merchantStateCode, supplierStateCode: two-digit strings (e.g., '32')
-function computeGstForItems(items, pricesIncludeGst, merchantStateCode, supplierStateCode) {
-    const rateBuckets = {}; // rate -> { totalTax, cgst, sgst, igst }
-    let subtotalEx = 0;
-    let subtotalInc = 0;
-
-    const intraState = !!(merchantStateCode && supplierStateCode && merchantStateCode === supplierStateCode);
-
-    items.forEach(it => {
-        const price = parseFloat(it.price || 0) || 0;
-        const qty = parseFloat(it.quantity || 0) || 0;
-        const r = parseFloat(it.gstPercentage || 0) || 0;
-        if (r <= 0) {
-            const lineEx = price * qty;
-            subtotalEx += lineEx; subtotalInc += lineEx;
-            return;
-        }
-
-        if (pricesIncludeGst) {
-            // Price is tax-inclusive: extract tax portion
-            const lineInc = price * qty;
-            const tax = lineInc * (r / (100 + r));
-            const lineEx = lineInc - tax;
-            subtotalInc += lineInc; subtotalEx += lineEx;
-            // Split tax into CGST/SGST or IGST
-            let cgst = 0, sgst = 0, igst = 0;
-            if (intraState) {
-                cgst = tax / 2; sgst = tax / 2;
-            } else {
-                igst = tax;
-            }
-            const bucket = rateBuckets[r] || { totalTax: 0, cgst: 0, sgst: 0, igst: 0 };
-            bucket.totalTax += tax; bucket.cgst += cgst; bucket.sgst += sgst; bucket.igst += igst;
-            rateBuckets[r] = bucket;
-        } else {
-            // Price is tax-exclusive: tax is applied on top
-            const lineEx = price * qty;
-            const tax = lineEx * (r / 100);
-            const lineInc = lineEx + tax;
-            subtotalEx += lineEx; subtotalInc += lineInc;
-            let cgst = 0, sgst = 0, igst = 0;
-            if (intraState) {
-                cgst = tax / 2; sgst = tax / 2;
-            } else {
-                igst = tax;
-            }
-            const bucket = rateBuckets[r] || { totalTax: 0, cgst: 0, sgst: 0, igst: 0 };
-            bucket.totalTax += tax; bucket.cgst += cgst; bucket.sgst += sgst; bucket.igst += igst;
-            rateBuckets[r] = bucket;
-        }
-    });
-
-    // Aggregate totals
-    let totalTax = 0, cgstTotal = 0, sgstTotal = 0, igstTotal = 0;
-    Object.values(rateBuckets).forEach(b => {
-        totalTax += (b.totalTax || 0);
-        cgstTotal += (b.cgst || 0);
-        sgstTotal += (b.sgst || 0);
-        igstTotal += (b.igst || 0);
-    });
-
-    return {
-        rates: rateBuckets,
-        total: totalTax,
-        subtotalEx,
-        subtotalInc,
-        cgstTotal,
-        sgstTotal,
-        igstTotal,
-        intraState
-    };
-}
+// GST helpers are imported from src/gst.js (computeGstForItems, getStateCodeFromGstin, GSTIN_REGEX, attachGstinValidation)
 
 // --- ROUTING & NAVIGATION ---
 function navigateTo(page, id = null, category = null, group = null) {
@@ -1255,7 +1061,7 @@ function renderAdminPage() {
 
     const slideFormHTML = `<input type="hidden" id="slideId"><div><label for="slideHeadline" class="block text-sm font-medium text-gray-700 mb-1">Headline</label><input type="text" id="slideHeadline" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideSubtitle" class="block text-sm font-medium text-gray-700 mb-1">Subtitle</label><input type="text" id="slideSubtitle" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideImageUrl" class="block text-sm font-medium text-gray-700 mb-1">Image URL</label><input type="url" id="slideImageUrl" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label for="slideButtonText" class="block text-sm font-medium text-gray-700 mb-1">Button Text</label><input type="text" id="slideButtonText" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideButtonLink" class="block text-sm font-medium text-gray-700 mb-1">Button Link</label><input type="text" id="slideButtonLink" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="#" required></div></div><div class="flex items-center space-x-4"><button type="submit" id="slideFormSubmitBtn" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-blue-700 transition">Add Slide</button><button type="button" id="slideFormCancelBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition hidden">Cancel</button></div>`;
 
-    const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Merchant is GST registered</span><label class="toggle-switch"><input type="checkbox" id="merchantGstRegistered" ${state.siteSettings.merchantGstRegistered ? 'checked' : ''}><span class="toggle-slider"></span></label></div><p class="text-xs text-gray-500">Sales GST is applied automatically when the merchant is GST registered. If not registered, GST will not be charged on sales, and purchase GST will be treated as part of item cost.</p></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstRegistered ? (state.siteSettings.merchantGstin || '') : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5" ${state.siteSettings.merchantGstRegistered ? '' : 'disabled title="Disabled when not GST registered"'}></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Admin Access</h3><p class="text-xs text-gray-500">Grant additional admins by listing their email addresses or Firebase Auth UIDs (comma separated). Primary developer admin access always remains.</p><div><label for="adminEmails" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin Emails</label><textarea id="adminEmails" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="name@example.com, other@example.com">${adminEmailsPrefill}</textarea></div><div><label for="adminUids" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin UIDs</label><textarea id="adminUids" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="UID1, UID2">${adminUidsPrefill}</textarea></div><p class="text-[11px] text-gray-500">Changes take effect immediately after saving.</p></div></div><div class="mt-8 border-t pt-6 flex items-center justify-between"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button><button type="button" id="masterResetBtn" class="bg-red-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-red-700 transition">Master Reset (Danger)</button></div></form><div class="mt-4 p-4 border border-red-200 bg-red-50 text-red-700 rounded-md text-sm"><p class="font-semibold">Danger Zone:</p><div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2"><label class="flex items-center gap-2"><input type="checkbox" id="resetProducts" class="h-4 w-4"> Products</label><label class="flex items-center gap-2"><input type="checkbox" id="resetProductGroups" class="h-4 w-4"> Product Groups</label><label class="flex items-center gap-2"><input type="checkbox" id="resetHeroSlides" class="h-4 w-4"> Hero Slides</label><label class="flex items-center gap-2"><input type="checkbox" id="resetGallery" class="h-4 w-4"> Gallery Images</label><label class="flex items-center gap-2"><input type="checkbox" id="resetTestimonials" class="h-4 w-4"> Testimonials</label><label class="flex items-center gap-2"><input type="checkbox" id="resetOrders" class="h-4 w-4"> Orders</label><label class="flex items-center gap-2"><input type="checkbox" id="resetPurchases" class="h-4 w-4"> Purchases</label><label class="flex items-center gap-2"><input type="checkbox" id="resetLocalSales" class="h-4 w-4"> Local Sales</label><label class="flex items-center gap-2"><input type="checkbox" id="resetSalesReturns" class="h-4 w-4"> Sales Returns</label><label class="flex items-center gap-2"><input type="checkbox" id="resetPurchaseReturns" class="h-4 w-4"> Purchase Returns</label><label class="flex items-center gap-2"><input type="checkbox" id="resetCarts" class="h-4 w-4"> User Carts</label><label class="flex items-center gap-2"><input type="checkbox" id="resetCounters" class="h-4 w-4"> Counters</label><label class="flex items-center gap-2"><input type="checkbox" id="resetSiteSettings" class="h-4 w-4"> Site Settings</label></div><div class="mt-3"><button type="button" id="resetSelectedBtn" class="bg-red-500 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-red-600 transition">Reset Selected</button></div><p class="mt-3">Select what to reset or use Master Reset to remove everything listed. Type RESET when prompted. Use only for testing.</p></div></div>`;
+    const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Merchant is GST registered</span><label class="toggle-switch"><input type="checkbox" id="merchantGstRegistered" ${state.siteSettings.merchantGstRegistered ? 'checked' : ''}><span class="toggle-slider"></span></label></div><p class="text-xs text-gray-500">Sales GST is applied automatically when the merchant is GST registered. If not registered, GST will not be charged on sales, and purchase GST will be treated as part of item cost.</p></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstRegistered ? (state.siteSettings.merchantGstin || '') : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5" ${state.siteSettings.merchantGstRegistered ? '' : 'disabled title="Disabled when not GST registered"'}></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Admin Access</h3><p class="text-xs text-gray-500">Grant additional admins by listing their email addresses or Firebase Auth UIDs (comma separated). Primary developer admin access always remains.</p><div><label for="adminEmails" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin Emails</label><textarea id="adminEmails" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="name@example.com, other@example.com">${adminEmailsPrefill}</textarea></div><div><label for="adminUids" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin UIDs</label><textarea id="adminUids" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="UID1, UID2">${adminUidsPrefill}</textarea></div><p class="text-[11px] text-gray-500">Changes take effect immediately after saving.</p></div></div><div class="mt-8 border-t pt-6 flex items-center justify-between"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button></div></form></div>`;
 
     const tabsContent = {
         orders: `<div><div id="adminOrderList" class="space-y-4"></div></div>`,
@@ -1358,6 +1164,11 @@ function renderAdminPage() {
     else if (state.adminCurrentTab === 'settings') { /* no gallery here anymore */ }
 
     attachAdminListeners();
+    // Inject optional Auth-deletion controls into the Danger Zone if present (added dynamically to avoid editing large template strings)
+    // deleteAuth UI injection removed: master-reset and selection-reset
+    // features are disabled. If needed for emulator-only testing, add a
+    // controlled helper under functions/.tools instead of injecting
+    // destructive controls into the live admin UI.
 }
 
 function renderAdminBillingPage() {
@@ -2186,35 +1997,41 @@ function renderAdminPurchasesPage() {
                     <input type="hidden" id="editingPurchaseId" value="" />
                     <div>
                         <label for="supplierName" class="block text-sm font-medium text-gray-700 mb-1">Supplier Name</label>
-                        <input type="text" id="supplierName" class="w-full px-4 py-2 border border-gray-300 rounded-md" list="suppliersDatalistPurchase" placeholder="Type to search suppliers" required>
+                        <input type="text" id="supplierName" data-testid="supplierName" class="w-full px-4 py-2 border border-gray-300 rounded-md" list="suppliersDatalistPurchase" placeholder="Type to search suppliers" required>
                         <datalist id="suppliersDatalistPurchase">${(state.allSuppliers||[]).map(s => `<option value="${(s.name||'').replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
                         <div class="mt-2">
-                            <button type="button" id="showNewSupplierBtn" class="text-sm text-blue-600 hover:underline">Can\'t find supplier? + Add</button>
+                            <button type="button" id="showNewSupplierBtn" data-testid="showNewSupplierBtn" class="text-sm text-blue-600 hover:underline">Can\'t find supplier? + Add</button>
                         </div>
                         <div id="supplierGstBadge" class="text-sm mt-2 text-gray-600"></div>
+                        <div id="supplierAddress" class="text-sm mt-1 text-gray-700"></div>
                         <div id="purchaseSupplierWarning" class="text-xs mt-2 text-orange-600 hidden">Supplier is not GST-registered — any GST will be treated as part of item cost.</div>
                         <div id="newSupplierRow" class="mt-3 hidden border p-3 rounded bg-gray-50">
                             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div>
                                     <label class="block text-xs text-gray-600">GSTIN (optional)</label>
-                                    <input type="text" id="newSupplierGstin" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="GSTIN">
-                                    <div id="newSupplierGstinFeedback" class="text-xs text-red-600 mt-1 hidden"></div>
+                                    <input type="text" id="newSupplierGstin" data-testid="newSupplierGstin" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="GSTIN">
+                                    <div id="newSupplierGstinFeedback" data-testid="newSupplierGstinFeedback" role="status" aria-live="polite" class="text-xs text-red-600 mt-1 hidden" data-validation-state=""></div>
+                                    <div class="mt-2">
+                                        <label class="inline-flex items-center text-xs text-gray-700">
+                                            <input type="checkbox" id="newSupplierNotRegistered" data-testid="newSupplierNotRegistered" title="Mark supplier as not GST-registered. This disables GSTIN and related GST fields." class="mr-2"> Not GST-registered
+                                        </label>
+                                    </div>
                                 </div>
                                 <div>
                                     <label class="block text-xs text-gray-600">Address <span class="text-red-600">*</span></label>
-                                    <input type="text" id="newSupplierAddress" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Address" required aria-required="true">
+                                    <input type="text" id="newSupplierAddress" data-testid="newSupplierAddress" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Address" required aria-required="true">
                                 </div>
                                 <div>
                                     <label class="block text-xs text-gray-600">State <span class="text-red-600">*</span></label>
-                                    <select id="newSupplierStateCode" class="w-full px-3 py-2 border border-gray-300 rounded-md" required aria-required="true">
+                                    <select id="newSupplierStateCode" data-testid="newSupplierStateCode" class="w-full px-3 py-2 border border-gray-300 rounded-md" required aria-required="true">
                                         <option value="">Select state</option>
                                         ${GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('')}
                                     </select>
                                 </div>
                             </div>
                             <div class="mt-3 flex gap-3">
-                                <button type="button" id="addSupplierInlineBtn" class="bg-green-600 text-white px-3 py-2 rounded">Add Supplier</button>
-                                <button type="button" id="cancelNewSupplierBtn" class="bg-gray-200 px-3 py-2 rounded">Cancel</button>
+                                <button type="button" id="addSupplierInlineBtn" data-testid="addSupplierInlineBtn" class="bg-green-600 text-white px-3 py-2 rounded">Add Supplier</button>
+                                    <button type="button" id="cancelNewSupplierBtn" data-testid="cancelNewSupplierBtn" class="bg-gray-200 px-3 py-2 rounded">Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -2336,6 +2153,7 @@ function renderAdminPurchasesPage() {
     const newSupplierRow = document.getElementById('newSupplierRow');
     const newSupplierGstin = document.getElementById('newSupplierGstin');
     const newSupplierAddress = document.getElementById('newSupplierAddress');
+    const newSupplierNotRegistered = document.getElementById('newSupplierNotRegistered');
     const addSupplierInlineBtn = document.getElementById('addSupplierInlineBtn');
     const cancelNewSupplierBtn = document.getElementById('cancelNewSupplierBtn');
     const newSupplierStateSel = document.getElementById('newSupplierStateCode');
@@ -2355,16 +2173,41 @@ function renderAdminPurchasesPage() {
             enforceUppercaseInput(newSupplierGstin);
             attachGstinValidation(newSupplierGstin, feedbackEl);
 
+            // If the "Not GST-registered" checkbox exists, wire it to disable/enable the GSTIN input
+            try {
+                if (newSupplierNotRegistered) {
+                    const toggleGstinForNotReg = () => {
+                        try {
+                            if (newSupplierNotRegistered.checked) {
+                                newSupplierGstin.disabled = true;
+                                // Hide feedback and clear value so we don't accidentally submit it
+                                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
+                            } else {
+                                newSupplierGstin.disabled = false;
+                            }
+                        } catch (_) {}
+                    };
+                    newSupplierNotRegistered.addEventListener('change', toggleGstinForNotReg);
+                    // initialize
+                    toggleGstinForNotReg();
+                }
+            } catch (_) {}
+
             // Auto-apply state code after validation (debounced slightly after attachGstinValidation runs)
             let _debApply = null;
             const applyStateIfValid = () => {
                 try {
+                    // if user marked supplier as not registered, skip GSTIN-derived auto state
+                    if (newSupplierNotRegistered && newSupplierNotRegistered.checked) return;
                     const vFull = (newSupplierGstin.value || '').trim().toUpperCase();
                     if (!vFull || vFull.length < 15) return;
                     const v = vFull.substring(0, 15);
                     if (GSTIN_REGEX.test(v)) {
                         const code = getStateCodeFromGstin(v);
-                        if (code) newSupplierStateSel.value = code;
+                        if (code) {
+                            newSupplierStateSel.value = code;
+                            try { document.dispatchEvent(new CustomEvent('gstin:stateApplied', { detail: { inputId: newSupplierGstin.id, stateCode: code } })); } catch(_) {}
+                        }
                     }
                 } catch (_) {}
                 _debApply = null;
@@ -2396,10 +2239,13 @@ function renderAdminPurchasesPage() {
         addSupplierInlineBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             const name = (document.getElementById('supplierName')?.value || '').trim();
-            const gstin = ((newSupplierGstin?.value || '').trim() || '').toUpperCase();
-            // Validate GSTIN if provided
-            if (gstin && !GSTIN_REGEX.test(gstin)) {
-                showMessage('Invalid GSTIN format. Please check and enter a valid GSTIN or leave it empty.');
+            const notRegistered = !!(newSupplierNotRegistered && newSupplierNotRegistered.checked);
+            let gstin = ((newSupplierGstin?.value || '').trim() || '').toUpperCase();
+            // If user marked as not registered, ignore any GSTIN value
+            if (notRegistered) gstin = '';
+            // Validate GSTIN if provided and supplier is marked registered
+            if (!notRegistered && gstin && !GSTIN_REGEX.test(gstin)) {
+                showMessage('Invalid GSTIN format. Please check and enter a valid GSTIN or mark supplier as not GST-registered.');
                 return;
             }
             const address = (newSupplierAddress?.value || '').trim();
@@ -2415,6 +2261,8 @@ function renderAdminPurchasesPage() {
                 // Build payload without undefined fields (Firestore rejects undefined values)
                 const payload = { name, createdAt: serverTimestamp(), isDeleted: false };
                 if (gstin) payload.gstin = gstin;
+                // Record explicit GST registration flag to simplify downstream logic
+                payload.isGstRegistered = !notRegistered;
                 if (address) payload.address = address;
                 if (stateCode) payload.stateCode = stateCode;
                 const ref = await addDoc(collection(db, suppliersColPath), payload);
@@ -2422,12 +2270,13 @@ function renderAdminPurchasesPage() {
                 try {
                     const supEntry = { id: ref.id, name };
                     if (gstin) supEntry.gstin = gstin;
+                    supEntry.isGstRegistered = !notRegistered;
                     if (address) supEntry.address = address;
                     if (stateCode) supEntry.stateCode = stateCode;
                     state.allSuppliers = [supEntry, ...(state.allSuppliers || [])];
                 } catch (_) {}
                 // Use optimistic upsert to trigger UI refreshes
-                try { upsertPartyInState('supplier', Object.assign({ name }, gstin ? { gstin } : {}, address ? { address } : {}, stateCode ? { stateCode } : {})); } catch(_){ }
+                try { upsertPartyInState('supplier', Object.assign({ name }, gstin ? { gstin } : {}, address ? { address } : {}, stateCode ? { stateCode } : {}, { isGstRegistered: !notRegistered })); } catch(_){ }
                 const dl = document.getElementById('suppliersDatalistPurchase');
                 if (dl) { const opt = document.createElement('option'); opt.value = name; dl.appendChild(opt); }
                 // Select the supplier in input
@@ -2452,6 +2301,14 @@ function renderAdminPurchasesPage() {
                 showMessage("You must have at least one item in a purchase.");
             }
         }
+    });
+    // Update totals live when user types price or quantity
+    container.addEventListener('input', e => {
+        try {
+            if (e.target && (e.target.classList.contains('purchase-price') || e.target.classList.contains('purchase-quantity'))) {
+                updatePurchaseTotal();
+            }
+        } catch (_) {}
     });
      container.addEventListener('change', e => {
         if (e.target.classList.contains('purchase-product-select')) {
@@ -2524,21 +2381,37 @@ function renderAdminPurchasesPage() {
     // Supplier GST status UI: badge, warning, and disabling GST selects for unregistered suppliers
     function updateSupplierRegistrationUI() {
         const supplierInput = document.getElementById('supplierName');
-        const badge = document.getElementById('supplierGstBadge');
-        const warn = document.getElementById('purchaseSupplierWarning');
+    const badge = document.getElementById('supplierGstBadge');
+    const addrEl = document.getElementById('supplierAddress');
+    const warn = document.getElementById('purchaseSupplierWarning');
         if (!supplierInput) return;
         const name = (supplierInput.value || '').trim();
-        const supplierObj = (state.allSuppliers || []).find(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
-        const registered = !!(supplierObj && (supplierObj.gstin || '').trim());
+    const supplierObj = (state.allSuppliers || []).find(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
+    // Consider explicit isGstRegistered flag when present; fall back to GSTIN presence
+    const registered = !!(supplierObj && (typeof supplierObj.isGstRegistered !== 'undefined' ? !!supplierObj.isGstRegistered : !!((supplierObj.gstin || '').trim())));
         if (badge) {
+            try { badge.setAttribute('role', 'status'); badge.setAttribute('aria-live', 'polite'); } catch(_){}
             if (supplierObj) {
-                if (registered) badge.innerHTML = `GSTIN: <strong>${supplierObj.gstin}</strong>`;
-                else badge.textContent = 'Not GST-registered';
+                if (registered) {
+                    badge.innerHTML = `GSTIN: <strong>${supplierObj.gstin}</strong>`;
+                    try { badge.removeAttribute('aria-hidden'); } catch(_){}
+                } else {
+                    badge.textContent = 'Not GST-registered';
+                    try { badge.removeAttribute('aria-hidden'); } catch(_){}
+                }
             } else {
                 badge.textContent = '';
+                try { badge.setAttribute('aria-hidden', 'true'); } catch(_){}
             }
         }
+        if (addrEl) {
+            try {
+                if (supplierObj && supplierObj.address) addrEl.textContent = supplierObj.address;
+                else addrEl.textContent = '';
+            } catch (_) { try { addrEl.textContent = ''; } catch(_){} }
+        }
         if (warn) {
+            try { warn.setAttribute('role','status'); warn.setAttribute('aria-live','polite'); } catch(_){}
             // If supplier exists but missing address/state, show a helpful action to edit details
             if (supplierObj && (!supplierObj.address || !supplierObj.stateCode)) {
                 warn.classList.remove('hidden');
@@ -2550,7 +2423,7 @@ function renderAdminPurchasesPage() {
                         btn.addEventListener('click', (ev) => {
                             ev.preventDefault();
                             try {
-                                showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id });
+                                showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id, isGstRegistered: (typeof supplierObj.isGstRegistered !== 'undefined') ? !!supplierObj.isGstRegistered : undefined });
                             } catch (_) {}
                         });
                     }
@@ -2558,7 +2431,12 @@ function renderAdminPurchasesPage() {
             } else {
                 warn.classList.toggle('hidden', registered || !supplierObj);
                 // ensure default text when just a warning about not registered
-                if (!warn.classList.contains('hidden') && !supplierObj) warn.textContent = 'Supplier is not GST-registered — any GST will be treated as part of item cost.';
+                if (!warn.classList.contains('hidden') && !supplierObj) {
+                    warn.textContent = 'Supplier is not GST-registered — any GST will be treated as part of item cost.';
+                    try { warn.removeAttribute('aria-hidden'); } catch(_){}
+                } else {
+                    try { warn.setAttribute('aria-hidden', 'true'); } catch(_){}
+                }
             }
         }
         // If supplier is not registered, force the 'prices include GST' toggle OFF and disable it,
@@ -3827,8 +3705,21 @@ function attachAdminListeners() {
 
                 // Enforce uppercase for merchant GSTIN input (if present)
                 try { enforceUppercaseInput(merchantGstinEl); } catch(_) {}
-                // Attach GSTIN validation styling (red/green border) for merchant GSTIN
-                try { attachGstinValidation(merchantGstinEl, null); } catch(_) {}
+                // Ensure a textual feedback element exists for merchant GSTIN and attach validation styling
+                try {
+                    let feedbackEl = document.getElementById('merchantGstinFeedback');
+                    if (!feedbackEl && merchantGstinEl && merchantGstinEl.parentNode) {
+                        feedbackEl = document.createElement('div');
+                        feedbackEl.id = 'merchantGstinFeedback';
+                        feedbackEl.setAttribute('data-testid', 'merchantGstinFeedback');
+                        feedbackEl.setAttribute('role', 'status');
+                        feedbackEl.setAttribute('aria-live', 'polite');
+                        feedbackEl.setAttribute('data-validation-state', '');
+                        feedbackEl.className = 'text-xs text-red-600 mt-1 hidden';
+                        merchantGstinEl.parentNode.insertBefore(feedbackEl, merchantGstinEl.nextSibling);
+                    }
+                    attachGstinValidation(merchantGstinEl, feedbackEl);
+                } catch(_) {}
 
             const newSettings = {
                 scrollingBarText: (scrollingBarTextEl?.value) || '',
@@ -3961,82 +3852,8 @@ function attachAdminListeners() {
         });
     }
     
-    // Master Reset button
-    const masterResetBtn = document.getElementById('masterResetBtn');
-    if (masterResetBtn) {
-        masterResetBtn.addEventListener('click', async () => {
-            if (!state.isAdmin) { showMessage('Only admin can perform master reset.'); return; }
-            const verified = await verifyMasterPassword('perform Master Reset');
-            if (!verified) return;
-            const confirmText = prompt('Type RESET to confirm Master Reset. This will delete most data.');
-            if (confirmText !== 'RESET') return;
-            try {
-                // Request a short-lived token, then execute master reset with that token (single-use)
-                const requestToken = httpsCallable(functionsSvc, 'adminRequestMasterReset');
-                const r = await requestToken({ appId });
-                const token = r.data?.token || r.token;
-                if (!token) throw new Error('Could not obtain master-reset token');
-                const callMasterReset = httpsCallable(functionsSvc, 'adminMasterReset');
-                const payload = { appId, confirmation: 'RESET', token };
-                const resp = await callMasterReset(payload);
-                const result = resp.data || resp;
-                if (result.ok) {
-                    showMessage('Master Reset completed (server-side).');
-                } else {
-                    console.warn('Master Reset completed with errors:', result.summary?.errors || result.errors);
-                    showMessage(`Master Reset completed with ${result.summary?.errors?.length || result.errors?.length || 0} error(s). Check console for details.`);
-                }
-            } catch (e) {
-                console.error('Master Reset failed:', e);
-                showMessage(`Master Reset failed: ${e?.message || e?.details || 'Unknown error'}. Check console for details.`);
-            }
-        });
-    }
-
-    // Reset Selected button
-    const resetSelectedBtn = document.getElementById('resetSelectedBtn');
-    if (resetSelectedBtn) {
-        resetSelectedBtn.addEventListener('click', async () => {
-            if (!state.isAdmin) { showMessage('Only admin can perform reset.'); return; }
-
-            const flags = {
-                products: document.getElementById('resetProducts')?.checked || false,
-                productGroups: document.getElementById('resetProductGroups')?.checked || false,
-                slides: document.getElementById('resetHeroSlides')?.checked || false,
-                gallery: document.getElementById('resetGallery')?.checked || false,
-                testimonials: document.getElementById('resetTestimonials')?.checked || false,
-                orders: document.getElementById('resetOrders')?.checked || false,
-                purchases: document.getElementById('resetPurchases')?.checked || false,
-                localSales: document.getElementById('resetLocalSales')?.checked || false,
-                salesReturns: document.getElementById('resetSalesReturns')?.checked || false,
-                purchaseReturns: document.getElementById('resetPurchaseReturns')?.checked || false,
-                carts: document.getElementById('resetCarts')?.checked || false,
-                counters: document.getElementById('resetCounters')?.checked || false,
-                siteSettings: document.getElementById('resetSiteSettings')?.checked || false,
-            };
-
-            const anySelected = Object.values(flags).some(Boolean);
-            if (!anySelected) { showMessage('Please select at least one item to reset.'); return; }
-
-            const verified = await verifyMasterPassword('perform the selected reset');
-            if (!verified) return;
-            const confirmText = prompt('Type RESET to confirm selected reset operation.');
-            if (confirmText !== 'RESET') return;
-
-            try {
-                const result = await resetSelectedData(flags);
-                if (result.ok) {
-                    showMessage('Selected data reset completed.');
-                } else {
-                    console.warn('Selected reset completed with errors:', result.errors);
-                    showMessage(`Selected reset completed with ${result.errors.length} error(s). Check console for details.`);
-                }
-            } catch (e) {
-                console.error('Selected reset failed:', e);
-                showMessage(`Selected reset failed: ${e?.message || 'Unknown error'}. Check console for details.`);
-            }
-        });
-    }
+    // Master reset UI and runtime cleanup removed. The admin template no
+    // longer contains dangerous controls and there is no runtime cleanup.
     
     // Opening balance handlers (moved to Billing Settings tab)
     const cashObForm = document.getElementById('cashOpeningForm');
@@ -4191,7 +4008,23 @@ async function sha256Hex(text) {
 
 async function verifyMasterPassword(actionLabel = 'proceed') {
     try {
-        const hash = state?.siteSettings?.masterResetPasswordHash;
+        let hash = state?.siteSettings?.masterResetPasswordHash;
+        // If siteSettings not yet loaded in state, try a one-off read from Firestore emulator/DB
+        if (!hash || typeof hash !== 'string') {
+            try {
+                const snap = await getDoc(doc(db, siteSettingsDocPath));
+                if (snap && snap.exists()) {
+                    const d = snap.data();
+                    if (d && typeof d.masterResetPasswordHash === 'string') {
+                        // merge into local state for future calls
+                        state.siteSettings = { ...state.siteSettings, ...d };
+                        hash = d.masterResetPasswordHash;
+                    }
+                }
+            } catch (e) {
+                console.warn('verifyMasterPassword: fallback getDoc failed', e);
+            }
+        }
         if (!hash || typeof hash !== 'string') {
             showMessage('Master password not configured. Contact developer.');
             return false;
@@ -4421,24 +4254,10 @@ async function deleteAllUserCarts() {
     }
 }
 
-// Prefer Cloud Function (admin privileges) to wipe carts; fallback to client deletes
+// resetUserCartsSmart: disabled. User-cart reset functionality removed.
 async function resetUserCartsSmart() {
-    // Try callable Cloud Function first (recommended)
-    try {
-        const callReset = httpsCallable(functionsSvc, 'adminResetUserCarts');
-        await callReset({ appId });
-        return;
-    } catch (e) {
-        // If function not deployed or permission issue, fallback to client-side best effort
-        try {
-            await deleteAllUserCarts();
-            return;
-        } catch (e2) {
-            // If even fallback is permission denied, treat as handled (no-op), else surface error
-            if (isPermissionDenied(e2)) return;
-            throw e2;
-        }
-    }
+    // No-op to avoid invoking removed server-side reset endpoints.
+    return;
 }
 
 // Reset only selected data buckets based on flags
@@ -5793,7 +5612,7 @@ document.body.addEventListener('submit', async e => {
                 };
                 // Open the edit modal prefilled so user can update missing fields
                 try {
-                    showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id });
+                    showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id, isGstRegistered: (typeof supplierObj.isGstRegistered !== 'undefined') ? !!supplierObj.isGstRegistered : undefined });
                 } catch (_) {
                     // Fallback: show message
                     pendingPurchaseRetryFn = null;
@@ -6246,6 +6065,7 @@ const messageOkBtn = document.getElementById('messageOkBtn');
 function showMessage(msg) {
     if(!messageModal || !messageText) return;
     messageText.textContent = msg;
+    try { document.dispatchEvent(new CustomEvent('app:message', { detail: { message: msg } })); } catch(_) {}
    messageModal.classList.remove('hidden');
     setTimeout(() => {
        messageModal.classList.remove('opacity-0');
@@ -6544,7 +6364,7 @@ function updatePurchaseTotal() {
     const items = [];
     document.querySelectorAll('.purchase-item-row').forEach(row => {
         const price = parseFloat(row.querySelector('.purchase-price').value) || 0;
-        const quantity = parseInt(row.querySelector('.purchase-quantity').value) || 0;
+    const quantity = parseFloat(row.querySelector('.purchase-quantity').value) || 0;
         const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
         items.push({ price, quantity, gstPercentage });
         // Display per-row total (use inclusive/exclusive display semantics)
@@ -7002,7 +6822,17 @@ function renderAdminLedgersPage() {
         const name = item.name;
         const sums = { debit: item.debit, credit: item.credit };
         const bal = (sums.credit - sums.debit);
-        return `<tr class="border-b text-sm hover:bg-gray-50 cursor-pointer party-row" data-ledger="creditors" data-party="${name.replace(/"/g,'&quot;')}"><td class="p-3">${name}</td><td class="p-3 text-right">${sums.debit ? sums.debit.toFixed(2) : '-'}</td><td class="p-3 text-right">${sums.credit ? sums.credit.toFixed(2) : '-'}</td><td class="p-3 text-right font-semibold">${bal.toFixed(2)}</td></tr>`;
+        // Show GST registration badge when we can find the supplier in master data
+        let regBadgeHtml = '';
+        try {
+            const party = (state.allSuppliers || []).find(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
+            if (party) {
+                const reg = (typeof party.isGstRegistered !== 'undefined') ? !!party.isGstRegistered : !!((party.gstin || '').trim());
+                if (reg) regBadgeHtml = ` <span class="ml-2 text-xs text-green-600 font-medium">GST</span>`;
+                else regBadgeHtml = ` <span class="ml-2 text-xs text-orange-600">Not GST</span>`;
+            }
+        } catch (_) {}
+        return `<tr class="border-b text-sm hover:bg-gray-50 cursor-pointer party-row" data-ledger="creditors" data-party="${name.replace(/"/g,'&quot;')}"><td class="p-3">${name}${regBadgeHtml}</td><td class="p-3 text-right">${sums.debit ? sums.debit.toFixed(2) : '-'}</td><td class="p-3 text-right">${sums.credit ? sums.credit.toFixed(2) : '-'}</td><td class="p-3 text-right font-semibold">${bal.toFixed(2)}</td></tr>`;
     }).join('') : `<tr><td colspan="4" class="p-3 text-center text-gray-500">No creditors yet</td></tr>`);
     const creditorsPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${creditorsPageSize===n? 'selected':''}>${n}</option>`).join('');
     const creditorsPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${creditorsSlice.length ? ((creditorsPage - 1) * creditorsPageSize + 1) : 0} - ${((creditorsPage - 1) * creditorsPageSize) + creditorsSlice.length} of ${creditorsTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="creditorsFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage<=1? 'disabled':''}>First</button><button id="creditorsPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage<=1? 'disabled':''}>Prev</button><input id="creditorsPageInput" type="number" min="1" max="${creditorsTotalPages}" value="${creditorsPage}" class="w-14 text-center border rounded p-1" /><button id="creditorsNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage>=creditorsTotalPages? 'disabled':''}>Next</button><button id="creditorsLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage>=creditorsTotalPages? 'disabled':''}>Last</button><select id="creditorsPageSizeSel" class="border rounded p-1 text-sm">${creditorsPageSizeOptions}</select></div></div>`;
@@ -7026,7 +6856,17 @@ function renderAdminLedgersPage() {
         const name = item.name;
         const sums = { debit: item.debit, credit: item.credit };
         const bal = (sums.debit - sums.credit);
-        return `<tr class="border-b text-sm hover:bg-gray-50 cursor-pointer party-row" data-ledger="debtors" data-party="${name.replace(/"/g,'&quot;')}"><td class="p-3">${name}</td><td class="p-3 text-right">${sums.debit ? sums.debit.toFixed(2) : '-'}</td><td class="p-3 text-right">${sums.credit ? sums.credit.toFixed(2) : '-'}</td><td class="p-3 text-right font-semibold">${bal.toFixed(2)}</td></tr>`;
+        // Show GST registration badge when we can find the customer in master data
+        let regBadgeHtml = '';
+        try {
+            const party = (state.allCustomers || []).find(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
+            if (party) {
+                const reg = (typeof party.isGstRegistered !== 'undefined') ? !!party.isGstRegistered : !!((party.gstin || '').trim());
+                if (reg) regBadgeHtml = ` <span class="ml-2 text-xs text-green-600 font-medium">GST</span>`;
+                else regBadgeHtml = ` <span class="ml-2 text-xs text-orange-600">Not GST</span>`;
+            }
+        } catch (_) {}
+        return `<tr class="border-b text-sm hover:bg-gray-50 cursor-pointer party-row" data-ledger="debtors" data-party="${name.replace(/"/g,'&quot;')}"><td class="p-3">${name}${regBadgeHtml}</td><td class="p-3 text-right">${sums.debit ? sums.debit.toFixed(2) : '-'}</td><td class="p-3 text-right">${sums.credit ? sums.credit.toFixed(2) : '-'}</td><td class="p-3 text-right font-semibold">${bal.toFixed(2)}</td></tr>`;
     }).join('') : `<tr><td colspan="4" class="p-3 text-center text-gray-500">No debtors yet</td></tr>`);
     const debtorsPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${debtorsPageSize===n? 'selected':''}>${n}</option>`).join('');
     const debtorsPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${debtorsSlice.length ? ((debtorsPage - 1) * debtorsPageSize + 1) : 0} - ${((debtorsPage - 1) * debtorsPageSize) + debtorsSlice.length} of ${debtorsTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="debtorsFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage<=1? 'disabled':''}>First</button><button id="debtorsPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage<=1? 'disabled':''}>Prev</button><input id="debtorsPageInput" type="number" min="1" max="${debtorsTotalPages}" value="${debtorsPage}" class="w-14 text-center border rounded p-1" /><button id="debtorsNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage>=debtorsTotalPages? 'disabled':''}>Next</button><button id="debtorsLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage>=debtorsTotalPages? 'disabled':''}>Last</button><select id="debtorsPageSizeSel" class="border rounded p-1 text-sm">${debtorsPageSizeOptions}</select></div></div>`;
@@ -7786,7 +7626,18 @@ function renderAdminLedgersPage() {
             const gstin = btn.getAttribute('data-gstin') || '';
             const address = btn.getAttribute('data-address') || '';
             const docId = btn.getAttribute('data-docid') || '';
-            showPartyEditModal({ type, name, gstin, address, docId });
+            try {
+                // Attempt to find an existing party in state to retrieve isGstRegistered flag
+                let isGstRegistered = undefined;
+                if (docId) {
+                    const list = type === 'supplier' ? (state.allSuppliers || []) : (state.allCustomers || []);
+                    const found = list.find(x => x.id === docId || (x.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
+                    if (found && typeof found.isGstRegistered !== 'undefined') isGstRegistered = !!found.isGstRegistered;
+                }
+                showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered });
+            } catch (_) {
+                showPartyEditModal({ type, name, gstin, address, docId });
+            }
         });
     });
 
@@ -7992,7 +7843,7 @@ function showLedgerDrilldown(partyName, ledgerType) {
 }
 
 // Modal to edit a party (supplier/customer)
-function showPartyEditModal({ type, name, gstin, address, docId }) {
+function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered }) {
     const title = type === 'supplier' ? 'Edit Supplier' : 'Edit Customer';
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
@@ -8009,8 +7860,13 @@ function showPartyEditModal({ type, name, gstin, address, docId }) {
                 </div>
                 <div>
                     <label class="block text-sm text-gray-700 mb-1">GSTIN (optional)</label>
-                    <input type="text" id="partyEditGstin" class="w-full border rounded p-2" value="${(gstin||'').replace(/"/g,'&quot;')}" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
-                    <div id="partyEditGstinFeedback" class="text-xs text-red-600 mt-1 hidden"></div>
+                    <input type="text" id="partyEditGstin" data-testid="partyEditGstin" class="w-full border rounded p-2" value="${(gstin||'').replace(/"/g,'&quot;')}" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
+                    <div id="partyEditGstinFeedback" data-testid="partyEditGstinFeedback" role="status" aria-live="polite" class="text-xs text-red-600 mt-1 hidden" data-validation-state=""></div>
+                    <div class="mt-2">
+                        <label class="inline-flex items-center text-sm text-gray-700">
+                            <input type="checkbox" id="partyEditNotRegistered" data-testid="partyEditNotRegistered" title="Mark supplier as not GST-registered. This disables GSTIN and related GST fields." class="mr-2"> Not GST-registered
+                        </label>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-sm text-gray-700 mb-1">Address (optional)</label>
@@ -8026,33 +7882,59 @@ function showPartyEditModal({ type, name, gstin, address, docId }) {
     const close = () => modal.remove();
     modal.querySelector('#closePartyEditModal').addEventListener('click', close);
     modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    // Setup GSTIN input validation and the not-registered checkbox behavior
+    try {
+        const gstEl = document.getElementById('partyEditGstin');
+        const feedbackEl = document.getElementById('partyEditGstinFeedback');
+        const notRegEl = document.getElementById('partyEditNotRegistered');
+        // Initialize checkbox state: prefer explicit isGstRegistered if provided, else infer from GSTIN presence
+        try {
+            const initialNotRegistered = (typeof isGstRegistered !== 'undefined') ? (!isGstRegistered) : (!(gstin && gstin.trim()));
+            if (notRegEl) notRegEl.checked = !!initialNotRegistered;
+            const toggle = () => {
+                try {
+                    if (notRegEl && notRegEl.checked) {
+                        if (gstEl) { gstEl.disabled = true; gstEl.value = ''; }
+                        if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
+                    } else {
+                        if (gstEl) gstEl.disabled = false;
+                    }
+                } catch (_) {}
+            };
+            if (notRegEl) notRegEl.addEventListener('change', toggle);
+            toggle();
+        } catch (_) {}
+        try { if (gstEl) enforceUppercaseInput(gstEl); } catch (_) {}
+        try { if (gstEl) attachGstinValidation(gstEl, feedbackEl); } catch (_) {}
+    } catch (_) {}
 
     modal.querySelector('#partyEditSaveBtn').addEventListener('click', async () => {
         const newName = document.getElementById('partyEditName').value.trim();
-        const newGstin = document.getElementById('partyEditGstin').value.trim();
+        const newGstinRaw = document.getElementById('partyEditGstin').value.trim();
         const newAddr = document.getElementById('partyEditAddress').value.trim();
+        const notRegistered = !!(document.getElementById('partyEditNotRegistered') && document.getElementById('partyEditNotRegistered').checked);
+        let newGstin = newGstinRaw;
+        if (notRegistered) newGstin = '';
         if (!newName) { showMessage('Name is required.'); return; }
+        // Validate GSTIN only when supplier/customer is marked registered
+        if (!notRegistered && newGstin && !GSTIN_REGEX.test(newGstin)) { showMessage('Invalid GSTIN format. Please check and enter a valid GSTIN or mark as Not GST-registered.'); return; }
         try {
             const colPath = type === 'supplier' ? suppliersColPath : customersColPath;
             if (docId) {
-                await updateDoc(doc(db, colPath, docId), {
+                await updateDoc(doc(db, colPath, docId), Object.assign({
                     name: newName,
-                    gstin: newGstin || deleteFieldIfEmpty(),
-                    address: newAddr || deleteFieldIfEmpty(),
                     updatedAt: serverTimestamp(),
-                });
+                }, newGstin ? { gstin: newGstin } : { gstin: deleteFieldIfEmpty() }, newAddr ? { address: newAddr } : { address: deleteFieldIfEmpty() }, { isGstRegistered: !notRegistered }));
             } else {
                 // If no primary doc id, upsert into new collection
-                await addDoc(collection(db, colPath), {
+                await addDoc(collection(db, colPath), Object.assign({
                     name: newName,
-                    ...(newGstin ? { gstin: newGstin } : {}),
-                    ...(newAddr ? { address: newAddr } : {}),
                     createdAt: serverTimestamp(),
                     isDeleted: false,
                     migratedFrom: 'edit-modal',
-                });
+                }, newGstin ? { gstin: newGstin } : {}, newAddr ? { address: newAddr } : {}, { isGstRegistered: !notRegistered }));
             }
-            upsertPartyInState(type, { name: newName, gstin: newGstin || undefined, address: newAddr || undefined });
+                upsertPartyInState(type, { name: newName, gstin: newGstin || undefined, address: newAddr || undefined, isGstRegistered: !notRegistered });
             renderAdminLedgersPage();
             showMessage('Party details saved.');
             close();
