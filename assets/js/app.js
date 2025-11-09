@@ -138,6 +138,18 @@ try {
     state.creditorsPageSize = loadSize('creditors', state.creditorsPageSize || state.ledgerPageSize || 10);
     state.debtorsPageSize = loadSize('debtors', state.debtorsPageSize || state.ledgerPageSize || 10);
 } catch (e) { /* ignore localStorage failures */ }
+
+// DEV-ONLY: quick preview mode — allow opening the admin UI without auth by adding `?admin` to the URL.
+// This is intended for local development/testing only and should be removed before production.
+try {
+    const _params = new URLSearchParams(window.location.search || '');
+    if (_params.has('admin')) {
+        state.isAdmin = true;
+        state.currentPage = 'admin';
+        // Use the visible tab key so preview shows the Transactions tab
+        state.adminCurrentTab = 'transactions';
+    }
+} catch (e) { /* ignore */ }
 // --- ADMIN HELPERS ---
 function normalizeList(input) {
     if (!input) return [];
