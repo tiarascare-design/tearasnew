@@ -57,7 +57,8 @@ let state = {
         isScrollingBarVisible: true,
         scrollingBarText: "✨ FLAT 10% OFF ON ALL BEAUTY PRODUCTS ✨ LIMITED TIME OFFER: FREE SHIPPING ON ORDERS OVER ₹4000! NEW ARRIVALS: CHECK OUT OUR LATEST ORNAMENTS",
         isGstEnabled: true,
-        merchantGstin: '29ABCDE1234F1Z5', // <-- ADDED: Default GSTIN
+    merchantGstin: '29ABCDE1234F1Z5', // <-- ADDED: Default GSTIN
+    merchantStateCode: '29', // Default home state (matches default GSTIN)
         businessAddress: 'TIARAS Headquarters, 123 Luxury Lane, Perumbavoor, Kerala, India 683542', // <-- ADDED: Default Business Address
         visibilityEpochs: {}, // collection-wise visibility reset epochs (ms)
     },
@@ -291,42 +292,128 @@ function formatDate(input) {
 
 // --- TAX HELPERS (GST) ---
 const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+// Indian states mapping for GST state codes (first two digits of GSTIN)
+const GST_STATE_CODES = [
+    { code: '01', name: 'Jammu & Kashmir' },
+    { code: '02', name: 'Himachal Pradesh' },
+    { code: '03', name: 'Punjab' },
+    { code: '04', name: 'Chandigarh' },
+    { code: '05', name: 'Uttarakhand' },
+    { code: '06', name: 'Haryana' },
+    { code: '07', name: 'Delhi' },
+    { code: '08', name: 'Rajasthan' },
+    { code: '09', name: 'Uttar Pradesh' },
+    { code: '10', name: 'Bihar' },
+    { code: '11', name: 'Sikkim' },
+    { code: '12', name: 'Arunachal Pradesh' },
+    { code: '13', name: 'Nagaland' },
+    { code: '14', name: 'Manipur' },
+    { code: '15', name: 'Mizoram' },
+    { code: '16', name: 'Tripura' },
+    { code: '17', name: 'Meghalaya' },
+    { code: '18', name: 'Assam' },
+    { code: '19', name: 'West Bengal' },
+    { code: '20', name: 'Jharkhand' },
+    { code: '21', name: 'Odisha' },
+    { code: '22', name: 'Chhattisgarh' },
+    { code: '23', name: 'Madhya Pradesh' },
+    { code: '24', name: 'Gujarat' },
+    { code: '25', name: 'Daman & Diu' },
+    { code: '26', name: 'Dadra & Nagar Haveli' },
+    { code: '27', name: 'Maharashtra' },
+    { code: '28', name: 'Andhra Pradesh (Old)' },
+    { code: '29', name: 'Karnataka' },
+    { code: '30', name: 'Goa' },
+    { code: '31', name: 'Lakshadweep' },
+    { code: '32', name: 'Kerala' },
+    { code: '33', name: 'Tamil Nadu' },
+    { code: '34', name: 'Pondicherry' },
+    { code: '35', name: 'Andaman & Nicobar Islands' },
+    { code: '36', name: 'Telangana' },
+    { code: '37', name: 'Andhra Pradesh (New)' }
+];
 
-function computeGstForItems(items, pricesIncludeGst) {
-    // items: [{price, quantity, gstPercentage}]
-    const rates = {};
+function getStateCodeFromGstin(gstin) {
+    if (!gstin || typeof gstin !== 'string') return null;
+    const v = gstin.trim();
+    if (v.length < 2) return null;
+    return v.substring(0, 2);
+}
+
+// Enhanced GST computation returning CGST/SGST/IGST splits depending on intra-state vs inter-state
+// items: [{price, quantity, gstPercentage}]
+// pricesIncludeGst: boolean
+// merchantStateCode, supplierStateCode: two-digit strings (e.g., '32')
+function computeGstForItems(items, pricesIncludeGst, merchantStateCode, supplierStateCode) {
+    const rateBuckets = {}; // rate -> { totalTax, cgst, sgst, igst }
     let subtotalEx = 0;
     let subtotalInc = 0;
 
-    if (pricesIncludeGst) {
-        // Prices are tax-inclusive
-        items.forEach(it => {
-            const lineInc = (it.price || 0) * (it.quantity || 0);
-            subtotalInc += lineInc;
-            const r = parseFloat(it.gstPercentage || 0);
-            if (r > 0) {
-                const tax = lineInc * (r / (100 + r)); // extract tax from inclusive price
-                rates[r] = (rates[r] || 0) + tax;
-            }
-        });
-        const totalGst = Object.values(rates).reduce((s, v) => s + v, 0);
-        subtotalEx = subtotalInc - totalGst;
-        return { rates, total: totalGst, subtotalEx, subtotalInc };
-    }
+    const intraState = !!(merchantStateCode && supplierStateCode && merchantStateCode === supplierStateCode);
 
-    // Prices are tax-exclusive
     items.forEach(it => {
-        const lineEx = (it.price || 0) * (it.quantity || 0);
-        subtotalEx += lineEx;
-        const r = parseFloat(it.gstPercentage || 0);
-        if (r > 0) {
+        const price = parseFloat(it.price || 0) || 0;
+        const qty = parseFloat(it.quantity || 0) || 0;
+        const r = parseFloat(it.gstPercentage || 0) || 0;
+        if (r <= 0) {
+            const lineEx = price * qty;
+            subtotalEx += lineEx; subtotalInc += lineEx;
+            return;
+        }
+
+        if (pricesIncludeGst) {
+            // Price is tax-inclusive: extract tax portion
+            const lineInc = price * qty;
+            const tax = lineInc * (r / (100 + r));
+            const lineEx = lineInc - tax;
+            subtotalInc += lineInc; subtotalEx += lineEx;
+            // Split tax into CGST/SGST or IGST
+            let cgst = 0, sgst = 0, igst = 0;
+            if (intraState) {
+                cgst = tax / 2; sgst = tax / 2;
+            } else {
+                igst = tax;
+            }
+            const bucket = rateBuckets[r] || { totalTax: 0, cgst: 0, sgst: 0, igst: 0 };
+            bucket.totalTax += tax; bucket.cgst += cgst; bucket.sgst += sgst; bucket.igst += igst;
+            rateBuckets[r] = bucket;
+        } else {
+            // Price is tax-exclusive: tax is applied on top
+            const lineEx = price * qty;
             const tax = lineEx * (r / 100);
-            rates[r] = (rates[r] || 0) + tax;
+            const lineInc = lineEx + tax;
+            subtotalEx += lineEx; subtotalInc += lineInc;
+            let cgst = 0, sgst = 0, igst = 0;
+            if (intraState) {
+                cgst = tax / 2; sgst = tax / 2;
+            } else {
+                igst = tax;
+            }
+            const bucket = rateBuckets[r] || { totalTax: 0, cgst: 0, sgst: 0, igst: 0 };
+            bucket.totalTax += tax; bucket.cgst += cgst; bucket.sgst += sgst; bucket.igst += igst;
+            rateBuckets[r] = bucket;
         }
     });
-    const totalGst = Object.values(rates).reduce((s, v) => s + v, 0);
-    subtotalInc = subtotalEx + totalGst;
-    return { rates, total: totalGst, subtotalEx, subtotalInc };
+
+    // Aggregate totals
+    let totalTax = 0, cgstTotal = 0, sgstTotal = 0, igstTotal = 0;
+    Object.values(rateBuckets).forEach(b => {
+        totalTax += (b.totalTax || 0);
+        cgstTotal += (b.cgst || 0);
+        sgstTotal += (b.sgst || 0);
+        igstTotal += (b.igst || 0);
+    });
+
+    return {
+        rates: rateBuckets,
+        total: totalTax,
+        subtotalEx,
+        subtotalInc,
+        cgstTotal,
+        sgstTotal,
+        igstTotal,
+        intraState
+    };
 }
 
 // --- ROUTING & NAVIGATION ---
@@ -2024,6 +2111,8 @@ function renderAdminPurchasesPage() {
                         <div class="mt-2">
                             <button type="button" id="showNewSupplierBtn" class="text-sm text-blue-600 hover:underline">Can\'t find supplier? + Add</button>
                         </div>
+                        <div id="supplierGstBadge" class="text-sm mt-2 text-gray-600"></div>
+                        <div id="purchaseSupplierWarning" class="text-xs mt-2 text-orange-600 hidden">Supplier is not GST-registered — any GST will be treated as part of item cost.</div>
                         <div id="newSupplierRow" class="mt-3 hidden border p-3 rounded bg-gray-50">
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 <div>
@@ -2126,7 +2215,19 @@ function renderAdminPurchasesPage() {
                 <div class="flex justify-end">
                     <button type="submit" class="bg-green-600 text-white font-semibold py-3 px-8 rounded-md shadow hover:bg-green-700 transition">Record Purchase</button>
                 </div>
+                <input type="hidden" id="confirmedUnregPurchase" value="" />
             </form>
+            <!-- Confirmation modal for unregistered suppliers -->
+            <div id="unregSupplierConfirmModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden">
+                <div class="bg-white rounded-md p-6 max-w-lg w-full">
+                    <h3 class="text-lg font-semibold mb-2">Confirm purchase with unregistered supplier</h3>
+                    <p class="text-sm text-gray-700 mb-4">The selected supplier is not GST-registered. Any GST will be treated as part of item cost and will not be recorded separately. Do you want to continue?</p>
+                    <div class="flex justify-end gap-3">
+                        <button id="unregCancelBtn" class="px-4 py-2 rounded bg-gray-200">Cancel</button>
+                        <button id="unregConfirmBtn" class="px-4 py-2 rounded bg-green-600 text-white">Yes, record purchase</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
     // Render form and a separate purchase-history pane below it
@@ -2188,6 +2289,8 @@ function renderAdminPurchasesPage() {
                 if (dl) { const opt = document.createElement('option'); opt.value = name; dl.appendChild(opt); }
                 // Select the supplier in input
                 const supplierInput = document.getElementById('supplierName'); if (supplierInput) supplierInput.value = name;
+                // Update GST UI after adding supplier
+                try { updateSupplierRegistrationUI(); } catch (_) {}
                 showMessage('Supplier added.');
                 if (newSupplierGstin) newSupplierGstin.value = ''; if (newSupplierAddress) newSupplierAddress.value = ''; if (newSupplierRow) newSupplierRow.classList.add('hidden');
             } catch (err) {
@@ -2266,6 +2369,86 @@ function renderAdminPurchasesPage() {
             updatePurchaseTotal();
         }
     });
+
+    // Modal confirm/cancel handlers for unregistered supplier confirmation
+    const unregConfirmBtn = document.getElementById('unregConfirmBtn');
+    const unregCancelBtn = document.getElementById('unregCancelBtn');
+    if (unregConfirmBtn) {
+        unregConfirmBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const confirmedEl = document.getElementById('confirmedUnregPurchase');
+            if (confirmedEl) confirmedEl.value = '1';
+            const modal = document.getElementById('unregSupplierConfirmModal');
+            if (modal) modal.classList.add('hidden');
+            // Resubmit the form programmatically
+            const form = document.getElementById('purchaseForm');
+            if (form) form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+        });
+    }
+    if (unregCancelBtn) {
+        unregCancelBtn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const modal = document.getElementById('unregSupplierConfirmModal');
+            if (modal) modal.classList.add('hidden');
+        });
+    }
+
+    // Supplier GST status UI: badge, warning, and disabling GST selects for unregistered suppliers
+    function updateSupplierRegistrationUI() {
+        const supplierInput = document.getElementById('supplierName');
+        const badge = document.getElementById('supplierGstBadge');
+        const warn = document.getElementById('purchaseSupplierWarning');
+        if (!supplierInput) return;
+        const name = (supplierInput.value || '').trim();
+        const supplierObj = (state.allSuppliers || []).find(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
+        const registered = !!(supplierObj && (supplierObj.gstin || '').trim());
+        if (badge) {
+            if (supplierObj) {
+                if (registered) badge.innerHTML = `GSTIN: <strong>${supplierObj.gstin}</strong>`;
+                else badge.textContent = 'Not GST-registered';
+            } else {
+                badge.textContent = '';
+            }
+        }
+        if (warn) {
+            warn.classList.toggle('hidden', registered || !supplierObj);
+        }
+        // If supplier is not registered, force the 'prices include GST' toggle OFF and disable it,
+        // and disable GST% selects so GST is treated as part of cost. If supplier is registered or not chosen,
+        // restore the toggle to editable state and respect its checked value for GST select editability.
+        const pricesToggle = document.getElementById('purchasePricesIncludeGst');
+        if (supplierObj && !registered) {
+            if (pricesToggle) {
+                try { pricesToggle.checked = false; } catch(_) {}
+                pricesToggle.disabled = true;
+            }
+            // disable GST% selects for all rows
+            setPurchaseGstEnabled(false);
+            // also ensure any existing selects show 0
+            document.querySelectorAll('.purchase-item-row .purchase-gst').forEach(sel => { try { sel.value = '0'; } catch(_) {} });
+        } else {
+            if (pricesToggle) {
+                pricesToggle.disabled = false;
+                // If supplier is present and GST-registered, auto-enable the inclusive-prices toggle
+                if (supplierObj && registered) {
+                    try { pricesToggle.checked = true; } catch(_) {}
+                }
+            }
+            // enable/disable selects based on the toggle's checked state
+            const enabled = !!(pricesToggle && pricesToggle.checked);
+            setPurchaseGstEnabled(enabled);
+        }
+        // Recompute totals to reflect any changes
+        updatePurchaseTotal();
+    }
+
+    const supplierNameInput = document.getElementById('supplierName');
+    if (supplierNameInput) {
+        supplierNameInput.addEventListener('input', () => updateSupplierRegistrationUI());
+        supplierNameInput.addEventListener('blur', () => updateSupplierRegistrationUI());
+    }
+    // Run once on render to set initial state
+    try { updateSupplierRegistrationUI(); } catch(_) {}
 }
 
 function renderLocalSalePage() {
@@ -3492,6 +3675,7 @@ function attachAdminListeners() {
                         merchantGstRegistered: document.getElementById('merchantGstRegistered')?.checked || false,
                 // --- UPDATED: Save new GST fields ---
                 merchantGstin: (document.getElementById('merchantGstRegistered')?.checked ? document.getElementById('merchantGstin').value : ''),
+                merchantStateCode: (document.getElementById('merchantStateCode')?.value || ''),
                 businessAddress: document.getElementById('businessAddress').value,
                 // ------------------------------------
             };
@@ -3558,6 +3742,25 @@ function attachAdminListeners() {
                     }
                 });
             }
+
+        // Inject a merchant state select into the settings form if not present
+        try {
+            const gstinEl = document.getElementById('merchantGstin');
+            if (gstinEl) {
+                // Only insert once
+                if (!document.getElementById('merchantStateCode')) {
+                    const wrapper = document.createElement('div');
+                    const options = ['<option value="">-- Select State --</option>', ...GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`)].join('');
+                    wrapper.innerHTML = `<label for="merchantStateCode" class="block text-sm font-medium text-gray-700 mb-1">Home State</label><select id="merchantStateCode" class="w-full px-4 py-2 border border-gray-300 rounded-md">${options}</select><p class="text-xs text-gray-500 mt-1">Select your business's home state for correct CGST/SGST vs IGST splitting.</p>`;
+                    gstinEl.parentNode.insertBefore(wrapper, gstinEl.nextSibling);
+                    // Set current selection from state if available
+                    const sel = document.getElementById('merchantStateCode');
+                    if (sel) {
+                        sel.value = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '') || '';
+                    }
+                }
+            }
+        } catch (e) { /* non-fatal */ }
 
     const scrollingBarToggle = document.getElementById('scrollingBarVisible');
     if (scrollingBarToggle) {
@@ -5408,25 +5611,19 @@ document.body.addEventListener('submit', async e => {
         const items = [];
         let subtotalEx = 0, gstTotal = 0, subtotalInc = 0;
 
+        // Find supplier object (if available) to determine GST registration status.
+        const supplierObj = (state.allSuppliers || []).find(s => ((s.name || '').trim().toLowerCase() === (supplierName || '').trim().toLowerCase()));
+        const supplierRegistered = !!(supplierObj && (supplierObj.gstin || '').trim());
+
         document.querySelectorAll('.purchase-item-row').forEach(row => {
             const productId = row.querySelector('.purchase-product-select').value;
             const productName = row.querySelector('.purchase-product-select').options[row.querySelector('.purchase-product-select').selectedIndex].text;
-            const purchasePrice = parseFloat(row.querySelector('.purchase-price').value);
-            const quantity = parseInt(row.querySelector('.purchase-quantity').value);
+            const purchasePrice = parseFloat(row.querySelector('.purchase-price').value) || 0;
+            const quantity = parseInt(row.querySelector('.purchase-quantity').value) || 0;
             const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
-            
+
             if (productId && purchasePrice > 0 && quantity > 0) {
-                items.push({ productId, productName, purchasePrice, quantity, gstPercentage });
-                if (pricesIncludeGst) {
-                    // Inclusive mode: treat entered price as EXCLUSIVE and ADD GST on top
-                    const lineEx = purchasePrice * quantity;
-                    const lineGst = lineEx * (gstPercentage/100);
-                    subtotalEx += lineEx; subtotalInc += (lineEx + lineGst); gstTotal += lineGst;
-                } else {
-                    // Exclusive mode: no GST
-                    const lineEx = purchasePrice * quantity;
-                    subtotalEx += lineEx; subtotalInc += lineEx; /* gstTotal += 0 */
-                }
+                items.push({ productId, productName, price: purchasePrice, quantity, gstPercentage });
             }
         });
 
@@ -5434,7 +5631,24 @@ document.body.addEventListener('submit', async e => {
             showMessage("Please add at least one item to the purchase.");
             return;
         }
-        
+
+        // Determine merchant & supplier state codes for GST splitting
+        const merchantStateCode = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '');
+        const supplierStateCode = getStateCodeFromGstin(supplierObj?.gstin || '');
+
+        // Compute GST for items when supplier is registered; otherwise treat GST as part of cost
+        let gstComputed = { total: 0, subtotalEx: 0, subtotalInc: 0, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
+        if (supplierRegistered) {
+            gstComputed = computeGstForItems(items.map(it => ({ price: it.price, quantity: it.quantity, gstPercentage: it.gstPercentage })), pricesIncludeGst, merchantStateCode, supplierStateCode);
+        } else {
+            // No separate GST recorded; subtotal is simple sum of line amounts
+            let sEx = 0, sInc = 0;
+            items.forEach(it => {
+                const line = it.price * it.quantity;
+                sEx += line; sInc += line;
+            });
+            gstComputed = { total: 0, subtotalEx: sEx, subtotalInc: sInc, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
+        }
         // Preserve original invoice number when editing, else generate
         let invoiceNumber = undefined;
         if (editingId) {
@@ -5455,7 +5669,20 @@ document.body.addEventListener('submit', async e => {
             return;
         }
 
-        const tmpTotal = (pricesIncludeGst ? subtotalInc : subtotalEx);
+    const tmpTotal = (pricesIncludeGst ? gstComputed.subtotalInc : gstComputed.subtotalEx);
+        // If supplier is not GST-registered, require explicit confirmation before saving
+        const confirmedEl = document.getElementById('confirmedUnregPurchase');
+        if (!supplierRegistered) {
+            if (!confirmedEl || (confirmedEl && confirmedEl.value !== '1')) {
+                // Show confirmation modal and abort save for now
+                const modal = document.getElementById('unregSupplierConfirmModal');
+                if (modal) modal.classList.remove('hidden');
+                return;
+            } else {
+                // Clear confirmation for subsequent submits
+                try { if (confirmedEl) confirmedEl.value = ''; } catch(_){}
+            }
+        }
         if (payNowAmount > tmpTotal + 0.0001) {
             showMessage('Pay Now cannot exceed the grand total.');
             return;
@@ -5474,15 +5701,29 @@ document.body.addEventListener('submit', async e => {
             ? (remainingAfterPayNow > 0 ? 'credit' : (payNowMode === 'bank' ? 'bank' : 'cash'))
             : paymentTypeRadio;
 
+        // Build detailed GST breakdown for persistence (if supplier registered)
+        const gstBreakdownToStore = supplierRegistered ? {
+            total: +(gstComputed.total || 0).toFixed(2),
+            cgst: +(gstComputed.cgstTotal || 0).toFixed(2),
+            sgst: +(gstComputed.sgstTotal || 0).toFixed(2),
+            igst: +(gstComputed.igstTotal || 0).toFixed(2),
+            rates: gstComputed.rates || {},
+            intraState: !!gstComputed.intraState
+        } : { total: 0, cgst: 0, sgst: 0, igst: 0, rates: {}, intraState: null };
+
         const purchaseData = {
             supplierName,
             invoiceNumber,
             purchaseDate: new Date(purchaseDate),
             items,
             // Store subtotal as ex-GST for consistency
-            subtotal: subtotalEx,
-            // In Exclusive mode, we treat GST as not applicable in totals display/persistence
-            gstBreakdown: { total: pricesIncludeGst ? gstTotal : 0 },
+            subtotal: gstComputed.subtotalEx,
+            gstBreakdown: gstBreakdownToStore,
+            // record supplier GST details for audit
+            supplierGstin: supplierObj?.gstin || null,
+            supplierGstRegistered: !!supplierRegistered,
+            supplierStateCode: supplierStateCode || null,
+            merchantStateCode: merchantStateCode || null,
             // Grand Total rule: Inclusive mode -> inclusive; Exclusive mode -> exclusive
             totalAmount: effectiveTotal,
             pricesIncludeGst,
@@ -6110,45 +6351,63 @@ function setPurchaseGstEnabled(enabled) {
 function updatePurchaseTotal() {
     // Toggle ON (checked) = Inclusive; OFF = Exclusive
     const pricesIncludeGst = !!(document.getElementById('purchasePricesIncludeGst')?.checked || false);
-    let subtotalEx = 0, gstTotal = 0, subtotalInc = 0;
+    // Build items list from rows
+    const items = [];
     document.querySelectorAll('.purchase-item-row').forEach(row => {
         const price = parseFloat(row.querySelector('.purchase-price').value) || 0;
         const quantity = parseInt(row.querySelector('.purchase-quantity').value) || 0;
         const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
-        let lineEx, lineGst, lineInc;
-        if (pricesIncludeGst) {
-            // Inclusive mode: treat entered price as EXCLUSIVE and ADD GST on top
-            lineEx = price * quantity;
-            lineGst = lineEx * (gstPercentage / 100);
-            lineInc = lineEx + lineGst;
-        } else {
-            // Exclusive mode: no GST applied at all
-            lineEx = price * quantity;
-            lineGst = 0;
-            lineInc = lineEx;
-        }
+        items.push({ price, quantity, gstPercentage });
+        // Display per-row total (use inclusive/exclusive display semantics)
+        const lineInc = price * quantity;
         row.querySelector('.purchase-item-total').textContent = `${lineInc.toFixed(2)}`;
-        subtotalEx += lineEx; gstTotal += lineGst; subtotalInc += lineInc;
     });
-    // Always display Subtotal as Excl. GST so that in Inclusive mode GT = Subtotal + GST
-    document.getElementById('purchaseSubtotal').textContent = `${(subtotalEx).toFixed(2)}`;
+
+    // Determine merchant & supplier state codes
+    const merchantStateCode = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '');
+    const supplierName = (document.getElementById('supplierName')?.value || '').trim();
+    const supplierObj = (state.allSuppliers || []).find(s => (s.name || '').trim().toLowerCase() === supplierName.toLowerCase());
+    const supplierStateCode = getStateCodeFromGstin(supplierObj?.gstin || '');
+    const supplierRegistered = !!(supplierObj && (supplierObj.gstin || '').trim());
+
+    let gstComputed = { total: 0, subtotalEx: 0, subtotalInc: 0, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
+    if (supplierRegistered) {
+        gstComputed = computeGstForItems(items.map(it => ({ price: it.price, quantity: it.quantity, gstPercentage: it.gstPercentage })), pricesIncludeGst, merchantStateCode, supplierStateCode);
+    } else {
+        // Treat GST as part of cost
+        let sEx = 0, sInc = 0;
+        items.forEach(it => { const line = it.price * it.quantity; sEx += line; sInc += line; });
+        gstComputed = { total: 0, subtotalEx: sEx, subtotalInc: sInc, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
+    }
+
+    // Update subtotal, GST breakdown and grand total in UI
+    document.getElementById('purchaseSubtotal').textContent = `${(gstComputed.subtotalEx).toFixed(2)}`;
     const labelEl = document.getElementById('purchaseSubtotalLabel');
     if (labelEl) { labelEl.textContent = 'Subtotal (Excl. GST)'; }
-    // Display GST: in Inclusive mode show extracted GST; in Exclusive mode there is NO GST
-    document.getElementById('purchaseGst').textContent = `${(pricesIncludeGst ? gstTotal : 0).toFixed(2)}`;
-    // Grand Total display:
-    // - Inclusive (toggle ON): inclusive total (Subtotal + GST)
-    // - Exclusive (toggle OFF): exclusive total
-    document.getElementById('purchaseTotal').textContent = `${(pricesIncludeGst ? subtotalInc : subtotalEx).toFixed(2)}`;
+
+    const gstEl = document.getElementById('purchaseGst');
+    if (gstEl) {
+        if (gstComputed.total > 0) {
+            if (gstComputed.igstTotal && gstComputed.igstTotal > 0) {
+                gstEl.textContent = `IGST: ₹${gstComputed.igstTotal.toFixed(2)} (Total ₹${gstComputed.total.toFixed(2)})`;
+            } else {
+                gstEl.textContent = `CGST: ₹${gstComputed.cgstTotal.toFixed(2)} • SGST: ₹${gstComputed.sgstTotal.toFixed(2)} (Total ₹${gstComputed.total.toFixed(2)})`;
+            }
+        } else {
+            gstEl.textContent = `0.00`;
+        }
+    }
+
+    document.getElementById('purchaseTotal').textContent = `${(pricesIncludeGst ? gstComputed.subtotalInc : gstComputed.subtotalEx).toFixed(2)}`;
 
     const badge = document.getElementById('purchaseModeBadge');
     if (badge) {
         if (pricesIncludeGst) {
-            badge.textContent = 'Inclusive mode';
+            badge.textContent = `Inclusive mode ${gstComputed.intraState ? '• Intra-state' : '• Inter-state'}`;
             badge.classList.remove('bg-gray-100','text-gray-700','border-gray-200');
             badge.classList.add('bg-green-100','text-green-700','border-green-200');
         } else {
-            badge.textContent = 'Exclusive mode';
+            badge.textContent = `Exclusive mode ${gstComputed.intraState ? '• Intra-state' : '• Inter-state'}`;
             badge.classList.remove('bg-green-100','text-green-700','border-green-200');
             badge.classList.add('bg-gray-100','text-gray-700','border-gray-200');
         }
