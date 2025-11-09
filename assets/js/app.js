@@ -2170,13 +2170,20 @@ function renderAdminPurchasesPage() {
             const exists = (state.allSuppliers || []).some(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
             if (exists) { showMessage('Supplier already exists. Choose from the list.'); return; }
             try {
-                const ref = await addDoc(collection(db, suppliersColPath), { name, gstin: gstin || undefined, address: address || undefined, createdAt: serverTimestamp(), isDeleted: false });
-                // Update local state and datalist
+                // Build payload without undefined fields (Firestore rejects undefined values)
+                const payload = { name, createdAt: serverTimestamp(), isDeleted: false };
+                if (gstin) payload.gstin = gstin;
+                if (address) payload.address = address;
+                const ref = await addDoc(collection(db, suppliersColPath), payload);
+                // Update local state and datalist (avoid inserting undefined fields)
                 try {
-                    state.allSuppliers = [{ id: ref.id, name, gstin: gstin || undefined, address: address || undefined }, ...(state.allSuppliers || [])];
+                    const supEntry = { id: ref.id, name };
+                    if (gstin) supEntry.gstin = gstin;
+                    if (address) supEntry.address = address;
+                    state.allSuppliers = [supEntry, ...(state.allSuppliers || [])];
                 } catch (_) {}
                 // Use optimistic upsert to trigger UI refreshes
-                try { upsertPartyInState('supplier', { name, gstin: gstin || undefined, address: address || undefined }); } catch(_){}
+                try { upsertPartyInState('supplier', Object.assign({ name }, gstin ? { gstin } : {}, address ? { address } : {})); } catch(_){ }
                 const dl = document.getElementById('suppliersDatalistPurchase');
                 if (dl) { const opt = document.createElement('option'); opt.value = name; dl.appendChild(opt); }
                 // Select the supplier in input
