@@ -1146,7 +1146,9 @@ function renderAdminPage() {
         reports: `<div id="adminReportsContainer"></div>`,
         local_sale: `<div id="adminLocalSaleContainer"></div>`,
         returns: `<div id="adminReturnsContainer"></div>`,
-        ledgers: `<div id="adminLedgersContainer"></div>`,
+    ledgers: `<div id="adminLedgersContainer"></div>`,
+    // Visible 'Transactions' tab should show the same ledgers container
+    transactions: `<div id="adminLedgersContainer"></div>`,
         settings: settingsFormHTML,
     };
 
@@ -6574,6 +6576,78 @@ function renderAdminLedgersPage() {
     const debtorsPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${debtorsPageSize===n? 'selected':''}>${n}</option>`).join('');
     const debtorsPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${debtorsSlice.length ? ((debtorsPage - 1) * debtorsPageSize + 1) : 0} - ${((debtorsPage - 1) * debtorsPageSize) + debtorsSlice.length} of ${debtorsTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="debtorsFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage<=1? 'disabled':''}>First</button><button id="debtorsPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage<=1? 'disabled':''}>Prev</button><input id="debtorsPageInput" type="number" min="1" max="${debtorsTotalPages}" value="${debtorsPage}" class="w-14 text-center border rounded p-1" /><button id="debtorsNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage>=debtorsTotalPages? 'disabled':''}>Next</button><button id="debtorsLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage>=debtorsTotalPages? 'disabled':''}>Last</button><select id="debtorsPageSizeSel" class="border rounded p-1 text-sm">${debtorsPageSizeOptions}</select></div></div>`;
 
+    // Populate quick 'pending' lists in Quick Postings area (prefill forms on action)
+    try {
+        const pendingSupContainer = document.getElementById('pendingSupplierPayments');
+        const pendingCustContainer = document.getElementById('pendingCustomerReceipts');
+        if (pendingSupContainer) {
+            // use creditorsByParty computed above; balance = credit - debit -> positive means we owe supplier
+            const pendingSuppliers = Object.entries(creditorsByParty).map(([name, sums]) => ({ name, balance: (sums.credit - sums.debit) })).filter(p => p.balance > 0);
+            if (pendingSuppliers.length) {
+                pendingSupContainer.innerHTML = pendingSuppliers.map(p => `
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="font-medium">${p.name}</div>
+                            <div class="text-xs text-gray-500">Due: ₹${p.balance.toFixed(2)}</div>
+                        </div>
+                        <div>
+                            <button class="pay-supplier-btn bg-green-600 text-white px-3 py-1 rounded" data-party="${p.name.replace(/"/g,'&quot;')}" data-amount="${p.balance}">Pay</button>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                pendingSupContainer.innerHTML = `<p class="text-gray-500">No pending supplier payments.</p>`;
+            }
+        }
+        if (pendingCustContainer) {
+            // debtorsByParty computed above; balance = debit - credit -> positive means customer owes us
+            const pendingCustomers = Object.entries(debtorsByParty).map(([name, sums]) => ({ name, balance: (sums.debit - sums.credit) })).filter(p => p.balance > 0);
+            if (pendingCustomers.length) {
+                pendingCustContainer.innerHTML = pendingCustomers.map(p => `
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <div class="font-medium">${p.name}</div>
+                            <div class="text-xs text-gray-500">Outstanding: ₹${p.balance.toFixed(2)}</div>
+                        </div>
+                        <div>
+                            <button class="receive-customer-btn bg-indigo-600 text-white px-3 py-1 rounded" data-party="${p.name.replace(/"/g,'&quot;')}" data-amount="${p.balance}">Receive</button>
+                        </div>
+                    </div>
+                `).join('');
+            } else {
+                pendingCustContainer.innerHTML = `<p class="text-gray-500">No pending customer receipts.</p>`;
+            }
+        }
+
+        // Attach click handlers to prefill forms
+        document.querySelectorAll('.pay-supplier-btn').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+                const b = ev.currentTarget;
+                const party = b.getAttribute('data-party') || '';
+                const amount = b.getAttribute('data-amount') || '';
+                const spPartyEl = document.getElementById('spParty');
+                const spAmountEl = document.getElementById('spAmount');
+                if (spPartyEl) spPartyEl.value = party;
+                if (spAmountEl) spAmountEl.value = Number(amount).toFixed(2);
+                spAmountEl?.focus();
+            });
+        });
+        document.querySelectorAll('.receive-customer-btn').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+                const b = ev.currentTarget;
+                const party = b.getAttribute('data-party') || '';
+                const amount = b.getAttribute('data-amount') || '';
+                const crPartyEl = document.getElementById('crParty');
+                const crAmountEl = document.getElementById('crAmount');
+                if (crPartyEl) crPartyEl.value = party;
+                if (crAmountEl) crAmountEl.value = Number(amount).toFixed(2);
+                crAmountEl?.focus();
+            });
+        });
+    } catch (err) {
+        console.error('Failed to populate pending lists:', err);
+    }
+
     // Summary balances across filtered range
     const cashInRange = (state.allCashLedger || []).filter(x => !x.isDeleted).filter(x => inRange(x.date));
     const bankInRangeAll = (state.allBankLedger || []).filter(x => !x.isDeleted).filter(x => inRange(x.date));
@@ -6914,6 +6988,21 @@ function renderAdminLedgersPage() {
                     <input type="text" id="tNotes" placeholder="Notes (optional)" class="w-full border rounded p-2">
                     <button type="submit" class="bg-purple-600 text-white px-4 py-2 rounded">Record Transfer</button>
                 </form>
+            </div>
+            <!-- Pending payments / receipts quick view -->
+            <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="border rounded p-4">
+                    <h4 class="font-semibold">Pending Supplier Payments</h4>
+                    <div id="pendingSupplierPayments" class="mt-3 text-sm space-y-2">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
+                </div>
+                <div class="border rounded p-4">
+                    <h4 class="font-semibold">Pending Customer Receipts</h4>
+                    <div id="pendingCustomerReceipts" class="mt-3 text-sm space-y-2">
+                        <p class="text-gray-500">Loading...</p>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="bg-white p-8 rounded-lg shadow-lg mt-8">
