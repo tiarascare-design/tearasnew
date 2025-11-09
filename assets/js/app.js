@@ -394,14 +394,14 @@ function renderTopBars() {
     }
 
     const announcementRibbonHTML = `
-    <div class="bg-[#4a2c2a] text-white text-xs font-medium uppercase tracking-wider">
+        <div class="bg-[#4a2c2a] text-white text-xs font-medium uppercase tracking-wider">
         <div class="container mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-10">
             <div class="flex space-x-6">
                 <a href="#" class="hover:text-gray-300 transition-colors">Track Your Order</a>
                 <a href="#" class="hover:text-gray-300 transition-colors">Contact Us</a>
             </div>
             <div class="hidden md:block">
-                Free Shipping On All Orders
+                    Free Shipping On All Orders
             </div>
         </div>
     </div>
@@ -532,7 +532,7 @@ function renderCartPage() {
 
 function renderOrdersPage() {
     if (!state.currentUser || state.currentUser.isAnonymous) {
-        navigateTo('auth');
+            navigateTo('auth');
         return;
     }
 
@@ -1157,7 +1157,7 @@ function renderAdminPage() {
     // Also remove any other variants (different spacing/containers) by stripping from the <hr> up to the following section
     tabsContent.settings = tabsContent.settings.replace(/<hr>[\s\S]*?<div class="mt-8 border-t pt-6/, '<div class="mt-8 border-t pt-6');
 
-    pageContent.innerHTML = `<div class="container mx-auto px-6 py-12"><div class="flex justify-between items-center mb-8"><h2 class="text-4xl font-playfair">Admin Panel</h2><button data-page="home" class="nav-btn bg-gray-800 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-gray-900 transition duration-300">View Store</button></div><div class="border-b border-gray-200 mb-8"><nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs"><a href="#" data-tab="orders" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'orders' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Orders</a><a href="#" data-tab="products" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'products' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Products</a><a href="#" data-tab="product_groups" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'product_groups' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Product Groups</a><a href="#" data-tab="purchases" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'purchases' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Purchases</a><a href="#" data-tab="media" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'media' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Media</a><a href="#" data-tab="testimonials" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'testimonials' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Testimonials</a><a href="#" data-tab="reports" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'reports' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing & Reports</a><a href="#" data-tab="billing_settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'billing_settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing Settings</a><a href="#" data-tab="local_sale" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'local_sale' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Local Sale</a><a href="#" data-tab="returns" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'returns' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Returns</a><a href="#" data-tab="ledgers" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'ledgers' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Transactions</a><a href="#" data-tab="settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Settings</a></nav></div><div id="adminTabContent">${tabsContent[state.adminCurrentTab]}</div></div>`;
+    pageContent.innerHTML = `<div class="container mx-auto px-6 py-12"><div class="flex justify-between items-center mb-8"><h2 class="text-4xl font-playfair">Admin Panel</h2><button data-page="home" class="nav-btn bg-gray-800 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-gray-900 transition duration-300">View Store</button></div><div class="border-b border-gray-200 mb-8"><nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs"><a href="#" data-tab="orders" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'orders' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Orders</a><a href="#" data-tab="products" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'products' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Products</a><a href="#" data-tab="product_groups" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'product_groups' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Product Groups</a><a href="#" data-tab="purchases" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'purchases' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Purchases</a><a href="#" data-tab="media" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'media' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Media</a><a href="#" data-tab="testimonials" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'testimonials' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Testimonials</a><a href="#" data-tab="reports" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'reports' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing & Reports</a><a href="#" data-tab="billing_settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'billing_settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing Settings</a><a href="#" data-tab="local_sale" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'local_sale' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Local Sale</a><a href="#" data-tab="returns" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'returns' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Returns</a><a href="#" data-tab="transactions" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'transactions' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Transactions</a><a href="#" data-tab="settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Settings</a></nav></div><div id="adminTabContent">${tabsContent[state.adminCurrentTab]}</div></div>`;
 
     if (state.adminCurrentTab === 'orders') renderAdminOrderList();
     else if (state.adminCurrentTab === 'products') renderAdminProductList();
@@ -1168,7 +1168,7 @@ function renderAdminPage() {
     else if (state.adminCurrentTab === 'reports') renderAdminBillingPage();
     else if (state.adminCurrentTab === 'local_sale') renderLocalSalePage();
     else if (state.adminCurrentTab === 'returns') renderAdminReturnsPage();
-    else if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+    else if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
     else if (state.adminCurrentTab === 'settings') { /* no gallery here anymore */ }
 
     attachAdminListeners();
@@ -2946,7 +2946,7 @@ function listenToAllCreditorsLedger() {
         state.allCreditorsLedger = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(e => !e.isDeleted);
-        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
             renderAdminLedgersPage();
         }
     }, error => {
@@ -2969,7 +2969,7 @@ function listenToSuppliers() {
         }, { _seen: new Set(), items: [] }).items;
         state.allSuppliers = merged;
         if (state.currentPage === 'admin') {
-            if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+            if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
             if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
         }
     }, err => console.error('Suppliers listener error:', err));
@@ -2983,7 +2983,7 @@ function listenToSuppliers() {
             const evt = new Event('legacySuppliersLoaded');
             document.dispatchEvent(evt);
             if (state.currentPage === 'admin') {
-                if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+                if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
                 if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
             }
         }, err => console.warn('Suppliers legacy listener error:', err?.message || err));
@@ -3007,7 +3007,7 @@ function listenToCustomers() {
             return acc;
         }, { _seen: new Set(), items: [] }).items;
         state.allCustomers = merged;
-        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
             renderAdminLedgersPage();
         }
     }, err => console.error('Customers listener error:', err));
@@ -3019,7 +3019,7 @@ function listenToCustomers() {
             state.__legacyCustomers = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
             const evt = new Event('legacyCustomersLoaded');
             document.dispatchEvent(evt);
-            if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+            if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
                 renderAdminLedgersPage();
             }
         }, err => console.warn('Customers legacy listener error:', err?.message || err));
@@ -3036,7 +3036,7 @@ function listenToAllDebtorsLedger() {
         state.allDebtorsLedger = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(e => !e.isDeleted);
-        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
             renderAdminLedgersPage();
         }
     }, error => {
@@ -3048,7 +3048,7 @@ function listenToAllCashLedger() {
     if (state.listeners.allCashLedger) state.listeners.allCashLedger();
     state.listeners.allCashLedger = onSnapshot(query(collection(db, cashLedgerColPath)), snapshot => {
         state.allCashLedger = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
-        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
             renderAdminLedgersPage();
         }
     }, err => console.error('Cash ledger listener error:', err));
@@ -3058,7 +3058,7 @@ function listenToAllBankLedger() {
     if (state.listeners.allBankLedger) state.listeners.allBankLedger();
     state.listeners.allBankLedger = onSnapshot(query(collection(db, bankLedgerColPath)), snapshot => {
         state.allBankLedger = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
-        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
             renderAdminLedgersPage();
         }
     }, err => console.error('Bank ledger listener error:', err));
@@ -3071,7 +3071,7 @@ function listenToBanks() {
             .map(d => ({ id: d.id, ...d.data() }))
             .filter(b => !b.isDeleted)
             .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
-        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
             renderAdminLedgersPage();
         }
     }, err => console.error('Banks listener error:', err));
@@ -5728,7 +5728,7 @@ document.body.addEventListener('submit', async e => {
                 }
                 // If admin is open, refresh ledgers/purchases views
                 if (state.currentPage === 'admin') {
-                    if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+                    if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
                     else if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
                 }
             } catch (e) { console.warn('post-purchase UI refresh failed', e?.message || e); }
@@ -7292,7 +7292,7 @@ function upsertPartyInState(type, entry) {
             }
             // If admin is open, refresh relevant admin tabs so UI reflects the change immediately
             if (state.currentPage === 'admin') {
-                if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+                if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
                 else if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
             }
         } catch (e) {
