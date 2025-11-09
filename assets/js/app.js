@@ -41,31 +41,26 @@ let state = {
     heroSlides: [],
     galleryImages: [],
     testimonials: [],
-    allTestimonials: [], // For admin
-    allPurchases: [], // For admin
-    allLocalSales: [], // For Admin
-    allSalesReturns: [], // For Admin
-    allPurchaseReturns: [], // For Admin
-    allCreditorsLedger: [], // For Admin - Sundry Creditors entries
-    allDebtorsLedger: [], // For Admin - Sundry Debtors entries
-    allCashLedger: [], // Cash account entries
-    allBankLedger: [], // Bank account entries
-    allBanks: [], // Bank master list
-    allSuppliers: [], // Party masters
-    allCustomers: [],
+    allTestimonials: [],
+    allPurchases: [],
+    allLocalSales: [],
+    allSalesReturns: [],
+    allPurchaseReturns: [],
+    allCreditorsLedger: [],
+    allDebtorsLedger: [],
     siteSettings: {
         isScrollingBarVisible: true,
         scrollingBarText: "✨ FLAT 10% OFF ON ALL BEAUTY PRODUCTS ✨ LIMITED TIME OFFER: FREE SHIPPING ON ORDERS OVER ₹4000! NEW ARRIVALS: CHECK OUT OUR LATEST ORNAMENTS",
         isGstEnabled: true,
-    merchantGstin: '29ABCDE1234F1Z5', // <-- ADDED: Default GSTIN
-    merchantStateCode: '29', // Default home state (matches default GSTIN)
-        businessAddress: 'TIARAS Headquarters, 123 Luxury Lane, Perumbavoor, Kerala, India 683542', // <-- ADDED: Default Business Address
-        visibilityEpochs: {}, // collection-wise visibility reset epochs (ms)
+        merchantGstin: '29ABCDE1234F1Z5',
+        merchantStateCode: '29',
+        businessAddress: 'TIARAS Headquarters, 123 Luxury Lane, Perumbavoor, Kerala, India 683542',
+        visibilityEpochs: {},
     },
     cart: { items: {} },
     userProfile: null,
     orders: [],
-    allOrders: [], // For admin
+    allOrders: [],
     adminCurrentTab: 'orders',
     localSaleData: null,
     registerFilter: 'all',
@@ -74,28 +69,24 @@ let state = {
     billingStartDate: new Date().toISOString().split('T')[0],
     billingEndDate: new Date().toISOString().split('T')[0],
     billingSearchText: '',
-    // Ledgers date filter
     ledgerStartDate: new Date().toISOString().split('T')[0],
     ledgerEndDate: new Date().toISOString().split('T')[0],
     bankAccountFilter: 'All',
-    // Ledgers pagination (default 10 entries per page)
-    ledgerPageSize: 10,
+    ledgerPageSize: 25,
     cashPage: 1,
     bankPage: 1,
     creditorsPage: 1,
     debtorsPage: 1,
-    // Per-pane page sizes (overrides ledgerPageSize if present)
     cashPageSize: 10,
     bankPageSize: 10,
     creditorsPageSize: 10,
     debtorsPageSize: 10,
-    // Pagination
     registerPage: 1,
     registerPageSize: 25,
     billingPage: 1,
     billingPageSize: 25,
     currentUser: null,
-    adminOrderFilter: 'All', // Added state for order filtering
+    adminOrderFilter: 'All',
     reportsIncludeArchived: false,
     reportData: { orders: [], purchases: [], localSales: [], salesReturns: [], purchaseReturns: [], lastRange: null },
     listeners: {
@@ -115,18 +106,22 @@ let state = {
         allPurchaseReturns: null,
         allCreditorsLedger: null,
         allDebtorsLedger: null,
-    allCashLedger: null,
-    allBankLedger: null,
+        allCashLedger: null,
+        allBankLedger: null,
         allBanks: null,
         allSuppliers: null,
         allCustomers: null,
         profile: null,
     },
-    // Per-order mirror listeners for user orders overlaying status from public orders
     userOrderPublicUnsubs: {},
     isAdmin: false,
     adminListenersActive: false
 };
+
+// Pending retry hook: when a purchase save is blocked because supplier is missing data,
+// we open the supplier edit modal and set `pendingPurchaseRetryFn` so that after the
+// supplier is saved the original purchase save is retried automatically.
+let pendingPurchaseRetryFn = null;
 
 // Load persisted per-pane page-size preferences (scoped by appId)
 try {
@@ -291,7 +286,13 @@ function formatDate(input) {
 }
 
 // --- TAX HELPERS (GST) ---
-const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/;
+// GSTIN structure: 2 digits (state) + 10-char PAN (5 letters,4 digits,1 letter) + 1 entity code (alphanumeric) + 'Z' + checksum (alphanumeric)
+// GSTIN pattern: 15 characters total. Positions:
+// 1-2: state code digits
+// 3-12: PAN (5 letters + 4 digits + 1 letter)
+// 13-15: entity code + default char + checksum — be permissive and allow alphanumerics in final 3 chars
+// Allow '0' in entity position and do not hard-require a literal 'Z' at position 14 to accept valid variants.
+const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]{3}$/;
 // Indian states mapping for GST state codes (first two digits of GSTIN)
 const GST_STATE_CODES = [
     { code: '01', name: 'Jammu & Kashmir' },
@@ -338,6 +339,85 @@ function getStateCodeFromGstin(gstin) {
     const v = gstin.trim();
     if (v.length < 2) return null;
     return v.substring(0, 2);
+}
+
+// Utility: enforce uppercase characters on an input element (in-place) for GSTIN fields
+function enforceUppercaseInput(el) {
+    if (!el) return;
+    const applyUpper = () => {
+        try {
+            const val = (el.value || '').toString();
+            const up = val.toUpperCase();
+            if (up !== val) {
+                const pos = el.selectionStart || up.length;
+                el.value = up;
+                try { el.setSelectionRange(pos, pos); } catch (_) {}
+            }
+        } catch (_) {}
+    };
+    el.addEventListener('input', applyUpper);
+    el.addEventListener('change', applyUpper);
+    el.addEventListener('paste', () => setTimeout(applyUpper, 0));
+    // normalize initial value
+    applyUpper();
+}
+
+// UI helpers for GSTIN validation styling
+function setGstinValid(el) {
+    if (!el) return;
+    try { el.style.borderColor = '#16a34a'; el.setAttribute('aria-invalid', 'false'); } catch (_) {}
+}
+function setGstinInvalid(el) {
+    if (!el) return;
+    try { el.style.borderColor = '#dc2626'; el.setAttribute('aria-invalid', 'true'); } catch (_) {}
+}
+function clearGstinValidation(el) {
+    if (!el) return;
+    try { el.style.borderColor = ''; el.removeAttribute('aria-invalid'); } catch (_) {}
+}
+
+// Attach validation behavior to a GSTIN input element. feedbackEl is optional DOM element to show messages.
+function attachGstinValidation(el, feedbackEl) {
+    if (!el) return;
+    let _deb = null;
+    const run = () => {
+        try {
+            const v = (el.value || '').toString().trim().toUpperCase();
+            if (!v) {
+                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
+                clearGstinValidation(el);
+                return;
+            }
+            if (v.length < 15) {
+                // wait until full length entered
+                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
+                clearGstinValidation(el);
+                return;
+            }
+            const v15 = v.substring(0,15);
+            if (!GSTIN_REGEX.test(v15)) {
+                if (feedbackEl) { feedbackEl.style.display = 'block'; feedbackEl.textContent = 'Invalid GSTIN format. Enter 15 characters: digits and uppercase letters.'; }
+                setGstinInvalid(el);
+            } else {
+                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
+                setGstinValid(el);
+            }
+        } catch (_) {}
+        _deb = null;
+    };
+    const handler = () => {
+        try {
+            // normalize uppercase
+            el.value = (el.value || '').toString().toUpperCase();
+        } catch (_) {}
+        if (_deb) clearTimeout(_deb);
+        _deb = setTimeout(run, 350);
+    };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+    el.addEventListener('blur', handler);
+    // run once to initialize
+    handler();
 }
 
 // Enhanced GST computation returning CGST/SGST/IGST splits depending on intra-state vs inter-state
@@ -2118,14 +2198,16 @@ function renderAdminPurchasesPage() {
                                 <div>
                                     <label class="block text-xs text-gray-600">GSTIN (optional)</label>
                                     <input type="text" id="newSupplierGstin" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="GSTIN">
+                                    <div id="newSupplierGstinFeedback" class="text-xs text-red-600 mt-1 hidden"></div>
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-gray-600">Address (optional)</label>
-                                    <input type="text" id="newSupplierAddress" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Address">
+                                    <label class="block text-xs text-gray-600">Address <span class="text-red-600">*</span></label>
+                                    <input type="text" id="newSupplierAddress" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Address" required aria-required="true">
                                 </div>
                                 <div>
-                                    <label class="block text-xs text-gray-600">State (optional)</label>
-                                    <select id="newSupplierStateCode" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                                    <label class="block text-xs text-gray-600">State <span class="text-red-600">*</span></label>
+                                    <select id="newSupplierStateCode" class="w-full px-3 py-2 border border-gray-300 rounded-md" required aria-required="true">
+                                        <option value="">Select state</option>
                                         ${GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('')}
                                     </select>
                                 </div>
@@ -2265,24 +2347,33 @@ function renderAdminPurchasesPage() {
         }
     } catch (_) {}
 
-    // When GSTIN is entered for a new supplier, auto-select the GST state code derived from the GSTIN.
-    // The user can still override the select manually; this listener will only set the select when a GSTIN
-    // yields a recognizable two-digit state code.
+    // When GSTIN is entered for a new supplier, use the shared GSTIN validation which shows red/green
+    // border feedback and (when valid) auto-applies the two-digit state code to the State select.
     try {
         if (newSupplierGstin && newSupplierStateSel) {
-            const applyStateFromGstin = () => {
+            const feedbackEl = document.getElementById('newSupplierGstinFeedback');
+            enforceUppercaseInput(newSupplierGstin);
+            attachGstinValidation(newSupplierGstin, feedbackEl);
+
+            // Auto-apply state code after validation (debounced slightly after attachGstinValidation runs)
+            let _debApply = null;
+            const applyStateIfValid = () => {
                 try {
-                    const v = (newSupplierGstin.value || '').trim();
-                    // Only auto-apply when GSTIN fully validates
+                    const vFull = (newSupplierGstin.value || '').trim().toUpperCase();
+                    if (!vFull || vFull.length < 15) return;
+                    const v = vFull.substring(0, 15);
                     if (GSTIN_REGEX.test(v)) {
                         const code = getStateCodeFromGstin(v);
                         if (code) newSupplierStateSel.value = code;
                     }
                 } catch (_) {}
+                _debApply = null;
             };
-            // Use 'input' for live response and 'change' to catch paste/select scenarios
-            newSupplierGstin.addEventListener('input', applyStateFromGstin);
-            newSupplierGstin.addEventListener('change', applyStateFromGstin);
+            const scheduleApply = () => { if (_debApply) clearTimeout(_debApply); _debApply = setTimeout(applyStateIfValid, 360); };
+            newSupplierGstin.addEventListener('input', scheduleApply);
+            newSupplierGstin.addEventListener('change', scheduleApply);
+            newSupplierGstin.addEventListener('blur', scheduleApply);
+            scheduleApply();
         }
     } catch (_) {}
     if (showNewSupplierBtn && newSupplierRow) {
@@ -2305,7 +2396,7 @@ function renderAdminPurchasesPage() {
         addSupplierInlineBtn.addEventListener('click', async (e) => {
             e.preventDefault();
             const name = (document.getElementById('supplierName')?.value || '').trim();
-            const gstin = (newSupplierGstin?.value || '').trim();
+            const gstin = ((newSupplierGstin?.value || '').trim() || '').toUpperCase();
             // Validate GSTIN if provided
             if (gstin && !GSTIN_REGEX.test(gstin)) {
                 showMessage('Invalid GSTIN format. Please check and enter a valid GSTIN or leave it empty.');
@@ -2314,6 +2405,9 @@ function renderAdminPurchasesPage() {
             const address = (newSupplierAddress?.value || '').trim();
             const stateCode = (document.getElementById('newSupplierStateCode')?.value || '').trim();
             if (!name) { showMessage('Enter supplier name first.'); return; }
+            // Address and state are mandatory when adding supplier from purchase entry
+            if (!address) { showMessage('Enter supplier address. Address is required when adding from purchase entry.'); return; }
+            if (!stateCode) { showMessage('Select supplier state. State is required when adding from purchase entry.'); return; }
             // Check for existing supplier (case-insensitive)
             const exists = (state.allSuppliers || []).some(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
             if (exists) { showMessage('Supplier already exists. Choose from the list.'); return; }
@@ -2445,7 +2539,27 @@ function renderAdminPurchasesPage() {
             }
         }
         if (warn) {
-            warn.classList.toggle('hidden', registered || !supplierObj);
+            // If supplier exists but missing address/state, show a helpful action to edit details
+            if (supplierObj && (!supplierObj.address || !supplierObj.stateCode)) {
+                warn.classList.remove('hidden');
+                warn.innerHTML = `Supplier record is missing address or state. <button id="editSupplierDetailsBtn" class="underline text-sm text-blue-600">Edit supplier details</button>`;
+                // Attach handler to open party edit modal
+                setTimeout(() => {
+                    const btn = document.getElementById('editSupplierDetailsBtn');
+                    if (btn) {
+                        btn.addEventListener('click', (ev) => {
+                            ev.preventDefault();
+                            try {
+                                showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id });
+                            } catch (_) {}
+                        });
+                    }
+                }, 10);
+            } else {
+                warn.classList.toggle('hidden', registered || !supplierObj);
+                // ensure default text when just a warning about not registered
+                if (!warn.classList.contains('hidden') && !supplierObj) warn.textContent = 'Supplier is not GST-registered — any GST will be treated as part of item cost.';
+            }
         }
         // If supplier is not registered, force the 'prices include GST' toggle OFF and disable it,
         // and disable GST% selects so GST is treated as part of cost. If supplier is registered or not chosen,
@@ -3711,12 +3825,17 @@ function attachAdminListeners() {
             const merchantStateCodeEl = document.getElementById('merchantStateCode');
             const businessAddressEl = document.getElementById('businessAddress');
 
+                // Enforce uppercase for merchant GSTIN input (if present)
+                try { enforceUppercaseInput(merchantGstinEl); } catch(_) {}
+                // Attach GSTIN validation styling (red/green border) for merchant GSTIN
+                try { attachGstinValidation(merchantGstinEl, null); } catch(_) {}
+
             const newSettings = {
                 scrollingBarText: (scrollingBarTextEl?.value) || '',
                 isScrollingBarVisible: !!(scrollingBarVisibleEl?.checked),
                 merchantGstRegistered: !!(merchantGstRegisteredEl?.checked),
                 // --- UPDATED: Save new GST fields ---
-                merchantGstin: (merchantGstRegisteredEl?.checked ? (merchantGstinEl?.value || '') : ''),
+                merchantGstin: (merchantGstRegisteredEl?.checked ? ((merchantGstinEl?.value || '').toString().trim().toUpperCase()) : ''),
                 merchantStateCode: (merchantStateCodeEl?.value || ''),
                 businessAddress: (businessAddressEl?.value || ''),
                 // ------------------------------------
@@ -5656,6 +5775,33 @@ document.body.addEventListener('submit', async e => {
         // Find supplier object (if available) to determine GST registration status.
         const supplierObj = (state.allSuppliers || []).find(s => ((s.name || '').trim().toLowerCase() === (supplierName || '').trim().toLowerCase()));
         const supplierRegistered = !!(supplierObj && (supplierObj.gstin || '').trim());
+
+        // If an existing supplier is selected, require that it has address and stateCode recorded
+        if (supplierObj) {
+            if (!supplierObj.address || !supplierObj.stateCode) {
+                // Set pending retry so that after the user saves the supplier details we
+                // automatically retry submitting the purchase form.
+                pendingPurchaseRetryFn = () => {
+                    try {
+                        // Small delay to allow state updates to propagate
+                        setTimeout(() => {
+                            const form = document.getElementById('purchaseForm');
+                            if (form) form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+                            pendingPurchaseRetryFn = null;
+                        }, 150);
+                    } catch (_) { pendingPurchaseRetryFn = null; }
+                };
+                // Open the edit modal prefilled so user can update missing fields
+                try {
+                    showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id });
+                } catch (_) {
+                    // Fallback: show message
+                    pendingPurchaseRetryFn = null;
+                    showMessage('Selected supplier is missing address or state. Please update supplier details (address and state) before recording a purchase.');
+                }
+                return;
+            }
+        }
 
         document.querySelectorAll('.purchase-item-row').forEach(row => {
             const productId = row.querySelector('.purchase-product-select').value;
@@ -7831,6 +7977,12 @@ function showLedgerDrilldown(partyName, ledgerType) {
             </div>
         </div>`;
     document.body.appendChild(modal);
+
+    // Enforce uppercase and attach GSTIN validation for the party edit modal
+    try { enforceUppercaseInput(document.getElementById('partyEditGstin')); } catch (_) {}
+    try { attachGstinValidation(document.getElementById('partyEditGstin'), document.getElementById('partyEditGstinFeedback')); } catch (_) {}
+    // Enforce uppercase on the modal GSTIN input
+    try { enforceUppercaseInput(document.getElementById('partyEditGstin')); } catch (_) {}
     modal.querySelector('#closeLedgerModal').addEventListener('click', () => {
         modal.remove();
     });
@@ -7858,6 +8010,7 @@ function showPartyEditModal({ type, name, gstin, address, docId }) {
                 <div>
                     <label class="block text-sm text-gray-700 mb-1">GSTIN (optional)</label>
                     <input type="text" id="partyEditGstin" class="w-full border rounded p-2" value="${(gstin||'').replace(/"/g,'&quot;')}" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
+                    <div id="partyEditGstinFeedback" class="text-xs text-red-600 mt-1 hidden"></div>
                 </div>
                 <div>
                     <label class="block text-sm text-gray-700 mb-1">Address (optional)</label>
@@ -7903,6 +8056,16 @@ function showPartyEditModal({ type, name, gstin, address, docId }) {
             renderAdminLedgersPage();
             showMessage('Party details saved.');
             close();
+            // If a pending purchase submit is waiting for this supplier to be fixed,
+            // trigger it now so the user doesn't have to re-submit manually.
+            try {
+                if (typeof pendingPurchaseRetryFn === 'function' && type === 'supplier') {
+                    // Run after a short delay to ensure state sync
+                    setTimeout(() => {
+                        try { pendingPurchaseRetryFn(); } catch (_) {}
+                    }, 100);
+                }
+            } catch (_) {}
         } catch (err) {
             console.error('Save party error:', err);
             showMessage('Failed to save party.');
