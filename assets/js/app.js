@@ -46,6 +46,13 @@ let state = {
     allLocalSales: [], // For Admin
     allSalesReturns: [], // For Admin
     allPurchaseReturns: [], // For Admin
+    allCreditorsLedger: [], // For Admin - Sundry Creditors entries
+    allDebtorsLedger: [], // For Admin - Sundry Debtors entries
+    allCashLedger: [], // Cash account entries
+    allBankLedger: [], // Bank account entries
+    allBanks: [], // Bank master list
+    allSuppliers: [], // Party masters
+    allCustomers: [],
     siteSettings: {
         isScrollingBarVisible: true,
         scrollingBarText: "✨ FLAT 10% OFF ON ALL BEAUTY PRODUCTS ✨ LIMITED TIME OFFER: FREE SHIPPING ON ORDERS OVER ₹4000! NEW ARRIVALS: CHECK OUT OUR LATEST ORNAMENTS",
@@ -66,6 +73,21 @@ let state = {
     billingStartDate: new Date().toISOString().split('T')[0],
     billingEndDate: new Date().toISOString().split('T')[0],
     billingSearchText: '',
+    // Ledgers date filter
+    ledgerStartDate: new Date().toISOString().split('T')[0],
+    ledgerEndDate: new Date().toISOString().split('T')[0],
+    bankAccountFilter: 'All',
+    // Ledgers pagination (default 10 entries per page)
+    ledgerPageSize: 10,
+    cashPage: 1,
+    bankPage: 1,
+    creditorsPage: 1,
+    debtorsPage: 1,
+    // Per-pane page sizes (overrides ledgerPageSize if present)
+    cashPageSize: 10,
+    bankPageSize: 10,
+    creditorsPageSize: 10,
+    debtorsPageSize: 10,
     // Pagination
     registerPage: 1,
     registerPageSize: 25,
@@ -90,11 +112,144 @@ let state = {
         allLocalSales: null,
         allSalesReturns: null,
         allPurchaseReturns: null,
+        allCreditorsLedger: null,
+        allDebtorsLedger: null,
+    allCashLedger: null,
+    allBankLedger: null,
+        allBanks: null,
+        allSuppliers: null,
+        allCustomers: null,
         profile: null,
     },
     // Per-order mirror listeners for user orders overlaying status from public orders
-    userOrderPublicUnsubs: {}
+    userOrderPublicUnsubs: {},
+    isAdmin: false,
+    adminListenersActive: false
 };
+
+// Load persisted per-pane page-size preferences (scoped by appId)
+try {
+    const _ls = window.localStorage;
+    const loadSize = (key, fallback) => {
+        try { const v = parseInt(_ls.getItem(`tiaras.ledger.${key}PageSize_${appId}`), 10); return (v && [10,25,50].includes(v)) ? v : fallback; } catch (e) { return fallback; }
+    };
+    state.cashPageSize = loadSize('cash', state.cashPageSize || state.ledgerPageSize || 10);
+    state.bankPageSize = loadSize('bank', state.bankPageSize || state.ledgerPageSize || 10);
+    state.creditorsPageSize = loadSize('creditors', state.creditorsPageSize || state.ledgerPageSize || 10);
+    state.debtorsPageSize = loadSize('debtors', state.debtorsPageSize || state.ledgerPageSize || 10);
+} catch (e) { /* ignore localStorage failures */ }
+// --- ADMIN HELPERS ---
+function normalizeList(input) {
+    if (!input) return [];
+    if (Array.isArray(input)) {
+        return input
+            .map(v => (typeof v === 'string' ? v.trim() : String(v || '').trim()))
+            .filter(Boolean);
+    }
+    if (typeof input === 'string') {
+        return input
+            .split(/[\s,;]+/)
+            .map(v => v.trim())
+            .filter(Boolean);
+    }
+    return [];
+}
+
+function getAllowedAdminUids() {
+    const settings = state.siteSettings || {};
+    const configured = [
+        ...normalizeList(settings.adminUid),
+        ...normalizeList(settings.adminUids)
+    ];
+    const unique = new Set([ADMIN_UID, ...configured]);
+    return Array.from(unique).filter(Boolean);
+}
+
+function getAllowedAdminEmails() {
+    const settings = state.siteSettings || {};
+    const configured = [
+        ...normalizeList(settings.adminEmail),
+        ...normalizeList(settings.adminEmails)
+    ];
+    return configured.map(e => e.toLowerCase());
+}
+
+function computeIsCurrentUserAdmin() {
+    const uid = state.currentUser && state.currentUser.uid;
+    if (!uid) return false;
+    if (getAllowedAdminUids().includes(uid)) return true;
+
+    const email = (state.currentUser.email || '').toLowerCase();
+    if (!email) return false;
+    const allowedEmails = getAllowedAdminEmails();
+    return allowedEmails.includes(email);
+}
+
+function detachAdminListeners() {
+    const adminKeys = [
+        'allOrders',
+        'allTestimonials',
+        'allPurchases',
+        'allLocalSales',
+        'allSalesReturns',
+        'allPurchaseReturns',
+        'allCreditorsLedger',
+        'allDebtorsLedger',
+        'allCashLedger',
+        'allBankLedger'
+    ];
+    adminKeys.forEach(key => {
+        if (state.listeners[key]) {
+            try { state.listeners[key](); } catch {}
+            state.listeners[key] = null;
+        }
+    });
+    state.adminListenersActive = false;
+    state.allOrders = [];
+    state.allTestimonials = [];
+    state.allPurchases = [];
+    state.allLocalSales = [];
+    state.allSalesReturns = [];
+    state.allPurchaseReturns = [];
+    state.allCreditorsLedger = [];
+    state.allDebtorsLedger = [];
+    state.allCashLedger = [];
+    state.allBankLedger = [];
+}
+
+function ensureAdminListenersAttached() {
+    const canAttach = state.currentUser && !state.currentUser.isAnonymous && state.isAdmin;
+    if (!canAttach) {
+        if (state.adminListenersActive) detachAdminListeners();
+        return;
+    }
+
+    if (state.adminListenersActive) return;
+
+    listenToAllOrders();
+    listenToAllTestimonials();
+    listenToAllPurchases();
+    listenToAllLocalSales();
+    listenToAllSalesReturns();
+    listenToAllPurchaseReturns();
+    listenToAllCreditorsLedger();
+    listenToAllDebtorsLedger();
+    listenToAllCashLedger();
+    listenToAllBankLedger();
+    state.adminListenersActive = true;
+}
+
+function refreshAdminState() {
+    const previous = !!state.isAdmin;
+    const next = computeIsCurrentUserAdmin();
+    state.isAdmin = next;
+    if (!next && previous) {
+        detachAdminListeners();
+    }
+    if (next) {
+        ensureAdminListenersAttached();
+    }
+}
 
 // --- DATE HELPERS ---
 function _toDate(input) {
@@ -264,8 +419,7 @@ function renderHeader() {
         </button>
         <a href="#" data-page="auth" class="nav-btn hover:text-gray-500"><i class="fa-solid fa-user fa-lg"></i></a>`; // Default: Login icon with Google
     if (state.currentUser && !state.currentUser.isAnonymous) {
-        const isAdmin = state.currentUser.uid === ADMIN_UID;
-        const adminIcon = isAdmin ? `<a href="#" data-page="admin" class="nav-btn hover:text-gray-500" title="Admin Panel"><i class="fa-solid fa-user-shield fa-lg"></i></a>` : '';
+        const adminIcon = state.isAdmin ? `<a href="#" data-page="admin" class="nav-btn hover:text-gray-500" title="Admin Panel"><i class="fa-solid fa-user-shield fa-lg"></i></a>` : '';
         const profileIcon = `<a href="#" data-page="account" class="nav-btn hover:text-gray-500" title="My Account"><i class="fa-solid fa-user fa-lg"></i></a>`;
         const ordersIcon = `<a href="#" data-page="orders" class="nav-btn hover:text-gray-500" title="My Orders"><i class="fa-solid fa-box-archive fa-lg"></i></a>`;
         const logoutIcon = `<a href="#" id="logoutBtn" class="hover:text-gray-500" title="Logout"><i class="fa-solid fa-right-from-bracket fa-lg"></i></a>`;
@@ -351,6 +505,46 @@ function renderFooter() {
 }
         
 // --- PAGE RENDERING ---
+
+function renderCartPage() {
+    if (!state.currentUser || state.currentUser.isAnonymous) {
+        pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-16"><h2 class="text-3xl font-bold mb-4">Please Log In</h2><p class="text-lg text-gray-600">You need to be logged in to view your cart.</p></div>`;
+        return;
+    }
+    const cartProductIds = Object.keys(state.cart.items);
+    if (cartProductIds.length === 0) {
+        pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-16"><h2 class="text-3xl font-playfair mb-4">Your Cart is Empty</h2><p class="text-gray-600">Looks like you haven't added anything yet.</p></div>`;
+        return;
+    }
+
+    let total = 0;
+    const cartItemsHTML = state.products
+        .filter(p => cartProductIds.includes(p.id))
+        .map(product => {
+            const quantity = state.cart.items[product.id].quantity;
+            const subtotal = product.salePrice * quantity;
+            total += subtotal;
+            return `<div class="flex items-center justify-between py-6"><div class="flex items-center space-x-6 flex-1"><img src="${product.image}" class="w-28 h-28 object-cover rounded-md"><div><h3 class="font-semibold text-lg">${product.name}</h3><p class="text-gray-500 text-sm mt-1">₹${Number(product.salePrice).toFixed(2)}</p><div class="flex items-center border rounded-md w-28 mt-4"><button data-id="${product.id}" data-change="-1" class="cart-quantity-stepper p-2">-</button><input type="number" data-id="${product.id}" value="${quantity}" min="1" class="cart-quantity-selector w-12 text-center border-l border-r"><button data-id="${product.id}" data-change="1" class="cart-quantity-stepper p-2">+</button></div></div></div><div class="flex items-center space-x-5"><p class="font-semibold text-lg w-24 text-right">${subtotal.toFixed(2)}</p><button data-id="${product.id}" class="remove-from-cart-btn text-gray-400 hover:text-black text-xl">&times;</button></div></div>`;
+        }).join('');
+
+    pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">Shopping Cart</h1><div class="grid grid-cols-1 lg:grid-cols-3 gap-12"><div class="lg:col-span-2 bg-white p-8 rounded-lg shadow-sm"><div class="divide-y">${cartItemsHTML}</div></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-playfair mb-6">Order Summary</h2><div class="flex justify-between items-center text-lg mb-6"><span>Subtotal (₹)</span><span class="font-semibold">${total.toFixed(2)}</span></div><button data-page="checkout" class="nav-btn w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Proceed to Checkout</button></div></div></div></div>`;
+}
+
+function renderOrdersPage() {
+    if (!state.currentUser || state.currentUser.isAnonymous) {
+        navigateTo('auth');
+        return;
+    }
+
+    let content = '';
+    if (state.orders.length === 0) {
+        content = `<div class="text-center py-16"><h2 class="text-2xl font-semibold mb-2">No orders yet</h2><p class="text-gray-500">Looks like you haven't placed an order with us.</p></div>`;
+    } else {
+        content = state.orders.map(order => `<div class="bg-white p-6 rounded-lg shadow-sm"><div class="flex justify-between items-start mb-4"><div><p class="font-bold text-lg">Order ID: <span class="font-mono">${order.id}</span></p><p class="text-sm text-gray-500">Date: ${new Date(order.orderDate.seconds * 1000).toLocaleDateString()}</p></div><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${order.status}</span></div><div class="border-t pt-4">${order.items.map(item => `<div class="flex items-center space-x-4 mb-3"><img src="${item.image}" class="w-12 h-12 rounded-md object-cover"><div><p class="font-medium">${item.name}</p><p class="text-sm text-gray-500">Qty: ${item.quantity} - \u20b9${item.price.toFixed(2)}</p></div></div>`).join('')}</div><div class="border-t pt-4 mt-4 text-right"><p class="font-semibold text-lg">Total: \u20b9${order.totalAmount.toFixed(2)}</p></div></div>`).join('');
+    }
+
+    pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">My Orders</h1><div class="max-w-4xl mx-auto space-y-6">${content}</div></div></div>`;
+}
 
 function renderHomePage() {
     const newArrivals = state.products.slice(0, 4);
@@ -525,11 +719,12 @@ function renderProductsPage(category = null, group = null) {
     }
     
     if (group) {
-        productsToDisplay = productsToDisplay.filter(p => p.productGroup === group);
-        title = group;
-        subtitle = `Browse our ${title} collection`;
+        // Filter products by group identifier when provided
+        productsToDisplay = productsToDisplay.filter(p => (p.groupId || p.productGroupId || p.group) === group);
+        title = 'All Products';
+        subtitle = 'Browse our curated collection';
     }
-    
+    // Render the products listing using the existing helper
     pageContent.innerHTML = `<div class="bg-white"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-2">${title}</h1><p class="text-center text-gray-500 mb-12">${subtitle}</p>${renderProductGrid(productsToDisplay)}</div></div>`;
 }
 
@@ -559,7 +754,7 @@ function renderTestimonialsPage() {
         </div>
     `;
 
-    const allTestimonialsHTML = state.testimonials.length > 0 ? state.testimonials.map(testimonial => `
+    const allTestimonialsHTML = state.testimonials && state.testimonials.length > 0 ? state.testimonials.map(testimonial => `
         <div class="bg-white p-6 rounded-lg shadow-sm">
             <div class="text-yellow-400 mb-2 text-lg">
                 ${'<i class="fas fa-star"></i>'.repeat(testimonial.rating)}
@@ -585,142 +780,6 @@ function renderTestimonialsPage() {
             </div>
         </div>
     `;
-}
-
-function renderProductDetailPage() {
-    const product = state.products.find(p => p.id === state.currentProductId);
-    if (!product) {
-        pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-20"><div class="loader mx-auto"></div><p class="mt-4">Loading Product...</p></div>`;
-        return;
-    }
-
-    const isOutOfStock = !product.stock || product.stock <= 0;
-    const addToCartButton = isOutOfStock
-        ? `<button class="w-full bg-gray-400 text-white font-semibold py-4 px-10 rounded-full uppercase tracking-wider text-sm cursor-not-allowed" disabled>Out of Stock</button>`
-        : `<button data-id="${product.id}" class="add-to-cart-btn-detail w-full bg-black text-white font-semibold py-4 px-10 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all duration-300">Add to Cart</button>`;
-
-
-    pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><div class="grid md:grid-cols-2 gap-16 items-start"><div class="bg-gray-100 p-4 rounded-lg relative"><img src="${product.image}" alt="${product.name}" class="w-full h-auto object-cover rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/600x600/f0f0f0/ccc?text=Image+Not+Found';"> ${isOutOfStock ? `<div class="out-of-stock-overlay"><span class="bg-black text-white font-bold py-2 px-4 rounded-md uppercase">Out of Stock</span></div>` : ''}</div><div><h1 class="text-4xl font-playfair mb-4">${product.name}</h1><p class="text-3xl font-semibold text-gray-800 mb-6">₹${Number(product.salePrice).toFixed(2)}</p><p class="text-gray-600 leading-relaxed mb-8">${product.description}</p><div class="flex items-center space-x-4 mb-8"><label for="quantity" class="font-semibold text-sm">QUANTITY</label><input type="number" id="quantitySelector" value="1" min="1" class="w-20 p-2 border border-gray-300 rounded-md text-center"></div> ${addToCartButton} <div class="mt-12 border-t"><div class="accordion-item border-b"><button class="accordion-header w-full flex justify-between items-center py-4 text-left"><span class="font-semibold uppercase text-sm">Description</span><i class="fas fa-chevron-down transform transition-transform"></i></button><div class="accordion-content pb-4 text-gray-600"><p>${product.description}</p></div></div><div class="accordion-item border-b"><button class="accordion-header w-full flex justify-between items-center py-4 text-left"><span class="font-semibold uppercase text-sm">Shipping & Returns</span><i class="fas fa-chevron-down transform transition-transform"></i></button><div class="accordion-content pb-4 text-gray-600"><p>Free standard shipping on orders over ₹4000. Returns are accepted within 30 days of purchase. Please see our full policy for details.</p></div></div></div></div></div></div>`;
-}
-
-function renderCartPage() {
-     if (!state.currentUser || state.currentUser.isAnonymous) {
-         pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-16"><h2 class="text-3xl font-bold mb-4">Please Log In</h2><p class="text-lg text-gray-600">You need to be logged in to view your cart.</p></div>`;
-         return;
-     }
-    const cartProductIds = Object.keys(state.cart.items);
-    if (cartProductIds.length === 0) {
-        pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-16"><h2 class="text-3xl font-playfair mb-4">Your Cart is Empty</h2><p class="text-gray-600">Looks like you haven't added anything yet.</p></div>`;
-        return;
-    }
-
-    let total = 0;
-    const cartItemsHTML = state.products
-        .filter(p => cartProductIds.includes(p.id))
-        .map(product => {
-            const quantity = state.cart.items[product.id].quantity;
-            const subtotal = product.salePrice * quantity;
-            total += subtotal;
-            return `<div class="flex items-center justify-between py-6"><div class="flex items-center space-x-6 flex-1"><img src="${product.image}" class="w-28 h-28 object-cover rounded-md"><div><h3 class="font-semibold text-lg">${product.name}</h3><p class="text-gray-500 text-sm mt-1">₹${Number(product.salePrice).toFixed(2)}</p><div class="flex items-center border rounded-md w-28 mt-4"><button data-id="${product.id}" data-change="-1" class="cart-quantity-stepper p-2">-</button><input type="number" data-id="${product.id}" value="${quantity}" min="1" class="cart-quantity-selector w-12 text-center border-l border-r"><button data-id="${product.id}" data-change="1" class="cart-quantity-stepper p-2">+</button></div></div></div><div class="flex items-center space-x-5"><p class="font-semibold text-lg w-24 text-right">${subtotal.toFixed(2)}</p><button data-id="${product.id}" class="remove-from-cart-btn text-gray-400 hover:text-black text-xl">&times;</button></div></div>`;
-        }).join('');
-
-    pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">Shopping Cart</h1><div class="grid grid-cols-1 lg:grid-cols-3 gap-12"><div class="lg:col-span-2 bg-white p-8 rounded-lg shadow-sm"><div class="divide-y">${cartItemsHTML}</div></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-playfair mb-6">Order Summary</h2><div class="flex justify-between items-center text-lg mb-6"><span>Subtotal (₹)</span><span class="font-semibold">${total.toFixed(2)}</span></div><button data-page="checkout" class="nav-btn w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Proceed to Checkout</button></div></div></div></div>`;
-}
-        
-function renderCheckoutPage() {
-    const cartProductIds = Object.keys(state.cart.items);
-    if (cartProductIds.length === 0) {
-        navigateTo('products');
-        return;
-    }
-
-    const itemsForCalc = state.products
-        .filter(p => cartProductIds.includes(p.id))
-        .map(product => ({ price: product.salePrice, quantity: state.cart.items[product.id].quantity, gstPercentage: product.gstPercentage || 0, image: product.image, name: product.name }));
-
-    const shipping = 50.00;
-    let gstComputed = { rates: {}, total: 0, subtotalEx: 0, subtotalInc: 0 };
-    if (state.siteSettings.isGstEnabled) {
-        gstComputed = computeGstForItems(itemsForCalc, !!state.siteSettings.pricesIncludeGst);
-    } else {
-        // GST disabled: treat subtotal as sum of line totals (price*qty)
-        const sum = itemsForCalc.reduce((s, it) => s + it.price * it.quantity, 0);
-        gstComputed = { rates: {}, total: 0, subtotalEx: sum, subtotalInc: sum };
-    }
-
-    const orderItemsHTML = itemsForCalc.map(it => `<div class="flex justify-between items-center py-3"><div class="flex items-center space-x-4"><img src="${it.image}" class="w-16 h-16 object-cover rounded-md"><div><p class="font-semibold">${it.name}</p><p class="text-sm text-gray-500">Qty: ${it.quantity}</p></div></div><p class="font-medium">${(it.price * it.quantity).toFixed(2)}</p></div>`).join('');
-
-    const displaySubtotal = state.siteSettings.pricesIncludeGst ? gstComputed.subtotalInc : gstComputed.subtotalEx;
-    const total = gstComputed.subtotalInc + shipping;
-    
-    const p = state.userProfile || {};
-    const fullNameVal = p.fullName || state.currentUser?.displayName || '';
-    const addressVal = p.address || '';
-    const cityVal = p.city || '';
-    const stateVal = p.state || '';
-    const zipVal = p.zip || '';
-    const phoneVal = (p.phone || '').replace(/\D/g, '').slice(-10);
-
-    pageContent.innerHTML = `<div class=\"bg-gray-50\"><div class=\"container mx-auto px-4 sm:px-6 lg:px-8 py-16\"><h1 class=\"text-4xl font-playfair text-center mb-12\">Checkout</h1><div class=\"grid grid-cols-1 lg:grid-cols-2 gap-16\"><div><h2 class=\"text-2xl font-semibold mb-6\">Shipping Information</h2><form id=\"checkoutForm\" class=\"space-y-4\"><div><label for=\"fullName\" class=\"block text-sm font-medium text-gray-700\">Full Name</label><input type=\"text\" id=\"fullName\" value=\"${fullNameVal}\" required class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border\"></div><div><label for=\"phone\" class=\"block text-sm font-medium text-gray-700\">Mobile (10 digits)</label><input type=\"tel\" id=\"phone\" value=\"${phoneVal}\" required pattern=\"[0-9]{10}\" inputmode=\"numeric\" maxlength=\"10\" minlength=\"10\" class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border\" placeholder=\"e.g., 9876543210\"></div><div><label for=\"address\" class=\"block text-sm font-medium text-gray-700\">Address</label><input type=\"text\" id=\"address\" value=\"${addressVal}\" required class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border\"></div><div class=\"grid grid-cols-1 md:grid-cols-3 gap-4\"><div><label for=\"city\" class=\"block text-sm font-medium text-gray-700\">City</label><input type=\"text\" id=\"city\" value=\"${cityVal}\" required class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border\"></div><div><label for=\"state\" class=\"block text-sm font-medium text-gray-700\">State</label><input type=\"text\" id=\"state\" value=\"${stateVal}\" required class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border\"></div><div><label for=\"zip\" class=\"block text-sm font-medium text-gray-700\">ZIP Code</label><input type=\"text\" id=\"zip\" value=\"${zipVal}\" required class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border\"></div></div><div class=\"pt-2\"><label class=\"flex items-center\"><input type=\"checkbox\" id=\"saveAsDefaultAddress\" class=\"h-4 w-4 rounded border-gray-300 text-black focus:ring-black\" checked><span class=\"ml-2 text-sm text-gray-700\">Save as default shipping address</span></label></div><div class=\"pt-4 ${state.siteSettings.isGstEnabled ? '' : 'hidden'}\"><label class=\"flex items-center\"><input type=\"checkbox\" id=\"requestGstInvoice\" class=\"h-4 w-4 rounded border-gray-300 text-black focus:ring-black\"><span class=\"ml-2 text-sm text-gray-700\">I need a GST invoice</span></label></div><div id=\"gstNumberContainer\" class=\"hidden mt-4\"><label for=\"gstNumber\" class=\"block text-sm font-medium text-gray-700\">GST Number</label><input type=\"text\" id=\"gstNumber\" class=\"mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border\" placeholder=\"e.g., 29ABCDE1234F1Z5\"></div><div class=\"pt-8\"><button type=\"submit\" class=\"w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all\">Place Order</button></div></form></div><div class=\"bg-white p-8 rounded-lg shadow-sm h-fit\"><h2 class=\"text-2xl font-semibold mb-6\">Order Summary</h2><div class=\"space-y-3 divide-y\">${orderItemsHTML}</div><div class=\"border-t mt-6 pt-6 space-y-3\"><div class=\"flex justify-between\"><span>Subtotal (₹)</span><span>${displaySubtotal.toFixed(2)}</span></div> ${Object.keys(gstComputed.rates).map(rate => `<div class=\"flex justify-between\"><span>GST (${rate}%) (₹)</span><span>${gstComputed.rates[rate].toFixed(2)}</span></div>`).join('')} <div class=\"flex justify-between\"><span>Shipping (₹)</span><span>${shipping.toFixed(2)}</span></div><div class=\"flex justify-between font-bold text-lg\"><span>Total (₹)</span><span>${total.toFixed(2)}</span></div></div></div></div></div></div>`;
-    
-    const gstInvoiceCheckbox = document.getElementById('requestGstInvoice');
-    const gstNumberContainer = document.getElementById('gstNumberContainer');
-    
-    gstInvoiceCheckbox.addEventListener('change', () => {
-        gstNumberContainer.classList.toggle('hidden', !gstInvoiceCheckbox.checked);
-        document.getElementById('gstNumber').required = gstInvoiceCheckbox.checked;
-    });
-}
-
-function renderOrderSuccessPage() {
-    pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><div class="bg-green-100 text-green-800 p-6 rounded-lg max-w-md mx-auto mb-8"><i class="fas fa-check-circle fa-3x"></i></div><h1 class="text-4xl font-playfair mb-4">Thank You For Your Order!</h1><p class="text-gray-600 mb-2">Your order has been placed successfully.</p><p class="text-gray-800 font-semibold mb-8">Order ID: <span class="font-mono">${state.currentOrderId}</span></p><button data-page="products" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Continue Shopping</button></div>`;
-}
-
-function renderOrdersPage() {
-    if (!state.currentUser || state.currentUser.isAnonymous) {
-        navigateTo('auth');
-        return;
-    }
-
-    let content = '';
-    if (state.orders.length === 0) {
-        content = `<div class="text-center py-16"><h2 class="text-2xl font-semibold mb-2">No orders yet</h2><p class="text-gray-500">Looks like you haven't placed an order with us.</p></div>`;
-    } else {
-        content = state.orders.map(order => {
-            const itemsHTML = order.items.map(item => `
-                <div class="flex items-center space-x-4 mb-3">
-                    <img src="${item.image}" class="w-12 h-12 rounded-md object-cover">
-                    <div>
-                        <p class="font-medium">${item.name}</p>
-                        <p class="text-sm text-gray-500">Qty: ${item.quantity} - ₹${item.price.toFixed(2)}</p>
-                    </div>
-                </div>
-            `).join('');
-
-            const footerHTML = `
-                <div class="border-t pt-4 mt-4 flex items-center justify-end">
-                    <p class="font-semibold text-lg">Total: ₹${order.totalAmount.toFixed(2)}</p>
-                </div>
-            `;
-
-            return `
-                <div class="bg-white p-6 rounded-lg shadow-sm">
-                    <div class="flex justify-between items-start mb-4">
-                        <div>
-                            <p class="font-bold text-lg">Order ID: <span class="font-mono">${order.id}</span></p>
-                            <p class="text-sm text-gray-500">Date: ${formatDate(order.orderDate)}</p>
-                        </div>
-                        <span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${order.status}</span>
-                    </div>
-                    <div class="border-t pt-4">${itemsHTML}</div>
-                    ${footerHTML}
-                </div>
-            `;
-        }).join('');
-    }
-
-    pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">My Orders</h1><div class="max-w-4xl mx-auto space-y-6">${content}</div></div></div>`;
-
 }
 
 function renderAccountPage() {
@@ -947,12 +1006,13 @@ function renderProductGrid(productsToRender) {
 }
         
 function renderAdminPage() {
-    const isAdmin = state.currentUser && state.currentUser.uid === ADMIN_UID;
-
-    if (!isAdmin) {
+    if (!state.isAdmin) {
         pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><h1 class="text-4xl font-playfair mb-4">Access Denied</h1><p class="text-gray-600">You do not have permission to view this page.</p><button data-page="home" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Go to Homepage</button></div>`;
         return;
     }
+
+    const adminEmailsPrefill = normalizeList(state.siteSettings?.adminEmails ?? state.siteSettings?.adminEmail).join(', ');
+    const adminUidsPrefill = normalizeList(state.siteSettings?.adminUids ?? state.siteSettings?.adminUid).join(', ');
 
     const gstFieldHTML = state.siteSettings.isGstEnabled
         ? `<div><label for="gstPercentage" class="block text-sm font-medium text-gray-700 mb-1">GST %</label><select id="gstPercentage" class="w-full px-4 py-2 border border-gray-300 rounded-md" required><option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18">18%</option><option value="28">28%</option></select></div>`
@@ -986,10 +1046,20 @@ function renderAdminPage() {
             </div>
             <div>
                 <label for="productGroup" class="block text-sm font-medium text-gray-700 mb-1">Product Group (Collection)</label>
-                <select id="productGroup" class="w-full px-4 py-2 border border-gray-300 rounded-md">
-                    <option value="">None</option>
-                   ${state.productGroups.map(g => `<option value="${g.name}">${g.name}</option>`).join('')}
-                </select>
+                <div class="flex items-center gap-2">
+                    <select id="productGroup" class="flex-1 px-4 py-2 border border-gray-300 rounded-md">
+                        <option value="">None</option>
+                       ${state.productGroups.map(g => `<option value="${g.name}">${g.name}</option>`).join('')}
+                    </select>
+                    <button type="button" id="showNewProductGroupBtn" class="text-sm text-blue-600 hover:underline">+ Add</button>
+                </div>
+                <div id="newProductGroupRow" class="mt-2 hidden">
+                    <div class="flex items-center gap-2">
+                        <input type="text" id="newProductGroupName" class="flex-1 px-3 py-2 border border-gray-300 rounded-md" placeholder="New group name">
+                        <button type="button" id="addProductGroupInlineBtn" class="bg-green-600 text-white px-3 py-2 rounded">Add</button>
+                        <button type="button" id="cancelNewProductGroupBtn" class="bg-gray-200 text-gray-700 px-3 py-2 rounded">Cancel</button>
+                    </div>
+                </div>
             </div>
         </div>
         <div class="grid grid-cols-1 ${formGridClass} gap-6 mt-6">
@@ -1001,7 +1071,7 @@ function renderAdminPage() {
 
     const slideFormHTML = `<input type="hidden" id="slideId"><div><label for="slideHeadline" class="block text-sm font-medium text-gray-700 mb-1">Headline</label><input type="text" id="slideHeadline" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideSubtitle" class="block text-sm font-medium text-gray-700 mb-1">Subtitle</label><input type="text" id="slideSubtitle" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideImageUrl" class="block text-sm font-medium text-gray-700 mb-1">Image URL</label><input type="url" id="slideImageUrl" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label for="slideButtonText" class="block text-sm font-medium text-gray-700 mb-1">Button Text</label><input type="text" id="slideButtonText" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideButtonLink" class="block text-sm font-medium text-gray-700 mb-1">Button Link</label><input type="text" id="slideButtonLink" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="#" required></div></div><div class="flex items-center space-x-4"><button type="submit" id="slideFormSubmitBtn" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-blue-700 transition">Add Slide</button><button type="button" id="slideFormCancelBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition hidden">Cancel</button></div>`;
 
-    const settingsFormHTML = `<div class=\"bg-white p-8 rounded-lg shadow-lg mb-12\"><form id=\"settingsForm\"><div class=\"space-y-8\"><div><h3 class=\"text-2xl font-bold mb-4\">Store Settings</h3><div class=\"space-y-4\"><div class=\"flex items-center justify-between\"><span class=\"text-sm font-medium text-gray-700\">Merchant is GST registered</span><label class=\"toggle-switch\"><input type=\"checkbox\" id=\"merchantGstRegistered\" ${state.siteSettings.merchantGstRegistered ? 'checked' : ''}><span class=\"toggle-slider\"></span></label></div><p class=\"text-xs text-gray-500\">Sales GST is applied automatically when the merchant is GST registered. If not registered, GST will not be charged on sales, and purchase GST will be treated as part of item cost.</p></div></div><div class=\"space-y-4 pt-4 border-t\"><h3 class=\"text-2xl font-bold mb-4\">Business & GST Details</h3><div><label for=\"merchantGstin\" class=\"block text-sm font-medium text-gray-700 mb-1\">Merchant GSTIN</label><input type=\"text\" id=\"merchantGstin\" value=\"${state.siteSettings.merchantGstRegistered ? (state.siteSettings.merchantGstin || '') : ''}\" class=\"w-full px-4 py-2 border border-gray-300 rounded-md\" placeholder=\"e.g., 29ABCDE1234F1Z5\" ${state.siteSettings.merchantGstRegistered ? '' : 'disabled title=\"Disabled when not GST registered\"'}></div><div><label for=\"businessAddress\" class=\"block text-sm font-medium text-gray-700 mb-1\">Business Address</label><textarea id=\"businessAddress\" rows=\"3\" class=\"w-full px-4 py-2 border border-gray-300 rounded-md\" placeholder=\"Full address\">${state.siteSettings.businessAddress || ''}</textarea></div></div><hr><div><h3 class=\"text-2xl font-bold mb-4\">Scrolling Announcement Bar</h3><div class=\"space-y-4\"><div><label for=\"scrollingBarText\" class=\"block text-sm font-medium text-gray-700 mb-1\">Display Text</label><input type=\"text\" id=\"scrollingBarText\" value=\"${state.siteSettings.scrollingBarText}\" class=\"w-full px-4 py-2 border border-gray-300 rounded-md\"></div><div class=\"flex items-center justify-between\"><span class=\"text-sm font-medium text-gray-700\">Show Scrolling Bar</span><label class=\"toggle-switch\"><input type=\"checkbox\" id=\"scrollingBarVisible\" ${state.siteSettings.isScrollingBarVisible ? 'checked' : ''}><span class=\"toggle-slider\"></span></label></div></div></div></div><div class=\"mt-8 border-t pt-6 flex items-center justify-between\"><button type=\"submit\" class=\"bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition\">Save All Settings</button><button type=\"button\" id=\"masterResetBtn\" class=\"bg-red-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-red-700 transition\">Master Reset (Danger)</button></div></form><div class=\"mt-4 p-4 border border-red-200 bg-red-50 text-red-700 rounded-md text-sm\"><p class=\"font-semibold\">Danger Zone:</p><div class=\"grid grid-cols-2 md:grid-cols-3 gap-3 mt-2\"><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetProducts\" class=\"h-4 w-4\"> Products</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetProductGroups\" class=\"h-4 w-4\"> Product Groups</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetHeroSlides\" class=\"h-4 w-4\"> Hero Slides</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetGallery\" class=\"h-4 w-4\"> Gallery Images</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetTestimonials\" class=\"h-4 w-4\"> Testimonials</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetOrders\" class=\"h-4 w-4\"> Orders</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetPurchases\" class=\"h-4 w-4\"> Purchases</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetLocalSales\" class=\"h-4 w-4\"> Local Sales</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetSalesReturns\" class=\"h-4 w-4\"> Sales Returns</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetPurchaseReturns\" class=\"h-4 w-4\"> Purchase Returns</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetCarts\" class=\"h-4 w-4\"> User Carts</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetCounters\" class=\"h-4 w-4\"> Counters</label><label class=\"flex items-center gap-2\"><input type=\"checkbox\" id=\"resetSiteSettings\" class=\"h-4 w-4\"> Site Settings</label></div><div class=\"mt-3\"><button type=\"button\" id=\"resetSelectedBtn\" class=\"bg-red-500 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-red-600 transition\">Reset Selected</button></div><p class=\"mt-3\">Select what to reset or use Master Reset to remove everything listed. Type RESET when prompted. Use only for testing.</p></div></div>`;
+    const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Merchant is GST registered</span><label class="toggle-switch"><input type="checkbox" id="merchantGstRegistered" ${state.siteSettings.merchantGstRegistered ? 'checked' : ''}><span class="toggle-slider"></span></label></div><p class="text-xs text-gray-500">Sales GST is applied automatically when the merchant is GST registered. If not registered, GST will not be charged on sales, and purchase GST will be treated as part of item cost.</p></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstRegistered ? (state.siteSettings.merchantGstin || '') : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5" ${state.siteSettings.merchantGstRegistered ? '' : 'disabled title="Disabled when not GST registered"'}></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Admin Access</h3><p class="text-xs text-gray-500">Grant additional admins by listing their email addresses or Firebase Auth UIDs (comma separated). Primary developer admin access always remains.</p><div><label for="adminEmails" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin Emails</label><textarea id="adminEmails" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="name@example.com, other@example.com">${adminEmailsPrefill}</textarea></div><div><label for="adminUids" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin UIDs</label><textarea id="adminUids" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="UID1, UID2">${adminUidsPrefill}</textarea></div><p class="text-[11px] text-gray-500">Changes take effect immediately after saving.</p></div></div><div class="mt-8 border-t pt-6 flex items-center justify-between"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button><button type="button" id="masterResetBtn" class="bg-red-600 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-red-700 transition">Master Reset (Danger)</button></div></form><div class="mt-4 p-4 border border-red-200 bg-red-50 text-red-700 rounded-md text-sm"><p class="font-semibold">Danger Zone:</p><div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2"><label class="flex items-center gap-2"><input type="checkbox" id="resetProducts" class="h-4 w-4"> Products</label><label class="flex items-center gap-2"><input type="checkbox" id="resetProductGroups" class="h-4 w-4"> Product Groups</label><label class="flex items-center gap-2"><input type="checkbox" id="resetHeroSlides" class="h-4 w-4"> Hero Slides</label><label class="flex items-center gap-2"><input type="checkbox" id="resetGallery" class="h-4 w-4"> Gallery Images</label><label class="flex items-center gap-2"><input type="checkbox" id="resetTestimonials" class="h-4 w-4"> Testimonials</label><label class="flex items-center gap-2"><input type="checkbox" id="resetOrders" class="h-4 w-4"> Orders</label><label class="flex items-center gap-2"><input type="checkbox" id="resetPurchases" class="h-4 w-4"> Purchases</label><label class="flex items-center gap-2"><input type="checkbox" id="resetLocalSales" class="h-4 w-4"> Local Sales</label><label class="flex items-center gap-2"><input type="checkbox" id="resetSalesReturns" class="h-4 w-4"> Sales Returns</label><label class="flex items-center gap-2"><input type="checkbox" id="resetPurchaseReturns" class="h-4 w-4"> Purchase Returns</label><label class="flex items-center gap-2"><input type="checkbox" id="resetCarts" class="h-4 w-4"> User Carts</label><label class="flex items-center gap-2"><input type="checkbox" id="resetCounters" class="h-4 w-4"> Counters</label><label class="flex items-center gap-2"><input type="checkbox" id="resetSiteSettings" class="h-4 w-4"> Site Settings</label></div><div class="mt-3"><button type="button" id="resetSelectedBtn" class="bg-red-500 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-red-600 transition">Reset Selected</button></div><p class="mt-3">Select what to reset or use Master Reset to remove everything listed. Type RESET when prompted. Use only for testing.</p></div></div>`;
 
     const tabsContent = {
         orders: `<div><div id="adminOrderList" class="space-y-4"></div></div>`,
@@ -1009,14 +1079,85 @@ function renderAdminPage() {
         product_groups: `<div id="adminProductGroupsContainer"></div>`,
         purchases: `<div id="adminPurchasesContainer"></div>`,
         media: `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><h3 id="slideFormTitle" class="text-2xl font-bold mb-6">Add New Hero Slide</h3><form id="slideForm" class="space-y-6">${slideFormHTML}</form></div><div class="mb-12"><h3 class="text-2xl font-bold mb-6">Manage Hero Slides</h3><div id="adminSlideList" class="space-y-4"></div></div><div class="bg-white p-8 rounded-lg shadow-lg"><h3 class="text-2xl font-bold mb-6">Manage Gallery Images</h3><div id="galleryImageFormContainer"><label for="galleryImageUrl" class="block text-sm font-medium text-gray-700 mb-1">New Image URL</label><div class="flex"><input type="url" id="galleryImageUrl" class="w-full px-4 py-2 border border-r-0 border-gray-300 rounded-l-md" required placeholder="https://example.com/photo.jpg"><button type="button" id="addGalleryImageBtn" class="bg-indigo-600 text-white font-semibold py-2 px-6 rounded-r-md shadow hover:bg-indigo-700 transition">Add Image</button></div></div><div class="mt-8"><h4 class="text-lg font-bold mb-4">Current Images</h4><div id="adminGalleryImageList" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div></div></div>`,
+        billing_settings: `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><h3 class="text-2xl font-bold mb-6">Billing Settings — Opening Balances</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold mb-2">Cash Opening Balance</h3>
+                    <form id="cashOpeningForm" class="mt-2 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                        <div>
+                            <label class="block text-xs text-gray-600">Date</label>
+                            <input type="date" id="cashObDate" class="border rounded p-2 w-full" value="${state.ledgerStartDate}">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">Amount (₹)</label>
+                            <input type="number" id="cashObAmount" class="border rounded p-2 w-full" step="0.01" min="0">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">Notes</label>
+                            <input type="text" id="cashObNotes" class="border rounded p-2 w-full" placeholder="Opening balance">
+                        </div>
+                        <button class="bg-gray-800 text-white px-3 py-2 rounded" type="submit">Add Opening</button>
+                    </form>
+                </div>
+                <div class="bg-white p-6 rounded-lg shadow">
+                    <h3 class="text-xl font-bold mb-2">Bank Opening Balance</h3>
+                    <form id="bankOpeningForm" class="mt-2 grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+                        <div>
+                            <label class="block text-xs text-gray-600">Date</label>
+                            <input type="date" id="bankObDate" class="border rounded p-2 w-full" value="${state.ledgerStartDate}">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">Amount (₹)</label>
+                            <input type="number" id="bankObAmount" class="border rounded p-2 w-full" step="0.01" min="0">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">Account</label>
+                            <select id="bankObAccount" class="border rounded p-2 w-full">
+                                ${(state.allBanks||[]).map(b=>`<option value="${(b.name||'').replace(/"/g,'&quot;')}">${b.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">Notes</label>
+                            <input type="text" id="bankObNotes" class="border rounded p-2 w-full" placeholder="Opening balance">
+                        </div>
+                        <button class="bg-gray-800 text-white px-3 py-2 rounded" type="submit">Add Opening</button>
+                    </form>
+                </div>
+            </div>
+        </div>`,
         testimonials: `<div><h3 class="text-2xl font-bold mb-6">Manage Testimonials</h3><div id="adminTestimonialsList" class="space-y-4"></div></div>`,
         reports: `<div id="adminReportsContainer"></div>`,
         local_sale: `<div id="adminLocalSaleContainer"></div>`,
         returns: `<div id="adminReturnsContainer"></div>`,
+        ledgers: `<div id="adminLedgersContainer"></div>`,
         settings: settingsFormHTML,
     };
 
-    pageContent.innerHTML = `<div class="container mx-auto px-6 py-12"><div class="flex justify-between items-center mb-8"><h2 class="text-4xl font-playfair">Admin Panel</h2><button data-page="home" class="nav-btn bg-gray-800 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-gray-900 transition duration-300">View Store</button></div><div class="border-b border-gray-200 mb-8"><nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs"><a href="#" data-tab="orders" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'orders' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Orders</a><a href="#" data-tab="products" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'products' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Products</a><a href="#" data-tab="product_groups" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'product_groups' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Product Groups</a><a href="#" data-tab="purchases" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'purchases' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Purchases</a><a href="#" data-tab="media" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'media' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Media</a><a href="#" data-tab="testimonials" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'testimonials' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Testimonials</a><a href="#" data-tab="reports" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'reports' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing & Reports</a><a href="#" data-tab="local_sale" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'local_sale' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Local Sale</a><a href="#" data-tab="returns" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'returns' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Returns</a><a href="#" data-tab="settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Settings</a></nav></div><div id="adminTabContent">${tabsContent[state.adminCurrentTab]}</div></div>`;
+    // Move scrolling bar controls from Settings into Media tab at runtime
+    const scrollingBarFormHTML = `
+        <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
+            <h3 class="text-2xl font-bold mb-4">Scrolling Announcement Bar</h3>
+            <div class="space-y-4">
+                <div>
+                    <label for="scrollingBarText" class="block text-sm font-medium text-gray-700 mb-1">Display Text</label>
+                    <input type="text" id="scrollingBarText" value="${state.siteSettings.scrollingBarText}" class="w-full px-4 py-2 border border-gray-300 rounded-md">
+                </div>
+                <div class="flex items-center justify-between">
+                    <span class="text-sm font-medium text-gray-700">Show Scrolling Bar</span>
+                    <label class="toggle-switch"><input type="checkbox" id="scrollingBarVisible" ${state.siteSettings.isScrollingBarVisible ? 'checked' : ''}><span class="toggle-slider"></span></label>
+                </div>
+            </div>
+        </div>`;
+
+    // Append to media tab content
+    tabsContent.media = (tabsContent.media || '') + scrollingBarFormHTML;
+
+    // Remove the scrolling bar block from settings HTML (if present)
+    tabsContent.settings = (tabsContent.settings || '').replace(/<hr>\s*<div>\s*<h3 class=\"text-2xl font-bold mb-4\">Scrolling Announcement Bar[\s\S]*?<\/div>\s*<\/div>/, '');
+    // Also remove any other variants (different spacing/containers) by stripping from the <hr> up to the following section
+    tabsContent.settings = tabsContent.settings.replace(/<hr>[\s\S]*?<div class="mt-8 border-t pt-6/, '<div class="mt-8 border-t pt-6');
+
+    pageContent.innerHTML = `<div class="container mx-auto px-6 py-12"><div class="flex justify-between items-center mb-8"><h2 class="text-4xl font-playfair">Admin Panel</h2><button data-page="home" class="nav-btn bg-gray-800 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-gray-900 transition duration-300">View Store</button></div><div class="border-b border-gray-200 mb-8"><nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs"><a href="#" data-tab="orders" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'orders' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Orders</a><a href="#" data-tab="products" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'products' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Products</a><a href="#" data-tab="product_groups" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'product_groups' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Product Groups</a><a href="#" data-tab="purchases" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'purchases' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Purchases</a><a href="#" data-tab="media" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'media' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Media</a><a href="#" data-tab="testimonials" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'testimonials' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Testimonials</a><a href="#" data-tab="reports" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'reports' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing & Reports</a><a href="#" data-tab="billing_settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'billing_settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing Settings</a><a href="#" data-tab="local_sale" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'local_sale' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Local Sale</a><a href="#" data-tab="returns" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'returns' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Returns</a><a href="#" data-tab="ledgers" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'ledgers' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Ledgers</a><a href="#" data-tab="settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Settings</a></nav></div><div id="adminTabContent">${tabsContent[state.adminCurrentTab]}</div></div>`;
 
     if (state.adminCurrentTab === 'orders') renderAdminOrderList();
     else if (state.adminCurrentTab === 'products') renderAdminProductList();
@@ -1027,6 +1168,7 @@ function renderAdminPage() {
     else if (state.adminCurrentTab === 'reports') renderAdminBillingPage();
     else if (state.adminCurrentTab === 'local_sale') renderLocalSalePage();
     else if (state.adminCurrentTab === 'returns') renderAdminReturnsPage();
+    else if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
     else if (state.adminCurrentTab === 'settings') { /* no gallery here anymore */ }
 
     attachAdminListeners();
@@ -1855,9 +1997,30 @@ function renderAdminPurchasesPage() {
             <h3 class="text-2xl font-bold mb-6">Add New Purchase Entry</h3>
             <form id="purchaseForm" class="space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <input type="hidden" id="editingPurchaseId" value="" />
                     <div>
                         <label for="supplierName" class="block text-sm font-medium text-gray-700 mb-1">Supplier Name</label>
-                        <input type="text" id="supplierName" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                        <input type="text" id="supplierName" class="w-full px-4 py-2 border border-gray-300 rounded-md" list="suppliersDatalistPurchase" placeholder="Type to search suppliers" required>
+                        <datalist id="suppliersDatalistPurchase">${(state.allSuppliers||[]).map(s => `<option value="${(s.name||'').replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
+                        <div class="mt-2">
+                            <button type="button" id="showNewSupplierBtn" class="text-sm text-blue-600 hover:underline">Can\'t find supplier? + Add</button>
+                        </div>
+                        <div id="newSupplierRow" class="mt-3 hidden border p-3 rounded bg-gray-50">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-xs text-gray-600">GSTIN (optional)</label>
+                                    <input type="text" id="newSupplierGstin" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="GSTIN">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600">Address (optional)</label>
+                                    <input type="text" id="newSupplierAddress" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Address">
+                                </div>
+                            </div>
+                            <div class="mt-3 flex gap-3">
+                                <button type="button" id="addSupplierInlineBtn" class="bg-green-600 text-white px-3 py-2 rounded">Add Supplier</button>
+                                <button type="button" id="cancelNewSupplierBtn" class="bg-gray-200 px-3 py-2 rounded">Cancel</button>
+                            </div>
+                        </div>
                     </div>
                     <div>
                         <label for="purchaseDate" class="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
@@ -1889,7 +2052,7 @@ function renderAdminPurchasesPage() {
                     </div>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
                           <div class="text-right sm:text-left">
-                              <div class="text-gray-600">Subtotal (₹)</div>
+                              <div id="purchaseSubtotalLabel" class="text-gray-600">Subtotal (₹)</div>
                               <div id="purchaseSubtotal" class="font-semibold">0.00</div>
                           </div>
                           <div class="text-right sm:text-left">
@@ -1901,6 +2064,45 @@ function renderAdminPurchasesPage() {
                               <div id="purchaseTotal" class="font-bold text-xl">0.00</div>
                           </div>
                     </div>
+                    <div class="mt-4 space-y-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Payment Type</label>
+                            <div class="flex flex-wrap gap-4 text-sm">
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="purchasePaymentType" value="credit" checked>
+                                    <span>Credit (to Creditors)</span>
+                                </label>
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="purchasePaymentType" value="cash">
+                                    <span>Cash</span>
+                                </label>
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" name="purchasePaymentType" value="bank">
+                                    <span>Bank</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div id="purchasePayNowRow" class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Pay Now (₹)</label>
+                                <input type="number" id="purchasePayNow" class="w-full px-3 py-2 border border-gray-300 rounded-md" step="0.01" min="0" placeholder="0.00">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+                                <select id="purchasePaymentMode" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                                    <option value="cash">Cash</option>
+                                    <option value="bank">Bank</option>
+                                </select>
+                            </div>
+                            <div id="purchaseBankAccountRow" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Bank Account</label>
+                                <select id="purchaseBankAccount" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                                    ${(state.allBanks||[]).map(b => `<option value="${(b.name||'').replace(/"/g,'&quot;')}">${(b.name||'').replace(/</g,'&lt;')}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500">Tip: Enter Pay Now to split between immediate payment and Creditors automatically. Leave 0 for full credit.</p>
+                    </div>
                 </div>
                 <div class="flex justify-end">
                     <button type="submit" class="bg-green-600 text-white font-semibold py-3 px-8 rounded-md shadow hover:bg-green-700 transition">Record Purchase</button>
@@ -1908,28 +2110,77 @@ function renderAdminPurchasesPage() {
             </form>
         </div>
     `;
-    
+    // Render form and a separate purchase-history pane below it
     const purchaseHistoryHTML = `
         <div class="bg-white p-8 rounded-lg shadow-lg">
-            <h3 class="text-2xl font-bold mb-6">Purchase History</h3>
-            <div id="purchaseHistoryContainer" class="space-y-4">
-                </div>
+            <h3 class="text-2xl font-bold mb-4">Purchase History</h3>
+            <div id="purchaseHistoryContainer" class="space-y-4"></div>
         </div>
     `;
 
+    // Render form first, then the history pane below it
     container.innerHTML = purchaseFormHTML + purchaseHistoryHTML;
-    addPurchaseItemRow(); // Add the first row initially
-    renderPurchaseHistory(); // Render the history list
-    // Initialize totals and badge state once after first row added
-    updatePurchaseTotal();
-    // Initialize GST% editability based on toggle state
-    const pricesIncludeToggle = document.getElementById('purchasePricesIncludeGst');
-    if (pricesIncludeToggle) {
-        setPurchaseGstEnabled(!!pricesIncludeToggle.checked);
-    }
 
     // Attach listeners specific to this page
     document.getElementById('addPurchaseItemBtn').addEventListener('click', addPurchaseItemRow);
+    // Inline supplier add handlers
+    const showNewSupplierBtn = document.getElementById('showNewSupplierBtn');
+    const newSupplierRow = document.getElementById('newSupplierRow');
+    const newSupplierGstin = document.getElementById('newSupplierGstin');
+    const newSupplierAddress = document.getElementById('newSupplierAddress');
+    const addSupplierInlineBtn = document.getElementById('addSupplierInlineBtn');
+    const cancelNewSupplierBtn = document.getElementById('cancelNewSupplierBtn');
+    if (showNewSupplierBtn && newSupplierRow) {
+        showNewSupplierBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            newSupplierRow.classList.toggle('hidden');
+            if (!newSupplierRow.classList.contains('hidden')) setTimeout(() => { newSupplierGstin && newSupplierGstin.focus(); }, 50);
+        });
+    }
+    if (cancelNewSupplierBtn && newSupplierRow) {
+        cancelNewSupplierBtn.addEventListener('click', (e) => { e.preventDefault(); newSupplierRow.classList.add('hidden'); if (newSupplierGstin) newSupplierGstin.value = ''; if (newSupplierAddress) newSupplierAddress.value = ''; });
+    }
+    if (addSupplierInlineBtn) {
+        addSupplierInlineBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const name = (document.getElementById('supplierName')?.value || '').trim();
+            const gstin = (newSupplierGstin?.value || '').trim();
+            const address = (newSupplierAddress?.value || '').trim();
+            if (!name) { showMessage('Enter supplier name first.'); return; }
+            // Check for existing supplier (case-insensitive)
+            const exists = (state.allSuppliers || []).some(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
+            if (exists) { showMessage('Supplier already exists. Choose from the list.'); return; }
+            try {
+                const ref = await addDoc(collection(db, suppliersColPath), { name, gstin: gstin || undefined, address: address || undefined, createdAt: serverTimestamp(), isDeleted: false });
+                // Update local state and datalist
+                try {
+                    state.allSuppliers = [{ id: ref.id, name, gstin: gstin || undefined, address: address || undefined }, ...(state.allSuppliers || [])];
+                } catch (_) {}
+                // Use optimistic upsert to trigger UI refreshes
+                try { upsertPartyInState('supplier', { name, gstin: gstin || undefined, address: address || undefined }); } catch(_){}
+                const dl = document.getElementById('suppliersDatalistPurchase');
+                if (dl) { const opt = document.createElement('option'); opt.value = name; dl.appendChild(opt); }
+                // Select the supplier in input
+                const supplierInput = document.getElementById('supplierName'); if (supplierInput) supplierInput.value = name;
+                showMessage('Supplier added.');
+                if (newSupplierGstin) newSupplierGstin.value = ''; if (newSupplierAddress) newSupplierAddress.value = ''; if (newSupplierRow) newSupplierRow.classList.add('hidden');
+            } catch (err) {
+                console.error('Failed to add supplier inline:', err);
+                showMessage('Failed to add supplier.');
+            }
+        });
+    }
+    // Toggle bank account row visibility based on Pay Now mode
+    const payNowModeSelect = document.getElementById('purchasePaymentMode');
+    const bankRowEl = document.getElementById('purchaseBankAccountRow');
+    const syncPayNowBankRow = () => {
+        if (!payNowModeSelect || !bankRowEl) return;
+        bankRowEl.classList.toggle('hidden', payNowModeSelect.value !== 'bank');
+    };
+    payNowModeSelect?.addEventListener('change', syncPayNowBankRow);
+    syncPayNowBankRow();
+    // Populate the purchase history pane (separate bills list under the entry form)
+    try { renderPurchaseHistory(); } catch (err) { console.error('renderPurchaseHistory failed:', err); }
     container.addEventListener('input', e => {
         if (e.target.classList.contains('purchase-price') || e.target.classList.contains('purchase-quantity')) {
             updatePurchaseTotal();
@@ -1983,7 +2234,8 @@ function renderAdminPurchasesPage() {
         }
         if (e.target.id === 'purchasePricesIncludeGst' || e.target.classList.contains('purchase-gst')) {
             if (e.target.id === 'purchasePricesIncludeGst') {
-                setPurchaseGstEnabled(!!e.target.checked);
+                // Enable editing when inclusive is ON; disable when OFF
+                setPurchaseGstEnabled(e.target.checked);
             }
             updatePurchaseTotal();
         }
@@ -1998,16 +2250,44 @@ function renderLocalSalePage() {
         <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
             <h3 class="text-2xl font-bold mb-6">Create Local Sale Invoice</h3>
             <form id="localSaleForm" class="space-y-6">
+                <input type="hidden" id="editingLocalSaleId" value="" />
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                      <div>
                          <label for="customerName" class="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
-                         <input type="text" id="customerName" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                         <input type="text" id="customerName" class="w-full px-4 py-2 border border-gray-300 rounded-md" list="customersDatalistLocalSale" required>
+                         <datalist id="customersDatalistLocalSale">${(state.allCustomers||[]).map(c=>`<option value="${(c.name||'').replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
                      </div>
                     <div>
                         <label for="saleDate" class="block text-sm font-medium text-gray-700 mb-1">Sale Date</label>
                         <input type="date" id="saleDate" class="w-full px-4 py-2 border border-gray-300 rounded-md" required value="${new Date().toISOString().split('T')[0]}">
                     </div>
                 </div>
+                <div class="pt-2">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="localSaleIsCredit" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black">
+                        <span class="ml-2 text-sm text-gray-700">Credit Sale (on account)</span>
+                    </label>
+                </div>
+                                <div id="localSaleReceiveNowRow" class="pt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Receive Now (₹)</label>
+                                            <input type="number" id="localSaleReceiveNow" class="w-full px-3 py-2 border border-gray-300 rounded-md" step="0.01" min="0" placeholder="0.00">
+                                        </div>
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Mode</label>
+                                            <select id="localSalePaymentMode" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                                                    <option value="cash" selected>Cash</option>
+                                                    <option value="bank">Bank</option>
+                                            </select>
+                                        </div>
+                                        <div id="localSaleBankAccountRow" class="hidden">
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">Bank Account</label>
+                                            <select id="localSaleBankAccount" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                                                ${(state.allBanks||[]).map(b=>`<option>${b.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <p class="md:col-span-3 text-xs text-gray-500">If the received amount is less than the total, the balance will be posted to Debtors (credit on account).</p>
+                                </div>
                 <div class="pt-4 ${state.siteSettings.isGstEnabled ? '' : 'hidden'}">
                     <label class="flex items-center">
                         <input type="checkbox" id="localSaleGstInvoice" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black">
@@ -2044,8 +2324,33 @@ function renderLocalSalePage() {
             </form>
         </div>
     `;
-    
-    container.innerHTML = saleFormHTML;
+    // Recent Local Sales (compact list with Edit)
+    const localSalesSorted = (state.allLocalSales || []).slice().sort((a,b) => (_toDate(b.saleDate) - _toDate(a.saleDate)));
+    const localSalesRows = localSalesSorted.slice(0, 10).map(s => {
+        const dt = _toDate(s.saleDate);
+        const mode = s.receivedNow?.mode ? (s.receivedNow.mode === 'bank' ? `Bank${s.receivedNow.bankAccount ? ` – ${s.receivedNow.bankAccount}`:''}` : 'Cash') : (s.isCreditSale ? 'Credit' : 'Cash/Bank');
+        const tags = s.isCreditSale ? '<span class="ml-2 px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-800 text-xs">Credit</span>' : '';
+        return `<div class="flex items-center justify-between p-3 border rounded-md text-sm">
+            <div>
+                <div class="font-mono">${s.invoiceNumber || s.id}</div>
+                <div class="text-gray-600">${s.customerName || 'Customer'} • ${formatDate(dt)} • ₹${(s.totalAmount||0).toFixed(2)} • ${mode} ${tags}</div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button class="edit-local-sale-btn text-xs bg-blue-600 text-white px-3 py-1 rounded-md" data-id="${s.id}">Edit</button>
+                <a href="#" data-page="local_sale_invoice" data-id="${s.id}" class="nav-btn text-xs bg-gray-100 px-3 py-1 rounded-md">Invoice</a>
+            </div>
+        </div>`;
+    }).join('') || '<div class="text-gray-500 text-sm">No local sales yet.</div>';
+
+    const historyHTML = `
+        <div class="bg-white p-8 rounded-lg shadow-lg">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-2xl font-bold">Recent Local Sales</h3>
+            </div>
+            <div id="localSalesHistory" class="space-y-2">${localSalesRows}</div>
+        </div>`;
+
+    container.innerHTML = saleFormHTML + historyHTML;
     addLocalSaleItemRow(); // Add the first row
 
     // Attach listeners
@@ -2078,9 +2383,73 @@ function renderLocalSalePage() {
         document.getElementById('localSaleGstNumber').required = gstCheckbox.checked;
     });
 
+    const pmSel = document.getElementById('localSalePaymentMode');
+    const bankRow = document.getElementById('localSaleBankAccountRow');
+    const syncBankRow = ()=>{ bankRow.classList.toggle('hidden', pmSel.value!=='bank'); };
+    pmSel.addEventListener('change', syncBankRow);
+    syncBankRow();
+
     form.addEventListener('submit', handleGenerateLocalInvoice);
     // Initialize totals and badge immediately
     updateLocalSaleTotals();
+
+    // Helper to populate form from an existing local sale
+    function populateLocalSaleFormFromRecord(s) {
+        if (!s) return;
+        const idEl = document.getElementById('editingLocalSaleId');
+        if (idEl) idEl.value = s.id;
+        document.getElementById('customerName').value = s.customerName || '';
+        const d = _toDate(s.saleDate) || new Date();
+        document.getElementById('saleDate').value = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().split('T')[0];
+
+        // GST invoice toggle and number
+        const gstReq = !!(s.gstInfo && s.gstInfo.requested);
+        const gstCb = document.getElementById('localSaleGstInvoice');
+        const gstNumEl = document.getElementById('localSaleGstNumber');
+        const gstContainer = document.getElementById('localSaleGstNumberContainer');
+        gstCb.checked = gstReq;
+        gstContainer.classList.toggle('hidden', !gstReq);
+        gstNumEl.required = gstReq;
+        gstNumEl.value = s.gstInfo?.number || '';
+
+        // Receive now and mode
+        const recv = s.receivedNow || { amount: 0, mode: 'cash', bankAccount: '' };
+        document.getElementById('localSaleReceiveNow').value = recv.amount ? String(recv.amount) : '';
+        document.getElementById('localSalePaymentMode').value = recv.mode || 'cash';
+        const bankRow = document.getElementById('localSaleBankAccountRow');
+        bankRow.classList.toggle('hidden', (recv.mode !== 'bank'));
+        if (recv.mode === 'bank') {
+            document.getElementById('localSaleBankAccount').value = recv.bankAccount || '';
+        }
+
+        // Credit toggle (informational; we use amount to compute but keep in sync)
+        const remaining = Math.max(0, (s.totalAmount||0) - (recv.amount||0));
+        document.getElementById('localSaleIsCredit').checked = (remaining > 0) || !!s.isCreditSale;
+
+        // Rebuild items
+        const cont = document.getElementById('localSaleItemsContainer');
+        cont.innerHTML = '';
+        (s.items || []).forEach(it => {
+            addLocalSaleItemRow();
+            const row = cont.lastElementChild;
+            const sel = row.querySelector('.local-sale-product-select');
+            const qty = row.querySelector('.local-sale-quantity');
+            sel.value = it.id;
+            qty.value = it.quantity;
+        });
+        updateLocalSaleTotals();
+        document.getElementById('localSaleForm').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    // Wire edit buttons
+    document.querySelectorAll('.edit-local-sale-btn').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const id = btn.dataset.id;
+            const sale = (state.allLocalSales || []).find(s => s.id === id);
+            populateLocalSaleFormFromRecord(sale);
+        });
+    });
 }
 
 function renderPurchaseInvoicePage() {
@@ -2089,6 +2458,16 @@ function renderPurchaseInvoicePage() {
         pageContent.innerHTML = `<div class="container mx-auto p-8 text-center"><p>Purchase record not found.</p></div>`;
         return;
     }
+
+    // Compute display-friendly totals (always show Subtotal as Excl. GST)
+    const gstTotal = (purchase.gstBreakdown?.total || 0);
+    const subtotalEx = (typeof purchase.subtotal === 'number') ? purchase.subtotal : Math.max(0, (purchase.totalAmount || 0) - gstTotal);
+    const subtotalDisplay = subtotalEx;
+    const subtotalLabel = 'Subtotal (Excl. GST)';
+    const paidNowAmt = (purchase.payNow?.amount || 0);
+    const paidNowMode = purchase.payNow?.mode || null;
+    const paidNowBank = purchase.payNow?.bankAccount || null;
+    const remainingDue = Math.max(0, (purchase.totalAmount || 0) - paidNowAmt);
 
     pageContent.innerHTML = `
     <div class="bg-gray-100 p-8">
@@ -2132,9 +2511,11 @@ function renderPurchaseInvoicePage() {
             </table>
             <div class="flex justify-end">
                 <div class="w-full max-w-xs space-y-2">
-                    <div class="flex justify-between border-t pt-2 mt-2"><span>Subtotal (₹):</span><span>${(purchase.subtotal ?? (purchase.totalAmount - (purchase.gstBreakdown?.total || 0)) ).toFixed(2)}</span></div>
-                    <div class="flex justify-between"><span>GST (₹):</span><span>${(purchase.gstBreakdown?.total || 0).toFixed(2)}</span></div>
-                    <div class="flex justify-between font-bold text-lg"><span>Grand Total (₹):</span><span>${purchase.totalAmount.toFixed(2)}</span></div>
+                    <div class="flex justify-between border-t pt-2 mt-2"><span>${subtotalLabel}:</span><span>${subtotalDisplay.toFixed(2)}</span></div>
+                    <div class="flex justify-between"><span>GST (₹):</span><span>${gstTotal.toFixed(2)}</span></div>
+                    <div class="flex justify-between font-bold text-lg"><span>Grand Total (₹):</span><span>${(purchase.totalAmount || 0).toFixed(2)}</span></div>
+                    ${paidNowAmt > 0 ? `<div class=\"flex justify-between text-sm text-gray-700\"><span>Paid Now:</span><span>${paidNowAmt.toFixed(2)}${paidNowMode ? ` (${paidNowMode}${paidNowBank ? ` - ${paidNowBank}` : ''})` : ''}</span></div>` : ''}
+                    ${paidNowAmt > 0 ? `<div class=\"flex justify-between text-sm\"><span>Balance to Creditors:</span><span>${remainingDue.toFixed(2)}</span></div>` : ''}
                 </div>
             </div>
                <div class="mt-16 text-center text-xs text-gray-500">
@@ -2276,6 +2657,18 @@ const salesReturnsColPath = `artifacts/${appId}/public/data/salesReturns`;
 const purchaseReturnsColPath = `artifacts/${appId}/public/data/purchaseReturns`;
 const siteSettingsDocPath = `artifacts/${appId}/public/data/siteSettings/main`;
 const countersDocPath = `artifacts/${appId}/public/data/counters/invoiceCounters`;
+// Ledgers (collections) — ensure odd number of segments by inserting a fixed document key 'main'
+const creditorsLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/creditors`;
+const debtorsLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/debtors`;
+const cashLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/cash`;
+const bankLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/bank`;
+// Party masters (collections)
+const suppliersColPath = `artifacts/${appId}/public/data/masters/main/suppliers`;
+const customersColPath = `artifacts/${appId}/public/data/masters/main/customers`;
+const banksColPath = `artifacts/${appId}/public/data/masters/main/banks`;
+// Legacy collection paths (pre-fix) for backward-compatible reads
+const suppliersLegacyColPath = `artifacts/${appId}/public/data/masters/suppliers`;
+const customersLegacyColPath = `artifacts/${appId}/public/data/masters/customers`;
 
 
 async function getAndIncrementCounter(counterType) {
@@ -2390,7 +2783,41 @@ function listenToSiteSettings() {
             if (!incoming.visibilityEpochs) incoming.visibilityEpochs = {};
             // Enforce business rule in local state: sales GST mirrors registration
             const enforcedIsGstEnabled = !!incoming.merchantGstRegistered;
+            const prevEpochs = { ...(state.siteSettings?.visibilityEpochs || {}) };
             state.siteSettings = { ...state.siteSettings, ...incoming, isGstEnabled: enforcedIsGstEnabled };
+            refreshAdminState();
+
+            // If orders epoch changed, re-filter in-memory arrays immediately to hide legacy docs
+            const newOrdersEpoch = state.siteSettings.visibilityEpochs?.orders || 0;
+            if ((prevEpochs.orders || 0) !== newOrdersEpoch) {
+                // Re-filter user orders
+                if (Array.isArray(state.orders)) {
+                    const beforeIds = new Set(state.orders.map(o => o.id));
+                    state.orders = state.orders.filter(o => {
+                        if (o?.isDeleted) return false;
+                        const ts = o?.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0;
+                        return ts >= newOrdersEpoch;
+                    });
+                    const afterIds = new Set(state.orders.map(o => o.id));
+                    // Unsubscribe overlays for orders no longer present
+                    if (state.userOrderPublicUnsubs) {
+                        for (const [id, unsub] of Object.entries(state.userOrderPublicUnsubs)) {
+                            if (!afterIds.has(id)) { try { unsub(); } catch {} delete state.userOrderPublicUnsubs[id]; }
+                        }
+                    }
+                }
+                // Re-filter admin allOrders
+                if (Array.isArray(state.allOrders)) {
+                    state.allOrders = state.allOrders.filter(o => {
+                        if (o?.isDeleted) return false;
+                        const ts = o?.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0;
+                        return ts >= newOrdersEpoch;
+                    });
+                }
+                if (state.currentPage === 'orders' || (state.currentPage === 'admin')) {
+                    renderApp();
+                }
+            }
         }
         renderTopBars();
     }, error => {
@@ -2512,6 +2939,144 @@ function listenToAllPurchaseReturns() {
     });
 }
 
+// --- LEDGER LISTENERS ---
+function listenToAllCreditorsLedger() {
+    if (state.listeners.allCreditorsLedger) state.listeners.allCreditorsLedger();
+    state.listeners.allCreditorsLedger = onSnapshot(query(collection(db, creditorsLedgerColPath)), snapshot => {
+        state.allCreditorsLedger = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(e => !e.isDeleted);
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+            renderAdminLedgersPage();
+        }
+    }, error => {
+        console.error('Admin creditors ledger listener error:', error);
+    });
+}
+
+// --- PARTY MASTER LISTENERS ---
+function listenToSuppliers() {
+    if (state.listeners.allSuppliers) state.listeners.allSuppliers();
+    const unsubPrimary = onSnapshot(query(collection(db, suppliersColPath)), snapshot => {
+        const primary = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+        state.__primarySuppliers = primary;
+        // Merge with legacy (if already loaded)
+        const legacy = Array.isArray(state.__legacySuppliers) ? state.__legacySuppliers : [];
+        const merged = [...primary, ...legacy].reduce((acc, cur) => {
+            const key = (cur.name || '').toLowerCase();
+            if (!acc._seen.has(key)) { acc._seen.add(key); acc.items.push(cur); }
+            return acc;
+        }, { _seen: new Set(), items: [] }).items;
+        state.allSuppliers = merged;
+        if (state.currentPage === 'admin') {
+            if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+            if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
+        }
+    }, err => console.error('Suppliers listener error:', err));
+
+    // Legacy optional listener: guard invalid/old paths to avoid console errors
+    let unsubLegacy = () => {};
+    try {
+        const legacyCol = collection(db, suppliersLegacyColPath);
+        unsubLegacy = onSnapshot(query(legacyCol), snapshot => {
+            state.__legacySuppliers = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+            const evt = new Event('legacySuppliersLoaded');
+            document.dispatchEvent(evt);
+            if (state.currentPage === 'admin') {
+                if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+                if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
+            }
+        }, err => console.warn('Suppliers legacy listener error:', err?.message || err));
+    } catch (err) {
+        console.warn('Suppliers legacy path disabled:', err?.message || err);
+    }
+
+    // Compose unsubscriber
+    state.listeners.allSuppliers = () => { try { unsubPrimary(); } catch {} try { unsubLegacy(); } catch {} };
+}
+
+function listenToCustomers() {
+    if (state.listeners.allCustomers) state.listeners.allCustomers();
+    const unsubPrimary = onSnapshot(query(collection(db, customersColPath)), snapshot => {
+        const primary = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+        state.__primaryCustomers = primary;
+        const legacy = Array.isArray(state.__legacyCustomers) ? state.__legacyCustomers : [];
+        const merged = [...primary, ...legacy].reduce((acc, cur) => {
+            const key = (cur.name || '').toLowerCase();
+            if (!acc._seen.has(key)) { acc._seen.add(key); acc.items.push(cur); }
+            return acc;
+        }, { _seen: new Set(), items: [] }).items;
+        state.allCustomers = merged;
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+            renderAdminLedgersPage();
+        }
+    }, err => console.error('Customers listener error:', err));
+
+    let unsubLegacy = () => {};
+    try {
+        const legacyCol = collection(db, customersLegacyColPath);
+        unsubLegacy = onSnapshot(query(legacyCol), snapshot => {
+            state.__legacyCustomers = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+            const evt = new Event('legacyCustomersLoaded');
+            document.dispatchEvent(evt);
+            if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+                renderAdminLedgersPage();
+            }
+        }, err => console.warn('Customers legacy listener error:', err?.message || err));
+    } catch (err) {
+        console.warn('Customers legacy path disabled:', err?.message || err);
+    }
+
+    state.listeners.allCustomers = () => { try { unsubPrimary(); } catch {} try { unsubLegacy(); } catch {} };
+}
+
+function listenToAllDebtorsLedger() {
+    if (state.listeners.allDebtorsLedger) state.listeners.allDebtorsLedger();
+    state.listeners.allDebtorsLedger = onSnapshot(query(collection(db, debtorsLedgerColPath)), snapshot => {
+        state.allDebtorsLedger = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(e => !e.isDeleted);
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+            renderAdminLedgersPage();
+        }
+    }, error => {
+        console.error('Admin debtors ledger listener error:', error);
+    });
+}
+
+function listenToAllCashLedger() {
+    if (state.listeners.allCashLedger) state.listeners.allCashLedger();
+    state.listeners.allCashLedger = onSnapshot(query(collection(db, cashLedgerColPath)), snapshot => {
+        state.allCashLedger = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+            renderAdminLedgersPage();
+        }
+    }, err => console.error('Cash ledger listener error:', err));
+}
+
+function listenToAllBankLedger() {
+    if (state.listeners.allBankLedger) state.listeners.allBankLedger();
+    state.listeners.allBankLedger = onSnapshot(query(collection(db, bankLedgerColPath)), snapshot => {
+        state.allBankLedger = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+            renderAdminLedgersPage();
+        }
+    }, err => console.error('Bank ledger listener error:', err));
+}
+
+function listenToBanks() {
+    if (state.listeners.allBanks) state.listeners.allBanks();
+    state.listeners.allBanks = onSnapshot(query(collection(db, banksColPath)), snapshot => {
+        state.allBanks = snapshot.docs
+            .map(d => ({ id: d.id, ...d.data() }))
+            .filter(b => !b.isDeleted)
+            .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        if (state.currentPage === 'admin' && state.adminCurrentTab === 'ledgers') {
+            renderAdminLedgersPage();
+        }
+    }, err => console.error('Banks listener error:', err));
+}
+
 function listenToCart(userId) {
     if (state.listeners.cart) state.listeners.cart();
     const cartRef = doc(db, `artifacts/${appId}/users/${userId}/cart`, 'user_cart');
@@ -2548,6 +3113,8 @@ function listenToUserOrders(userId) {
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(o => {
                 if (o.isDeleted) return false;
+                // Extra safety: if userId field exists, ensure it matches the signed-in user
+                if (o.userId && o.userId !== userId) return false;
                 const ts = o.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0;
                 return ts >= epoch;
             });
@@ -2800,6 +3367,58 @@ function attachAdminListeners() {
        productFormCancelBtn.addEventListener('click', resetProductForm);
     }
 
+    // Inline Add Product Group (from product form)
+    const showNewGroupBtn = document.getElementById('showNewProductGroupBtn');
+    const newGroupRow = document.getElementById('newProductGroupRow');
+    const newGroupNameInput = document.getElementById('newProductGroupName');
+    const addGroupInlineBtn = document.getElementById('addProductGroupInlineBtn');
+    const cancelNewGroupBtn = document.getElementById('cancelNewProductGroupBtn');
+    if (showNewGroupBtn && newGroupRow) {
+        showNewGroupBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            newGroupRow.classList.toggle('hidden');
+            if (!newGroupRow.classList.contains('hidden')) {
+                // focus input
+                setTimeout(() => newGroupNameInput && newGroupNameInput.focus(), 50);
+            }
+        });
+    }
+    if (cancelNewGroupBtn && newGroupRow) {
+        cancelNewGroupBtn.addEventListener('click', (e) => { e.preventDefault(); newGroupRow.classList.add('hidden'); if (newGroupNameInput) newGroupNameInput.value = ''; });
+    }
+    if (addGroupInlineBtn) {
+        addGroupInlineBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            const name = (newGroupNameInput?.value || '').trim();
+            if (!name) { showMessage('Enter a group name.'); return; }
+            // Prevent duplicates (case-insensitive)
+            const exists = (state.productGroups || []).some(g => (g.name || '').trim().toLowerCase() === name.toLowerCase());
+            if (exists) { showMessage('A product group with this name already exists.'); return; }
+            try {
+                const ref = await addDoc(collection(db, productGroupsColPath), { name, createdAt: serverTimestamp() });
+                // Optimistically update state & select
+                state.productGroups = [{ id: ref.id, name }, ...(state.productGroups || [])];
+                const sel = document.getElementById('productGroup');
+                if (sel) {
+                    const opt = document.createElement('option'); opt.value = name; opt.text = name; sel.appendChild(opt); sel.value = name;
+                }
+                showMessage('Product group added.');
+                if (newGroupNameInput) newGroupNameInput.value = '';
+                if (newGroupRow) newGroupRow.classList.add('hidden');
+                // If admin product/groups tab is active, refresh it so the new group appears in lists
+                try {
+                    if (state.currentPage === 'admin') {
+                        if (state.adminCurrentTab === 'product_groups') renderAdminProductGroupsPage();
+                        else if (state.adminCurrentTab === 'products') renderAdminProductList();
+                    }
+                } catch (e) { /* non-fatal */ }
+            } catch (err) {
+                console.error('Failed to add product group:', err);
+                showMessage('Failed to add product group.');
+            }
+        });
+    }
+
     // Slide form submission
     const slideForm = document.getElementById('slideForm');
     if (slideForm) {
@@ -2850,6 +3469,10 @@ function attachAdminListeners() {
                 businessAddress: document.getElementById('businessAddress').value,
                 // ------------------------------------
             };
+            const adminEmailsInput = document.getElementById('adminEmails');
+            const adminUidsInput = document.getElementById('adminUids');
+            newSettings.adminEmails = adminEmailsInput ? normalizeList(adminEmailsInput.value).map(email => email.toLowerCase()) : [];
+            newSettings.adminUids = adminUidsInput ? normalizeList(adminUidsInput.value) : [];
             try {
                 // Enforce sales GST based on registration (no separate toggle)
                 const payload = { ...newSettings, isGstEnabled: !!newSettings.merchantGstRegistered };
@@ -2858,6 +3481,7 @@ function attachAdminListeners() {
                 console.log('Settings saved:', payload);
                 // Keep local state in sync immediately
                 state.siteSettings = { ...state.siteSettings, ...payload };
+                refreshAdminState();
                 // Reflect GSTIN input disabled state by registration
                 const gstinEl = document.getElementById('merchantGstin');
                 if (gstinEl) {
@@ -2951,21 +3575,30 @@ function attachAdminListeners() {
     const masterResetBtn = document.getElementById('masterResetBtn');
     if (masterResetBtn) {
         masterResetBtn.addEventListener('click', async () => {
-            const isAdmin = state.currentUser && state.currentUser.uid === ADMIN_UID;
-            if (!isAdmin) { showMessage('Only admin can perform master reset.'); return; }
+            if (!state.isAdmin) { showMessage('Only admin can perform master reset.'); return; }
+            const verified = await verifyMasterPassword('perform Master Reset');
+            if (!verified) return;
             const confirmText = prompt('Type RESET to confirm Master Reset. This will delete most data.');
             if (confirmText !== 'RESET') return;
             try {
-                const result = await resetAllData();
+                // Request a short-lived token, then execute master reset with that token (single-use)
+                const requestToken = httpsCallable(functionsSvc, 'adminRequestMasterReset');
+                const r = await requestToken({ appId });
+                const token = r.data?.token || r.token;
+                if (!token) throw new Error('Could not obtain master-reset token');
+                const callMasterReset = httpsCallable(functionsSvc, 'adminMasterReset');
+                const payload = { appId, confirmation: 'RESET', token };
+                const resp = await callMasterReset(payload);
+                const result = resp.data || resp;
                 if (result.ok) {
-                    showMessage('Master Reset completed.');
+                    showMessage('Master Reset completed (server-side).');
                 } else {
-                    console.warn('Master Reset completed with errors:', result.errors);
-                    showMessage(`Master Reset completed with ${result.errors.length} error(s). Check console for details.`);
+                    console.warn('Master Reset completed with errors:', result.summary?.errors || result.errors);
+                    showMessage(`Master Reset completed with ${result.summary?.errors?.length || result.errors?.length || 0} error(s). Check console for details.`);
                 }
             } catch (e) {
                 console.error('Master Reset failed:', e);
-                showMessage(`Master Reset failed: ${e?.message || 'Unknown error'}. Check console for details.`);
+                showMessage(`Master Reset failed: ${e?.message || e?.details || 'Unknown error'}. Check console for details.`);
             }
         });
     }
@@ -2974,8 +3607,7 @@ function attachAdminListeners() {
     const resetSelectedBtn = document.getElementById('resetSelectedBtn');
     if (resetSelectedBtn) {
         resetSelectedBtn.addEventListener('click', async () => {
-            const isAdmin = state.currentUser && state.currentUser.uid === ADMIN_UID;
-            if (!isAdmin) { showMessage('Only admin can perform reset.'); return; }
+            if (!state.isAdmin) { showMessage('Only admin can perform reset.'); return; }
 
             const flags = {
                 products: document.getElementById('resetProducts')?.checked || false,
@@ -2996,6 +3628,8 @@ function attachAdminListeners() {
             const anySelected = Object.values(flags).some(Boolean);
             if (!anySelected) { showMessage('Please select at least one item to reset.'); return; }
 
+            const verified = await verifyMasterPassword('perform the selected reset');
+            if (!verified) return;
             const confirmText = prompt('Type RESET to confirm selected reset operation.');
             if (confirmText !== 'RESET') return;
 
@@ -3014,7 +3648,100 @@ function attachAdminListeners() {
         });
     }
     
+    // Opening balance handlers (moved to Billing Settings tab)
+    const cashObForm = document.getElementById('cashOpeningForm');
+    if (cashObForm) {
+        cashObForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const date = new Date(document.getElementById('cashObDate').value);
+            const amount = parseFloat(document.getElementById('cashObAmount').value) || 0;
+            const notes = document.getElementById('cashObNotes').value.trim();
+            if (amount <= 0) { showMessage('Enter a positive amount.'); return; }
+            try {
+                await addDoc(collection(db, cashLedgerColPath), {
+                    date, refType: 'Opening Balance', refId: '', notes: notes || 'Opening balance',
+                    debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
+                });
+                showMessage('Cash opening balance added.');
+                renderAdminLedgersPage();
+            } catch (err) { console.error(err); showMessage('Failed to add opening balance.'); }
+        });
+    }
+    const bankObForm = document.getElementById('bankOpeningForm');
+    if (bankObForm) {
+        bankObForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const date = new Date(document.getElementById('bankObDate').value);
+            const amount = parseFloat(document.getElementById('bankObAmount').value) || 0;
+            const bankAccount = document.getElementById('bankObAccount')?.value || 'Main Bank';
+            const notes = document.getElementById('bankObNotes').value.trim();
+            if (amount <= 0) { showMessage('Enter a positive amount.'); return; }
+            try {
+                await addDoc(collection(db, bankLedgerColPath), {
+                    date, refType: 'Opening Balance', refId: '', bankAccount,
+                    notes: notes || `Opening balance (${bankAccount})`,
+                    debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
+                });
+                showMessage('Bank opening balance added.');
+                renderAdminLedgersPage();
+            } catch (err) { console.error(err); showMessage('Failed to add opening balance.'); }
+        });
+    }
+
     // NOTE: The event listeners for .admin-order-status-selector are now handled inside renderAdminOrderList to ensure they are re-attached after filtering/rendering.
+
+    // Pagination event delegation & persistence (attach once)
+    if (!state.adminPaginationEventsAttached) {
+        // Click handlers for Prev/Next/First/Last buttons
+        document.body.addEventListener('click', (e) => {
+            const btn = e.target.closest && e.target.closest('button');
+            if (!btn || !btn.id) return;
+            const id = btn.id;
+            switch (id) {
+                case 'cashPrevBtn': e.preventDefault(); state.cashPage = Math.max(1, (state.cashPage || 1) - 1); renderAdminLedgersPage(); break;
+                case 'cashNextBtn': e.preventDefault(); state.cashPage = (state.cashPage || 1) + 1; renderAdminLedgersPage(); break;
+                case 'cashFirstBtn': e.preventDefault(); state.cashPage = 1; renderAdminLedgersPage(); break;
+                case 'cashLastBtn': e.preventDefault(); state.cashPage = Number.MAX_SAFE_INTEGER; renderAdminLedgersPage(); break; // render will clamp
+
+                case 'bankPrevBtn': e.preventDefault(); state.bankPage = Math.max(1, (state.bankPage || 1) - 1); renderAdminLedgersPage(); break;
+                case 'bankNextBtn': e.preventDefault(); state.bankPage = (state.bankPage || 1) + 1; renderAdminLedgersPage(); break;
+                case 'bankFirstBtn': e.preventDefault(); state.bankPage = 1; renderAdminLedgersPage(); break;
+                case 'bankLastBtn': e.preventDefault(); state.bankPage = Number.MAX_SAFE_INTEGER; renderAdminLedgersPage(); break;
+
+                case 'creditorsPrevBtn': e.preventDefault(); state.creditorsPage = Math.max(1, (state.creditorsPage || 1) - 1); renderAdminLedgersPage(); break;
+                case 'creditorsNextBtn': e.preventDefault(); state.creditorsPage = (state.creditorsPage || 1) + 1; renderAdminLedgersPage(); break;
+                case 'creditorsFirstBtn': e.preventDefault(); state.creditorsPage = 1; renderAdminLedgersPage(); break;
+                case 'creditorsLastBtn': e.preventDefault(); state.creditorsPage = Number.MAX_SAFE_INTEGER; renderAdminLedgersPage(); break;
+
+                case 'debtorsPrevBtn': e.preventDefault(); state.debtorsPage = Math.max(1, (state.debtorsPage || 1) - 1); renderAdminLedgersPage(); break;
+                case 'debtorsNextBtn': e.preventDefault(); state.debtorsPage = (state.debtorsPage || 1) + 1; renderAdminLedgersPage(); break;
+                case 'debtorsFirstBtn': e.preventDefault(); state.debtorsPage = 1; renderAdminLedgersPage(); break;
+                case 'debtorsLastBtn': e.preventDefault(); state.debtorsPage = Number.MAX_SAFE_INTEGER; renderAdminLedgersPage(); break;
+                default: break;
+            }
+        });
+
+        // Change handlers for page inputs and page-size selectors
+        document.body.addEventListener('change', (e) => {
+            const el = e.target;
+            if (!el || !el.id) return;
+            const id = el.id;
+            // Page input fields
+            if (id === 'cashPageInput') { let v = parseInt(el.value || '1') || 1; state.cashPage = Math.max(1, v); renderAdminLedgersPage(); return; }
+            if (id === 'bankPageInput') { let v = parseInt(el.value || '1') || 1; state.bankPage = Math.max(1, v); renderAdminLedgersPage(); return; }
+            if (id === 'creditorsPageInput') { let v = parseInt(el.value || '1') || 1; state.creditorsPage = Math.max(1, v); renderAdminLedgersPage(); return; }
+            if (id === 'debtorsPageInput') { let v = parseInt(el.value || '1') || 1; state.debtorsPage = Math.max(1, v); renderAdminLedgersPage(); return; }
+
+            // Page size selects (persist preference)
+            const persist = (k, v) => { try { localStorage.setItem(`tiaras.ledger.${k}PageSize_${appId}`, String(v)); } catch (e) {} };
+            if (id === 'cashPageSizeSel') { const v = parseInt(el.value) || 10; state.cashPageSize = v; state.cashPage = 1; persist('cash', v); renderAdminLedgersPage(); return; }
+            if (id === 'bankPageSizeSel') { const v = parseInt(el.value) || 10; state.bankPageSize = v; state.bankPage = 1; persist('bank', v); renderAdminLedgersPage(); return; }
+            if (id === 'creditorsPageSizeSel') { const v = parseInt(el.value) || 10; state.creditorsPageSize = v; state.creditorsPage = 1; persist('creditors', v); renderAdminLedgersPage(); return; }
+            if (id === 'debtorsPageSizeSel') { const v = parseInt(el.value) || 10; state.debtorsPageSize = v; state.debtorsPage = 1; persist('debtors', v); renderAdminLedgersPage(); return; }
+        });
+
+        state.adminPaginationEventsAttached = true;
+    }
 
 }
         
@@ -3051,6 +3778,48 @@ function exportTableToCSV(tableId, filename) {
 }
 
 // --- MASTER RESET HELPERS ---
+// Developer master password verification
+function _abToHex(buffer) {
+    const bytes = new Uint8Array(buffer);
+    const hex = [];
+    for (let i = 0; i < bytes.length; i++) {
+        const h = bytes[i].toString(16).padStart(2, '0');
+        hex.push(h);
+    }
+    return hex.join('');
+}
+
+async function sha256Hex(text) {
+    if (!window.crypto || !window.crypto.subtle) {
+        throw new Error('Secure hashing not supported in this environment');
+    }
+    const enc = new TextEncoder();
+    const data = enc.encode(text);
+    const digest = await window.crypto.subtle.digest('SHA-256', data);
+    return _abToHex(digest);
+}
+
+async function verifyMasterPassword(actionLabel = 'proceed') {
+    try {
+        const hash = state?.siteSettings?.masterResetPasswordHash;
+        if (!hash || typeof hash !== 'string') {
+            showMessage('Master password not configured. Contact developer.');
+            return false;
+        }
+        const pwd = prompt(`Enter master password to ${actionLabel}:`);
+        if (!pwd) return false;
+        const pwdHash = await sha256Hex(pwd);
+        if (pwdHash !== hash) {
+            showMessage('Incorrect master password.');
+            return false;
+        }
+        return true;
+    } catch (err) {
+        console.error('verifyMasterPassword error:', err);
+        showMessage('Unable to verify master password.');
+        return false;
+    }
+}
 // --- REPORT DATA FETCH (archived/epoch-agnostic) ---
 async function fetchReportsDataForRange(startDateStr, endDateStr) {
     try {
@@ -3318,7 +4087,11 @@ async function resetSelectedData(flags) {
     };
 
     // Collections (with fallbacks)
-    if (flags.orders) await safe('Orders', () => deleteAllPublicOrders(), () => markAllPublicOrdersDeleted(), 'orders');
+    if (flags.orders) {
+        await safe('Orders', () => deleteAllPublicOrders(), () => markAllPublicOrdersDeleted(), 'orders');
+        // Always bump visibility epoch to hide any legacy user-subcollection order copies
+        try { await bumpVisibilityEpoch('orders'); } catch (e) { console.warn('orders epoch bump (post-delete) failed', e); }
+    }
     if (flags.products) await safe('Products', () => deleteAllDocsInCollection(productsColPath), () => markAllDocsInCollection(productsColPath), 'products');
     if (flags.productGroups) await safe('Product Groups', () => deleteAllDocsInCollection(productGroupsColPath), () => markAllDocsInCollection(productGroupsColPath), 'productGroups');
     if (flags.slides) await safe('Hero Slides', () => deleteAllDocsInCollection(slidesColPath), () => markAllDocsInCollection(slidesColPath), 'slides');
@@ -3333,15 +4106,19 @@ async function resetSelectedData(flags) {
 
     // Site settings
     if (flags.siteSettings) {
+        // Preserve visibilityEpochs to ensure resets remain effective after any subsequent writes
+        const preservedEpochs = { ...(state.siteSettings?.visibilityEpochs || {}) };
         const defaultSettings = {
             isScrollingBarVisible: true,
             scrollingBarText: "✨ FLAT 10% OFF ON ALL BEAUTY PRODUCTS ✨ LIMITED TIME OFFER: FREE SHIPPING ON ORDERS OVER ₹4000! NEW ARRIVALS: CHECK OUT OUR LATEST ORNAMENTS",
             isGstEnabled: true,
             merchantGstin: '29ABCDE1234F1Z5',
             businessAddress: 'TIARAS Headquarters, 123 Luxury Lane, Perumbavoor, Kerala, India 683542',
+            visibilityEpochs: preservedEpochs,
         };
-        await safe('Site Settings', () => setDoc(doc(db, siteSettingsDocPath), defaultSettings, { merge: false }));
-        state.siteSettings = { ...state.siteSettings, ...defaultSettings };
+        // Use merge: true so we don't blow away server-side fields like visibilityEpochs
+        await safe('Site Settings', () => setDoc(doc(db, siteSettingsDocPath), defaultSettings, { merge: true }));
+        state.siteSettings = { ...state.siteSettings, ...defaultSettings, visibilityEpochs: preservedEpochs };
     }
 
     // Counters
@@ -3378,6 +4155,8 @@ async function resetAllData() {
 
     // Delete or soft-delete high-volume collections first
     await safe('Orders', () => deleteAllPublicOrders(), () => markAllPublicOrdersDeleted(), 'orders');
+    // Regardless of delete/soft-delete outcome, bump epoch to hide any historical user order copies
+    try { await bumpVisibilityEpoch('orders'); } catch (e) { console.warn('orders epoch bump (post-master-reset) failed', e); }
     await safe('Products', () => deleteAllDocsInCollection(productsColPath), () => markAllDocsInCollection(productsColPath), 'products');
     await safe('Product Groups', () => deleteAllDocsInCollection(productGroupsColPath), () => markAllDocsInCollection(productGroupsColPath), 'productGroups');
     await safe('Hero Slides', () => deleteAllDocsInCollection(slidesColPath), () => markAllDocsInCollection(slidesColPath), 'slides');
@@ -3389,14 +4168,17 @@ async function resetAllData() {
     await safe('Purchase Returns', () => deleteAllDocsInCollection(purchaseReturnsColPath), () => markAllDocsInCollection(purchaseReturnsColPath), 'purchaseReturns');
 
     // Reset site settings to defaults
+    const preservedEpochs = { ...(state.siteSettings?.visibilityEpochs || {}) };
     const defaultSettings = {
         isScrollingBarVisible: true,
         scrollingBarText: "✨ FLAT 10% OFF ON ALL BEAUTY PRODUCTS ✨ LIMITED TIME OFFER: FREE SHIPPING ON ORDERS OVER ₹4000! NEW ARRIVALS: CHECK OUT OUR LATEST ORNAMENTS",
         isGstEnabled: true,
         merchantGstin: '29ABCDE1234F1Z5',
         businessAddress: 'TIARAS Headquarters, 123 Luxury Lane, Perumbavoor, Kerala, India 683542',
+        visibilityEpochs: preservedEpochs,
     };
-    await safe('Site Settings', () => setDoc(doc(db, siteSettingsDocPath), defaultSettings, { merge: false }));
+    // Use merge: true so we don't clear visibilityEpochs or other unrelated settings fields
+    await safe('Site Settings', () => setDoc(doc(db, siteSettingsDocPath), defaultSettings, { merge: true }));
 
     // Clear counters: set empty object instead of delete (often allowed by rules that block delete)
     await safe('Counters', () => setDoc(doc(db, countersDocPath), {}, { merge: false }));
@@ -3415,7 +4197,7 @@ async function resetAllData() {
     state.allLocalSales = [];
     state.allSalesReturns = [];
     state.allPurchaseReturns = [];
-    state.siteSettings = { ...state.siteSettings, ...defaultSettings };
+    state.siteSettings = { ...state.siteSettings, ...defaultSettings, visibilityEpochs: preservedEpochs };
 
     renderApp();
 
@@ -3530,6 +4312,7 @@ function renderAdminReturnsPage() {
         <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
             <h3 class="text-2xl font-bold mb-6">Create Sales Return (Credit Note)</h3>
             <form id="salesReturnForm" class="space-y-6">
+                <input type="hidden" id="editingSalesReturnId" value="" />
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Order ID / Invoice #</label>
@@ -3542,6 +4325,30 @@ function renderAdminReturnsPage() {
                             ${state.allOrders.map(o => `<option value="${o.id}">${o.invoiceNumber || o.id} - ${o.shippingInfo.fullName} (${formatDate(o.orderDate)})</option>`).join('')}
                         </select>
                     </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Local Sale Invoice # (optional)</label>
+                        <input type="text" id="salesReturnLocalSaleSearch" class="w-full px-4 py-2 border rounded-md" placeholder="Enter Local Sale ID or Invoice #">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Matched Local Sale</label>
+                        <div id="salesReturnLocalSaleInfo" class="text-sm text-gray-500">None</div>
+                    </div>
+                </div>
+                <div class="pt-2">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="salesReturnIsCredit" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black">
+                        <span class="ml-2 text-sm text-gray-700">Return for a Credit Sale</span>
+                    </label>
+                </div>
+                <div id="salesReturnRefundModeRow" class="pt-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Refund Mode</label>
+                    <select id="salesReturnRefundMode" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                        <option value="cash" selected>Cash</option>
+                        <option value="bank">Bank</option>
+                    </select>
+                    <p class="text-xs text-gray-500 mt-1">Shown only when not a credit return. Refund reduces Cash/Bank.</p>
                 </div>
                 <div id="salesReturnItemsContainer" class="mt-4"></div>
                 <div class="flex justify-end items-center gap-4 mt-4">
@@ -3559,6 +4366,7 @@ function renderAdminReturnsPage() {
         <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
             <h3 class="text-2xl font-bold mb-6">Create Purchase Return (Debit Note)</h3>
             <form id="purchaseReturnForm" class="space-y-6">
+                <input type="hidden" id="editingPurchaseReturnId" value="" />
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Purchase ID / Invoice #</label>
@@ -3572,6 +4380,23 @@ function renderAdminReturnsPage() {
                         </select>
                     </div>
                 </div>
+                <div class="pt-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Settlement Type</label>
+                    <div class="flex flex-wrap gap-4 text-sm">
+                        <label class="inline-flex items-center gap-2">
+                            <input type="radio" name="purchaseReturnSettleType" value="creditors" checked>
+                            <span>Adjust against Creditors</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2">
+                            <input type="radio" name="purchaseReturnSettleType" value="cash">
+                            <span>Refund - Cash</span>
+                        </label>
+                        <label class="inline-flex items-center gap-2">
+                            <input type="radio" name="purchaseReturnSettleType" value="bank">
+                            <span>Refund - Bank</span>
+                        </label>
+                    </div>
+                </div>
                 <div id="purchaseReturnItemsContainer" class="mt-4"></div>
                 <div class="flex justify-end items-center gap-4 mt-4">
                     <div class="text-right">
@@ -3583,7 +4408,57 @@ function renderAdminReturnsPage() {
             </form>
         </div>`;
 
-    container.innerHTML = salesReturnHTML + purchaseReturnHTML;
+    // Sales Returns history (compact)
+    const salesReturnsSorted = (state.allSalesReturns || []).slice().sort((a,b) => (_toDate(b.returnDate) - _toDate(a.returnDate)));
+    const salesReturnsRows = salesReturnsSorted.slice(0,10).map(r => {
+        const dt = _toDate(r.returnDate);
+        const party = r.orderShippingName || 'Customer';
+        const amount = (r.totalAmount||0).toFixed(2);
+        return `<div class="flex items-center justify-between p-3 border rounded-md text-sm">
+            <div>
+                <div class="font-mono">${r.creditNoteNumber || r.id}</div>
+                <div class="text-gray-600">${party} • ${formatDate(dt)} • ₹${amount}</div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button class="edit-sales-return-btn text-xs bg-blue-600 text-white px-3 py-1 rounded-md" data-id="${r.id}">Edit</button>
+            </div>
+        </div>`;
+    }).join('') || '<div class="text-gray-500 text-sm">No sales returns yet.</div>';
+
+    const salesReturnsHistoryHTML = `
+        <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-2xl font-bold">Recent Sales Returns</h3>
+            </div>
+            <div id="salesReturnsHistory" class="space-y-2">${salesReturnsRows}</div>
+        </div>`;
+
+    // Purchase Returns history (compact)
+    const purchaseReturnsSorted = (state.allPurchaseReturns || []).slice().sort((a,b) => (_toDate(b.returnDate) - _toDate(a.returnDate)));
+    const purchaseReturnsRows = purchaseReturnsSorted.slice(0,10).map(r => {
+        const dt = _toDate(r.returnDate);
+        const party = r.supplierName || 'Supplier';
+        const amount = (r.totalAmount||0).toFixed(2);
+        return `<div class="flex items-center justify-between p-3 border rounded-md text-sm">
+            <div>
+                <div class="font-mono">${r.debitNoteNumber || r.id}</div>
+                <div class="text-gray-600">${party} • ${formatDate(dt)} • ₹${amount}</div>
+            </div>
+            <div class="flex items-center gap-2">
+                <button class="edit-purchase-return-btn text-xs bg-blue-600 text-white px-3 py-1 rounded-md" data-id="${r.id}">Edit</button>
+            </div>
+        </div>`;
+    }).join('') || '<div class="text-gray-500 text-sm">No purchase returns yet.</div>';
+
+    const purchaseReturnsHistoryHTML = `
+        <div class="bg-white p-8 rounded-lg shadow-lg">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-2xl font-bold">Recent Purchase Returns</h3>
+            </div>
+            <div id="purchaseReturnsHistory" class="space-y-2">${purchaseReturnsRows}</div>
+        </div>`;
+
+    container.innerHTML = salesReturnHTML + salesReturnsHistoryHTML + purchaseReturnHTML + purchaseReturnsHistoryHTML;
 
     // Attach dynamic behavior
     const orderSelect = document.getElementById('salesReturnOrderSelect');
@@ -3631,6 +4506,34 @@ function renderAdminReturnsPage() {
         buildSalesReturnItems(order);
     });
 
+    // Local Sale search to default the credit checkbox based on original sale
+    const lsSearch = document.getElementById('salesReturnLocalSaleSearch');
+    const lsInfo = document.getElementById('salesReturnLocalSaleInfo');
+    if (lsSearch) {
+        lsSearch.addEventListener('input', () => {
+            const q = (lsSearch.value || '').trim().toLowerCase();
+            if (!q) { if (lsInfo) lsInfo.textContent = 'None'; return; }
+            const sale = (state.allLocalSales || []).find(s => (s.id || '').toLowerCase() === q || ((s.invoiceNumber || '').toLowerCase() === q));
+            if (sale) {
+                const dt = sale.saleDate?.seconds ? new Date(sale.saleDate.seconds * 1000) : sale.saleDate;
+                if (lsInfo) lsInfo.innerHTML = `${sale.invoiceNumber || sale.id} — ${sale.customerName} (${formatDate(dt)}) ${sale.isCreditSale ? '<span class=\"ml-2 text-green-600\">Credit</span>' : '<span class=\"ml-2 text-gray-600\">Cash</span>'}`;
+                const cb = document.getElementById('salesReturnIsCredit');
+                if (cb) cb.checked = !!sale.isCreditSale;
+            } else {
+                if (lsInfo) lsInfo.textContent = 'None';
+            }
+        });
+    }
+
+    // Toggle refund mode visibility based on credit checkbox
+    const srCreditCb = document.getElementById('salesReturnIsCredit');
+    const srRefundRow = document.getElementById('salesReturnRefundModeRow');
+    const syncSrRefundVisibility = () => {
+        srRefundRow.classList.toggle('hidden', !!srCreditCb.checked);
+    };
+    srCreditCb.addEventListener('change', syncSrRefundVisibility);
+    syncSrRefundVisibility();
+
     document.getElementById('salesReturnForm').addEventListener('input', (e) => {
         if (!e.target.classList.contains('sales-return-qty')) return;
         const row = e.target.closest('.grid');
@@ -3675,16 +4578,32 @@ function renderAdminReturnsPage() {
         if (items.length === 0) { showMessage('No return quantities entered.'); return; }
 
         const totalAmount = subtotal + gstBreakdown.total;
-        const creditNoteNumber = await getAndIncrementCounter('salesReturns');
+        const editingSalesReturnId = (document.getElementById('editingSalesReturnId')?.value || '').trim();
+        const existingReturn = editingSalesReturnId ? (state.allSalesReturns || []).find(r => r.id === editingSalesReturnId) : null;
+        const creditNoteNumber = editingSalesReturnId ? (existingReturn?.creditNoteNumber || editingSalesReturnId) : (await getAndIncrementCounter('salesReturns'));
+        const isCreditReturn = !!document.getElementById('salesReturnIsCredit')?.checked;
+        const refundMode = isCreditReturn ? null : ((document.getElementById('salesReturnRefundMode')?.value) || 'cash');
 
         try {
             const batch = writeBatch(db);
-            // increase stock for returned items
-            items.forEach(it => {
-                const productRef = doc(db, productsColPath, it.id);
-                batch.update(productRef, { stock: increment(it.quantity) });
-            });
-            const retRef = doc(collection(db, salesReturnsColPath));
+            // Stock adjustments: creation vs edit
+            if (editingSalesReturnId && existingReturn) {
+                const origMap = new Map(); (existingReturn.items || []).forEach(it => { origMap.set(it.id, (origMap.get(it.id)||0) + (it.quantity||0)); });
+                const newMap = new Map(); items.forEach(it => { newMap.set(it.id, (newMap.get(it.id)||0) + (it.quantity||0)); });
+                const pids = new Set([...origMap.keys(), ...newMap.keys()]);
+                for (const pid of pids) {
+                    const delta = (newMap.get(pid)||0) - (origMap.get(pid)||0); // Sales return increases stock
+                    if (delta !== 0) batch.update(doc(db, productsColPath, pid), { stock: increment(delta) });
+                }
+            } else {
+                // increase stock for returned items (new record)
+                items.forEach(it => {
+                    const productRef = doc(db, productsColPath, it.id);
+                    batch.update(productRef, { stock: increment(it.quantity) });
+                });
+            }
+
+            const retRef = editingSalesReturnId && existingReturn ? doc(db, salesReturnsColPath, editingSalesReturnId) : doc(collection(db, salesReturnsColPath));
             const retDoc = {
                 orderId: order.id,
                 userId: order.userId,
@@ -3695,19 +4614,128 @@ function renderAdminReturnsPage() {
                 subtotal,
                 gstBreakdown,
                 totalAmount,
-                returnDate: serverTimestamp(),
+                ...(editingSalesReturnId ? { updatedAt: serverTimestamp() } : { returnDate: serverTimestamp() })
             };
-            batch.set(retRef, retDoc);
+            batch.set(retRef, retDoc, { merge: true });
+
+            // Ledgers: ensure idempotent updates and cleanup of switched modes
+            const debtRef = doc(db, debtorsLedgerColPath, (editingSalesReturnId && existingReturn) ? editingSalesReturnId : retRef.id);
+            const cashRef = doc(db, cashLedgerColPath, (editingSalesReturnId && existingReturn) ? editingSalesReturnId : retRef.id);
+            const bankRef = doc(db, bankLedgerColPath, (editingSalesReturnId && existingReturn) ? editingSalesReturnId : retRef.id);
+
+            if (isCreditReturn) {
+                batch.set(debtRef, {
+                    partyName: order.shippingInfo.fullName || 'Customer',
+                    date: serverTimestamp(),
+                    refType: 'Sales Return',
+                    refId: (editingSalesReturnId && existingReturn) ? editingSalesReturnId : retRef.id,
+                    invoiceNumber: creditNoteNumber,
+                    debit: 0,
+                    credit: totalAmount,
+                    isDeleted: false,
+                    updatedAt: serverTimestamp(),
+                }, { merge: true });
+                // Mark refund ledgers deleted if switching from refund
+                batch.set(cashRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                batch.set(bankRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+            } else {
+                // Clear debtors entry if present
+                batch.set(debtRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                const payload = {
+                    date: serverTimestamp(),
+                    refType: 'Sales Return (Refund)',
+                    refId: (editingSalesReturnId && existingReturn) ? editingSalesReturnId : retRef.id,
+                    invoiceNumber: creditNoteNumber,
+                    notes: `To ${order.shippingInfo.fullName || 'Customer'}`,
+                    debit: 0,
+                    credit: totalAmount,
+                    isDeleted: false,
+                    updatedAt: serverTimestamp(),
+                };
+                if (refundMode === 'bank') {
+                    batch.set(bankRef, payload, { merge: true });
+                    batch.set(cashRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                } else {
+                    batch.set(cashRef, payload, { merge: true });
+                    batch.set(bankRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                }
+            }
             await batch.commit();
-            showMessage('Sales return recorded (credit note created).');
+            showMessage(editingSalesReturnId ? 'Sales return updated.' : 'Sales return recorded (credit note created).');
             // reset form
             orderSelect.value = '';
             salesItemsContainer.innerHTML = '';
             document.getElementById('salesReturnTotal').textContent = '0.00';
+            const eId = document.getElementById('editingSalesReturnId'); if (eId) eId.value = '';
         } catch (error) {
             console.error('Error recording sales return:', error);
             showMessage('Failed to record sales return.');
         }
+    });
+
+    // Helper to populate Sales Return form from an existing return doc
+    function populateSalesReturnFormFromRecord(ret) {
+        if (!ret) return;
+        const idEl = document.getElementById('editingSalesReturnId'); if (idEl) idEl.value = ret.id;
+        // Select the order and rebuild items
+        const order = (state.allOrders || []).find(o => o.id === ret.orderId);
+        const orderSelectEl = document.getElementById('salesReturnOrderSelect');
+        if (order && orderSelectEl) {
+            orderSelectEl.value = order.id;
+            // Build rows like when selecting an order
+            const salesItemsContainer = document.getElementById('salesReturnItemsContainer');
+            (function build() {
+                const returnedMap = {};
+                state.allSalesReturns.filter(r => r.orderId === order.id).forEach(r => {
+                    (r.items||[]).forEach(it => { returnedMap[it.id] = (returnedMap[it.id] || 0) + it.quantity; });
+                });
+                const html = `
+                    <div class="grid grid-cols-12 gap-4 text-xs font-bold text-gray-500 mb-2 px-2">
+                        <div class="col-span-6">Product</div>
+                        <div class="col-span-2 text-right">Max Qty</div>
+                        <div class="col-span-2">Return Qty</div>
+                        <div class="col-span-2 text-right">Amount (₹)</div>
+                    </div>
+                    ${order.items.map(item => {
+                        const maxQty = Math.max(0, item.quantity - (returnedMap[item.id] || 0));
+                        return `
+                            <div class="grid grid-cols-12 gap-4 items-center mb-2">
+                                <div class="col-span-6">${item.name}</div>
+                                <div class="col-span-2 text-right">${maxQty}</div>
+                                <div class="col-span-2"><input type="number" class="sales-return-qty w-full px-2 py-1 border rounded-md" min="0" max="${maxQty}" step="1" data-id="${item.id}" data-name="${item.name}" data-price="${item.price}" data-gst="${item.gstPercentage || 0}" value="0"></div>
+                                <div class="col-span-2 text-right text-sm text-gray-700">₹${(0).toFixed(2)}</div>
+                            </div>`;
+                    }).join('')}
+                `;
+                salesItemsContainer.innerHTML = html;
+            })();
+            // Fill quantities from return
+            (ret.items || []).forEach(it => {
+                const inp = document.querySelector(`.sales-return-qty[data-id="${it.id}"]`);
+                if (inp) inp.value = it.quantity;
+            });
+            // Trigger recompute total display
+            let total = 0; (ret.items || []).forEach(it => { total += (it.price || 0) * (it.quantity || 0); });
+            const totalEl = document.getElementById('salesReturnTotal'); if (totalEl) totalEl.textContent = (total + (ret.gstBreakdown?.total || 0)).toFixed(2);
+        }
+        // Determine mode from ledgers
+        const debt = (state.allDebtorsLedger || []).find(e => e.id === ret.id && !e.isDeleted);
+        const cash = (state.allCashLedger || []).find(e => e.id === ret.id && !e.isDeleted);
+        const bank = (state.allBankLedger || []).find(e => e.id === ret.id && !e.isDeleted);
+        const cb = document.getElementById('salesReturnIsCredit');
+        const modeRow = document.getElementById('salesReturnRefundModeRow');
+        if (debt) { cb.checked = true; modeRow.classList.add('hidden'); }
+        else { cb.checked = false; modeRow.classList.remove('hidden'); document.getElementById('salesReturnRefundMode').value = bank ? 'bank' : 'cash'; }
+        document.getElementById('salesReturnForm').scrollIntoView({ behavior: 'smooth' });
+    }
+
+    document.querySelectorAll('.edit-sales-return-btn').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const id = btn.dataset.id;
+            const ret = (state.allSalesReturns || []).find(r => r.id === id);
+            populateSalesReturnFormFromRecord(ret);
+        });
     });
 
     // Purchase return
@@ -3792,35 +4820,159 @@ function renderAdminReturnsPage() {
         });
         if (items.length === 0) { showMessage('No return quantities entered.'); return; }
 
-        const debitNoteNumber = await getAndIncrementCounter('purchaseReturns');
+        const editingPurchaseReturnId = (document.getElementById('editingPurchaseReturnId')?.value || '').trim();
+        const existingPR = editingPurchaseReturnId ? (state.allPurchaseReturns || []).find(r => r.id === editingPurchaseReturnId) : null;
+        const debitNoteNumber = editingPurchaseReturnId ? (existingPR?.debitNoteNumber || editingPurchaseReturnId) : (await getAndIncrementCounter('purchaseReturns'));
+        const settleType = (document.querySelector('input[name="purchaseReturnSettleType"]:checked')?.value) || 'creditors';
 
         try {
             const batch = writeBatch(db);
-            // decrease stock for returned items back to supplier
-            items.forEach(it => {
-                const productRef = doc(db, productsColPath, it.productId);
-                batch.update(productRef, { stock: increment(-it.quantity) });
-            });
-            const retRef = doc(collection(db, purchaseReturnsColPath));
+            // Stock adjustments: creation vs edit (purchase return reduces stock)
+            if (editingPurchaseReturnId && existingPR) {
+                const origMap = new Map(); (existingPR.items || []).forEach(it => { origMap.set(it.productId, (origMap.get(it.productId)||0) + (it.quantity||0)); });
+                const newMap = new Map(); items.forEach(it => { newMap.set(it.productId, (newMap.get(it.productId)||0) + (it.quantity||0)); });
+                const pids = new Set([...origMap.keys(), ...newMap.keys()]);
+                for (const pid of pids) {
+                    const delta = (origMap.get(pid)||0) - (newMap.get(pid)||0); // purchase return originally -qty, so adjust by (orig - new)
+                    if (delta !== 0) batch.update(doc(db, productsColPath, pid), { stock: increment(delta) });
+                }
+            } else {
+                items.forEach(it => {
+                    const productRef = doc(db, productsColPath, it.productId);
+                    batch.update(productRef, { stock: increment(-it.quantity) });
+                });
+            }
+
+            const retRef = editingPurchaseReturnId && existingPR ? doc(db, purchaseReturnsColPath, editingPurchaseReturnId) : doc(collection(db, purchaseReturnsColPath));
             const retDoc = {
                 purchaseId: purchase.id,
                 supplierName: purchase.supplierName,
                 debitNoteNumber,
                 items,
                 totalAmount,
-                returnDate: serverTimestamp(),
+                ...(editingPurchaseReturnId ? { updatedAt: serverTimestamp() } : { returnDate: serverTimestamp() }),
             };
-            batch.set(retRef, retDoc);
+            batch.set(retRef, retDoc, { merge: true });
+
+            // Ledgers: creditors (debit) or cash/bank (debit) depending on settleType; cleanup switched docs
+            const credRef = doc(db, creditorsLedgerColPath, (editingPurchaseReturnId && existingPR) ? editingPurchaseReturnId : retRef.id);
+            const cashRef = doc(db, cashLedgerColPath, (editingPurchaseReturnId && existingPR) ? editingPurchaseReturnId : retRef.id);
+            const bankRef = doc(db, bankLedgerColPath, (editingPurchaseReturnId && existingPR) ? editingPurchaseReturnId : retRef.id);
+
+            if (settleType === 'creditors') {
+                batch.set(credRef, {
+                    partyName: purchase.supplierName || 'Supplier',
+                    date: serverTimestamp(),
+                    refType: 'Purchase Return',
+                    refId: (editingPurchaseReturnId && existingPR) ? editingPurchaseReturnId : retRef.id,
+                    invoiceNumber: debitNoteNumber,
+                    debit: totalAmount,
+                    credit: 0,
+                    isDeleted: false,
+                    updatedAt: serverTimestamp(),
+                }, { merge: true });
+                batch.set(cashRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                batch.set(bankRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+            } else if (settleType === 'cash') {
+                batch.set(credRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                batch.set(bankRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                batch.set(cashRef, {
+                    date: serverTimestamp(),
+                    refType: 'Purchase Return (Refund)',
+                    refId: (editingPurchaseReturnId && existingPR) ? editingPurchaseReturnId : retRef.id,
+                    invoiceNumber: debitNoteNumber,
+                    notes: `From ${purchase.supplierName || 'Supplier'}`,
+                    debit: totalAmount,
+                    credit: 0,
+                    isDeleted: false,
+                    updatedAt: serverTimestamp(),
+                }, { merge: true });
+            } else if (settleType === 'bank') {
+                batch.set(credRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                batch.set(cashRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                batch.set(bankRef, {
+                    date: serverTimestamp(),
+                    refType: 'Purchase Return (Refund)',
+                    refId: (editingPurchaseReturnId && existingPR) ? editingPurchaseReturnId : retRef.id,
+                    invoiceNumber: debitNoteNumber,
+                    notes: `From ${purchase.supplierName || 'Supplier'}`,
+                    debit: totalAmount,
+                    credit: 0,
+                    isDeleted: false,
+                    updatedAt: serverTimestamp(),
+                }, { merge: true });
+            }
             await batch.commit();
-            showMessage('Purchase return recorded (debit note created).');
+            showMessage(editingPurchaseReturnId ? 'Purchase return updated.' : 'Purchase return recorded (debit note created).');
             // reset form
             purchaseSelect.value = '';
             purchaseItemsContainer.innerHTML = '';
             document.getElementById('purchaseReturnTotal').textContent = '0.00';
+            const eId = document.getElementById('editingPurchaseReturnId'); if (eId) eId.value = '';
         } catch (error) {
             console.error('Error recording purchase return:', error);
             showMessage('Failed to record purchase return.');
         }
+    });
+
+    // Helper to populate Purchase Return form from an existing return doc
+    function populatePurchaseReturnFormFromRecord(ret) {
+        if (!ret) return;
+        const idEl = document.getElementById('editingPurchaseReturnId'); if (idEl) idEl.value = ret.id;
+        // Select the purchase and rebuild items
+        const purchase = (state.allPurchases || []).find(p => p.id === ret.purchaseId);
+        const purchaseSelectEl = document.getElementById('purchaseReturnSelect');
+        const containerEl = document.getElementById('purchaseReturnItemsContainer');
+        if (purchase && purchaseSelectEl) {
+            purchaseSelectEl.value = purchase.id;
+            (function build() {
+                const returnedMap = {};
+                state.allPurchaseReturns.filter(r => r.purchaseId === purchase.id).forEach(r => {
+                    (r.items||[]).forEach(it => { returnedMap[it.productId] = (returnedMap[it.productId] || 0) + it.quantity; });
+                });
+                const html = `
+                    <div class="grid grid-cols-12 gap-4 text-xs font-bold text-gray-500 mb-2 px-2">
+                        <div class="col-span-6">Product</div>
+                        <div class="col-span-2 text-right">Max Qty</div>
+                        <div class="col-span-2">Return Qty</div>
+                        <div class="col-span-2 text-right">Amount (₹)</div>
+                    </div>
+                    ${purchase.items.map(item => {
+                        const maxQty = Math.max(0, item.quantity - (returnedMap[item.productId] || 0));
+                        return `
+                            <div class="grid grid-cols-12 gap-4 items-center mb-2">
+                                <div class="col-span-6">${item.productName}</div>
+                                <div class="col-span-2 text-right">${maxQty}</div>
+                                <div class="col-span-2"><input type="number" class="purchase-return-qty w-full px-2 py-1 border rounded-md" min="0" max="${maxQty}" step="1" data-id="${item.productId}" data-name="${item.productName}" data-price="${item.purchasePrice}" value="0"></div>
+                                <div class="col-span-2 text-right text-sm text-gray-700">₹${(0).toFixed(2)}</div>
+                            </div>`;
+                    }).join('')}
+                `;
+                containerEl.innerHTML = html;
+            })();
+            // Fill quantities
+            (ret.items || []).forEach(it => {
+                const inp = document.querySelector(`.purchase-return-qty[data-id="${it.productId}"]`);
+                if (inp) inp.value = it.quantity;
+            });
+            // Set settlement type from ledgers
+            const cred = (state.allCreditorsLedger || []).find(e => e.id === ret.id && !e.isDeleted);
+            const cash = (state.allCashLedger || []).find(e => e.id === ret.id && !e.isDeleted);
+            const bank = (state.allBankLedger || []).find(e => e.id === ret.id && !e.isDeleted);
+            const val = cred ? 'creditors' : (bank ? 'bank' : 'cash');
+            const radio = document.querySelector(`input[name="purchaseReturnSettleType"][value="${val}"]`);
+            if (radio) radio.checked = true;
+            document.getElementById('purchaseReturnForm').scrollIntoView({ behavior: 'smooth' });
+        }
+    }
+
+    document.querySelectorAll('.edit-purchase-return-btn').forEach(btn => {
+        btn.addEventListener('click', (ev) => {
+            ev.preventDefault();
+            const id = btn.dataset.id;
+            const ret = (state.allPurchaseReturns || []).find(r => r.id === id);
+            populatePurchaseReturnFormFromRecord(ret);
+        });
     });
 }
 
@@ -4222,9 +5374,11 @@ document.body.addEventListener('submit', async e => {
     
     if (e.target.id === 'purchaseForm') {
         e.preventDefault();
+        const editingId = (document.getElementById('editingPurchaseId')?.value || '').trim();
         const supplierName = document.getElementById('supplierName').value;
         const purchaseDate = document.getElementById('purchaseDate').value;
-        const pricesIncludeGst = document.getElementById('purchasePricesIncludeGst')?.checked || false;
+    // Toggle ON (checked) = Inclusive; OFF = Exclusive
+    const pricesIncludeGst = !!(document.getElementById('purchasePricesIncludeGst')?.checked || false);
         const items = [];
         let subtotalEx = 0, gstTotal = 0, subtotalInc = 0;
 
@@ -4238,14 +5392,14 @@ document.body.addEventListener('submit', async e => {
             if (productId && purchasePrice > 0 && quantity > 0) {
                 items.push({ productId, productName, purchasePrice, quantity, gstPercentage });
                 if (pricesIncludeGst) {
-                    const lineInc = purchasePrice * quantity;
-                    const factor = 1 + (gstPercentage/100);
-                    const lineEx = factor > 0 ? (lineInc / factor) : lineInc;
-                    subtotalEx += lineEx; subtotalInc += lineInc; gstTotal += (lineInc - lineEx);
-                } else {
+                    // Inclusive mode: treat entered price as EXCLUSIVE and ADD GST on top
                     const lineEx = purchasePrice * quantity;
                     const lineGst = lineEx * (gstPercentage/100);
                     subtotalEx += lineEx; subtotalInc += (lineEx + lineGst); gstTotal += lineGst;
+                } else {
+                    // Exclusive mode: no GST
+                    const lineEx = purchasePrice * quantity;
+                    subtotalEx += lineEx; subtotalInc += lineEx; /* gstTotal += 0 */
                 }
             }
         });
@@ -4255,17 +5409,59 @@ document.body.addEventListener('submit', async e => {
             return;
         }
         
-        const invoiceNumber = await getAndIncrementCounter('purchases');
+        // Preserve original invoice number when editing, else generate
+        let invoiceNumber = undefined;
+        if (editingId) {
+            const original = state.allPurchases.find(p => p.id === editingId);
+            invoiceNumber = original?.invoiceNumber || await getAndIncrementCounter('purchases');
+        } else {
+            invoiceNumber = await getAndIncrementCounter('purchases');
+        }
+
+        const paymentTypeRadio = (document.querySelector('input[name="purchasePaymentType"]:checked')?.value) || 'credit';
+        const payNowAmount = parseFloat(document.getElementById('purchasePayNow')?.value || '0') || 0;
+        const payNowMode = (document.getElementById('purchasePaymentMode')?.value) || 'cash';
+        const payNowBankAccount = (document.getElementById('purchaseBankAccount')?.value || '').trim();
+
+        // Basic validations for partial settlements
+        if (payNowAmount < 0) {
+            showMessage('Pay Now amount cannot be negative.');
+            return;
+        }
+
+        const tmpTotal = (pricesIncludeGst ? subtotalInc : subtotalEx);
+        if (payNowAmount > tmpTotal + 0.0001) {
+            showMessage('Pay Now cannot exceed the grand total.');
+            return;
+        }
+        if (payNowAmount > 0 && payNowMode === 'bank' && !payNowBankAccount) {
+            showMessage('Please select a bank account for Pay Now via Bank.');
+            return;
+        }
+
+        // Effective total and remainder
+        const effectiveTotal = tmpTotal;
+        const remainingAfterPayNow = Math.max(0, +(effectiveTotal - payNowAmount).toFixed(2));
+
+        // Effective paymentType stored on document
+        const effectivePaymentType = (payNowAmount > 0)
+            ? (remainingAfterPayNow > 0 ? 'credit' : (payNowMode === 'bank' ? 'bank' : 'cash'))
+            : paymentTypeRadio;
 
         const purchaseData = {
             supplierName,
             invoiceNumber,
             purchaseDate: new Date(purchaseDate),
             items,
-            subtotal: (pricesIncludeGst ? subtotalInc : subtotalEx),
-            gstBreakdown: { total: gstTotal },
-            totalAmount: subtotalInc,
+            // Store subtotal as ex-GST for consistency
+            subtotal: subtotalEx,
+            // In Exclusive mode, we treat GST as not applicable in totals display/persistence
+            gstBreakdown: { total: pricesIncludeGst ? gstTotal : 0 },
+            // Grand Total rule: Inclusive mode -> inclusive; Exclusive mode -> exclusive
+            totalAmount: effectiveTotal,
             pricesIncludeGst,
+            paymentType: effectivePaymentType,
+            payNow: payNowAmount > 0 ? { amount: payNowAmount, mode: payNowMode, bankAccount: payNowMode === 'bank' ? payNowBankAccount : null } : null,
             // **NEW FIELD:** Mark as not deleted
             isDeleted: false,
             createdAt: serverTimestamp()
@@ -4273,73 +5469,276 @@ document.body.addEventListener('submit', async e => {
 
         try {
             const batch = writeBatch(db);
-            
-            const purchaseRef = doc(collection(db, purchasesColPath));
-            batch.set(purchaseRef, purchaseData);
 
-            // Helper to compute per-unit cost inclusive/exclusive based on registration and inclusive toggle
-            const merchantRegistered = !!state.siteSettings.merchantGstRegistered;
-            const unitCost = (price, gstPct, pricesIncludeGstFlag) => {
-                const r = parseFloat(gstPct || 0);
-                if (merchantRegistered) {
-                    // Use ex-GST cost if registered (GST is input credit)
-                    if (pricesIncludeGstFlag) {
-                        const factor = 1 + (r / 100);
-                        return factor > 0 ? (price / factor) : price;
+            if (editingId) {
+                const purchaseRef = doc(db, purchasesColPath, editingId);
+                // Adjust stock by delta new - old
+                const original = state.allPurchases.find(p => p.id === editingId) || { items: [] };
+                const origMap = new Map();
+                for (const it of original.items) origMap.set(it.productId, (origMap.get(it.productId) || 0) + it.quantity);
+                const newMap = new Map();
+                for (const it of items) newMap.set(it.productId, (newMap.get(it.productId) || 0) + it.quantity);
+                const pids = new Set([...origMap.keys(), ...newMap.keys()]);
+                for (const pid of pids) {
+                    const delta = (newMap.get(pid) || 0) - (origMap.get(pid) || 0);
+                    if (delta !== 0) {
+                        const productRef = doc(db, productsColPath, pid);
+                        batch.update(productRef, { stock: increment(delta) });
                     }
-                    return price; // already ex-GST
-                } else {
-                    // Treat GST as part of cost if not registered
-                    if (pricesIncludeGstFlag) {
-                        return price; // already inc-GST
-                    }
-                    return price * (1 + (r / 100));
                 }
-            };
+                batch.set(purchaseRef, { ...purchaseData, updatedAt: serverTimestamp() }, { merge: true });
 
-            for (const item of items) {
-                const allItemPurchases = state.allPurchases.filter(p => p.items.some(i => i.productId === item.productId));
+                // Auto-post based on Pay Now split or payment type
+                const credRef = doc(db, creditorsLedgerColPath, editingId);
+                const cashRef = doc(db, cashLedgerColPath, editingId);
+                const bankRef = doc(db, bankLedgerColPath, editingId);
+                // Immediate (partial) entry doc ids use a suffix to avoid clobbering full-case docs
+                const cashImmRef = doc(db, cashLedgerColPath, `${editingId}-immediate`);
+                const bankImmRef = doc(db, bankLedgerColPath, `${editingId}-immediate`);
 
-                let totalCost = unitCost(item.purchasePrice, item.gstPercentage, pricesIncludeGst) * item.quantity;
-                let totalQuantity = item.quantity;
+                if (payNowAmount > 0) {
+                    // Clear any previous full-case postings for this id
+                    batch.set(cashRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(bankRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
 
-                allItemPurchases.forEach(p => {
-                    p.items.forEach(i => {
-                        if (i.productId === item.productId) {
-                            const perUnit = unitCost(i.purchasePrice, i.gstPercentage, p.pricesIncludeGst);
-                            totalCost += perUnit * i.quantity;
-                            totalQuantity += i.quantity;
-                        }
+                    // Post immediate amount to cash/bank
+                    if (payNowMode === 'cash') {
+                        batch.set(cashImmRef, {
+                            date: purchaseData.purchaseDate,
+                            refType: 'Purchase (Cash, immediate)',
+                            refId: editingId,
+                            invoiceNumber,
+                            notes: `Partial to ${supplierName}`,
+                            debit: 0,
+                            credit: payNowAmount,
+                            isDeleted: false,
+                            updatedAt: serverTimestamp(),
+                        }, { merge: true });
+                        batch.set(bankImmRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    } else {
+                        batch.set(bankImmRef, {
+                            date: purchaseData.purchaseDate,
+                            refType: 'Purchase (Bank, immediate)',
+                            refId: editingId,
+                            invoiceNumber,
+                            notes: `Partial to ${supplierName}${payNowBankAccount ? ` - ${payNowBankAccount}` : ''}`,
+                            debit: 0,
+                            credit: payNowAmount,
+                            isDeleted: false,
+                            updatedAt: serverTimestamp(),
+                            bankAccount: payNowBankAccount || null,
+                        }, { merge: true });
+                        batch.set(cashImmRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    }
+
+                    // Post remaining to creditors (or clear if none remains)
+                    if (remainingAfterPayNow > 0) {
+                        batch.set(credRef, {
+                            partyName: supplierName,
+                            date: purchaseData.purchaseDate,
+                            refType: 'Purchase',
+                            refId: editingId,
+                            invoiceNumber,
+                            debit: 0,
+                            credit: remainingAfterPayNow,
+                            isDeleted: false,
+                            updatedAt: serverTimestamp(),
+                        }, { merge: true });
+                    } else {
+                        batch.set(credRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    }
+                } else if (effectivePaymentType === 'credit') {
+                    // Creditors entry active
+                    batch.set(credRef, {
+                        partyName: supplierName,
+                        date: purchaseData.purchaseDate,
+                        refType: 'Purchase',
+                        refId: editingId,
+                        invoiceNumber,
+                        debit: 0,
+                        credit: purchaseData.totalAmount,
+                        isDeleted: false,
+                        updatedAt: serverTimestamp(),
+                    }, { merge: true });
+                    // Ensure cash/bank entries (if any) are marked deleted
+                    batch.set(cashRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(bankRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(doc(db, cashLedgerColPath, `${editingId}-immediate`), { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(doc(db, bankLedgerColPath, `${editingId}-immediate`), { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                } else if (effectivePaymentType === 'cash') {
+                    // Cash credit, no creditors
+                    batch.set(cashRef, {
+                        date: purchaseData.purchaseDate,
+                        refType: 'Purchase (Cash)',
+                        refId: editingId,
+                        invoiceNumber,
+                        notes: `To ${supplierName}`,
+                        debit: 0,
+                        credit: purchaseData.totalAmount,
+                        isDeleted: false,
+                        updatedAt: serverTimestamp(),
+                    }, { merge: true });
+                    batch.set(credRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(bankRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(doc(db, cashLedgerColPath, `${editingId}-immediate`), { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(doc(db, bankLedgerColPath, `${editingId}-immediate`), { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                } else if (effectivePaymentType === 'bank') {
+                    // Bank credit, no creditors
+                    batch.set(bankRef, {
+                        date: purchaseData.purchaseDate,
+                        refType: 'Purchase (Bank)',
+                        refId: editingId,
+                        invoiceNumber,
+                        notes: `To ${supplierName}`,
+                        debit: 0,
+                        credit: purchaseData.totalAmount,
+                        isDeleted: false,
+                        updatedAt: serverTimestamp(),
+                    }, { merge: true });
+                    batch.set(credRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(cashRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(doc(db, cashLedgerColPath, `${editingId}-immediate`), { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                    batch.set(doc(db, bankLedgerColPath, `${editingId}-immediate`), { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                }
+            } else {
+                const purchaseRef = doc(collection(db, purchasesColPath));
+                batch.set(purchaseRef, purchaseData);
+
+                // Increment stock and update costing for new purchase only (simple approach)
+                for (const item of items) {
+                    const productRef = doc(db, productsColPath, item.productId);
+                    const currentProduct = state.products.find(p => p.id === item.productId) || { stock: 0 };
+                    const newStock = (currentProduct.stock || 0) + item.quantity;
+                    batch.update(productRef, { stock: newStock });
+                }
+
+                // Auto-post based on Pay Now split or payment type
+                if (payNowAmount > 0) {
+                    // Immediate part
+                    if (payNowMode === 'cash') {
+                        const cashImmRef = doc(db, cashLedgerColPath, `${purchaseRef.id}-immediate`);
+                        batch.set(cashImmRef, {
+                            date: purchaseData.purchaseDate,
+                            refType: 'Purchase (Cash, immediate)',
+                            refId: purchaseRef.id,
+                            invoiceNumber,
+                            notes: `Partial to ${supplierName}`,
+                            debit: 0,
+                            credit: payNowAmount,
+                            isDeleted: false,
+                            createdAt: serverTimestamp(),
+                        });
+                    } else {
+                        const bankImmRef = doc(db, bankLedgerColPath, `${purchaseRef.id}-immediate`);
+                        batch.set(bankImmRef, {
+                            date: purchaseData.purchaseDate,
+                            refType: 'Purchase (Bank, immediate)',
+                            refId: purchaseRef.id,
+                            invoiceNumber,
+                            notes: `Partial to ${supplierName}${payNowBankAccount ? ` - ${payNowBankAccount}` : ''}`,
+                            debit: 0,
+                            credit: payNowAmount,
+                            bankAccount: payNowBankAccount || null,
+                            isDeleted: false,
+                            createdAt: serverTimestamp(),
+                        });
+                    }
+
+                    // Remaining part to creditors (if any)
+                    if (remainingAfterPayNow > 0) {
+                        const credRef = doc(db, creditorsLedgerColPath, purchaseRef.id);
+                        batch.set(credRef, {
+                            partyName: supplierName,
+                            date: purchaseData.purchaseDate,
+                            refType: 'Purchase',
+                            refId: purchaseRef.id,
+                            invoiceNumber,
+                            debit: 0,
+                            credit: remainingAfterPayNow,
+                            isDeleted: false,
+                            createdAt: serverTimestamp(),
+                        });
+                    }
+                } else if (effectivePaymentType === 'credit') {
+                    const credRef = doc(db, creditorsLedgerColPath, purchaseRef.id);
+                    batch.set(credRef, {
+                        partyName: supplierName,
+                        date: purchaseData.purchaseDate,
+                        refType: 'Purchase',
+                        refId: purchaseRef.id,
+                        invoiceNumber,
+                        debit: 0,
+                        credit: purchaseData.totalAmount,
+                        isDeleted: false,
+                        createdAt: serverTimestamp(),
                     });
-                });
+                } else if (effectivePaymentType === 'cash') {
+                    const cashRef = doc(db, cashLedgerColPath, purchaseRef.id);
+                    batch.set(cashRef, {
+                        date: purchaseData.purchaseDate,
+                        refType: 'Purchase (Cash)',
+                        refId: purchaseRef.id,
+                        invoiceNumber,
+                        notes: `To ${supplierName}`,
+                        debit: 0,
+                        credit: purchaseData.totalAmount,
+                        isDeleted: false,
+                        createdAt: serverTimestamp(),
+                    });
+                } else if (effectivePaymentType === 'bank') {
+                    const bankRef = doc(db, bankLedgerColPath, purchaseRef.id);
+                    batch.set(bankRef, {
+                        date: purchaseData.purchaseDate,
+                        refType: 'Purchase (Bank)',
+                        refId: purchaseRef.id,
+                        invoiceNumber,
+                        notes: `To ${supplierName}`,
+                        debit: 0,
+                        credit: purchaseData.totalAmount,
+                        isDeleted: false,
+                        createdAt: serverTimestamp(),
+                    });
+                }
 
-                const productRef = doc(db, productsColPath, item.productId);
-                const currentProduct = state.products.find(p => p.id === item.productId);
-                const newStock = (currentProduct.stock || 0) + item.quantity;
-
-                const newAveragePrice = totalQuantity > 0 ? totalCost / totalQuantity : unitCost(item.purchasePrice, item.gstPercentage, pricesIncludeGst);
-                const lastPurchasePrice = unitCost(item.purchasePrice, item.gstPercentage, pricesIncludeGst);
-
-                batch.update(productRef, {
-                    stock: newStock,
-                    purchasePrice: newAveragePrice,
-                    lastPurchasePrice: lastPurchasePrice,
-                });
+                // Optimistic local list add
+                try {
+                    const optimistic = { id: purchaseRef.id, ...purchaseData, createdAt: { seconds: Math.floor(Date.now()/1000) } };
+                    if (!state.allPurchases.some(p => p.id === optimistic.id)) {
+                        state.allPurchases.unshift(optimistic);
+                    }
+                } catch(_) {}
             }
 
-            await batch.commit();
-            // Optimistically update local purchase history so it appears immediately
-            try {
-                const optimistic = { id: purchaseRef.id, ...purchaseData, createdAt: { seconds: Math.floor(Date.now()/1000) } };
-                if (!state.allPurchases.some(p => p.id === optimistic.id)) {
-                    state.allPurchases.unshift(optimistic);
-                }
-                // Re-render just the history list without disturbing the form
-                renderPurchaseHistory();
-            } catch (_) { /* non-blocking */ }
+            // Ensure supplier exists in master list
+            try { await ensurePartyExists(supplierName, 'supplier'); } catch(_) {}
 
-            showMessage("Purchase recorded successfully!");
+            await batch.commit();
+
+            // After commit, reset relevant ledger pages so the new posting is visible
+            try {
+                // New/updated purchase may affect creditors and cash/bank ledgers
+                state.creditorsPage = 1;
+                if (payNowAmount > 0) {
+                    if (payNowMode === 'cash') state.cashPage = 1;
+                    else if (payNowMode === 'bank') state.bankPage = 1;
+                } else {
+                    if (effectivePaymentType === 'cash') state.cashPage = 1;
+                    else if (effectivePaymentType === 'bank') state.bankPage = 1;
+                    else if (effectivePaymentType === 'credit') state.creditorsPage = 1;
+                }
+                // If admin is open, refresh ledgers/purchases views
+                if (state.currentPage === 'admin') {
+                    if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+                    else if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
+                }
+            } catch (e) { console.warn('post-purchase UI refresh failed', e?.message || e); }
+
+            // Refresh history
+            renderPurchaseHistory();
+
+            showMessage(editingId ? 'Purchase updated successfully!' : 'Purchase recorded successfully!');
             e.target.reset();
+            const editIdEl = document.getElementById('editingPurchaseId'); if (editIdEl) editIdEl.value = '';
             document.getElementById('purchaseItemsContainer').innerHTML = '';
             addPurchaseItemRow();
         } catch (error) {
@@ -4408,8 +5807,7 @@ if (messageOkBtn) {
 }
         
 async function updateOrderStatus(orderId, userId, status) {
-    const isAdmin = state.currentUser && state.currentUser.uid === ADMIN_UID;
-    if (!isAdmin) {
+    if (!state.isAdmin) {
         showMessage('Only admin can change order status.');
         return;
     }
@@ -4473,6 +5871,12 @@ async function softDeletePurchase(purchaseId) {
             batch.update(productRef, { stock: increment(-item.quantity) });
         }
 
+        // 3. Mark creditors ledger entry as deleted
+        try {
+            const credRef = doc(db, creditorsLedgerColPath, purchaseId);
+            batch.set(credRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+        } catch (_) { /* ignore */ }
+
         // NOTE: For simplicity, average purchase price is not recalculated as it's complex and prone to errors.
         // A full accounting system would need to reverse the weighted average calculation.
         // We'll leave the purchasePrice field as is for now.
@@ -4521,17 +5925,22 @@ function initializeAppAndListeners() {
             listenToGalleryImages();
             listenToSiteSettings();
             listenToTestimonials();
+            // Party masters can be public
+            listenToSuppliers();
+            listenToCustomers();
+            listenToBanks();
         }
 
         // Handle user-specific listeners
-        if (state.listeners.cart) { state.listeners.cart(); state.listeners.cart = null; }
-        if (state.listeners.orders) { state.listeners.orders(); state.listeners.orders = null; }
-        if (state.listeners.allOrders) { state.listeners.allOrders(); state.listeners.allOrders = null; }
-        if (state.listeners.allTestimonials) { state.listeners.allTestimonials(); state.listeners.allTestimonials = null; }
-        if (state.listeners.allPurchases) { state.listeners.allPurchases(); state.listeners.allPurchases = null; }
-        if (state.listeners.allLocalSales) { state.listeners.allLocalSales(); state.listeners.allLocalSales = null; }
-    if (state.listeners.allSalesReturns) { state.listeners.allSalesReturns(); state.listeners.allSalesReturns = null; }
-    if (state.listeners.allPurchaseReturns) { state.listeners.allPurchaseReturns(); state.listeners.allPurchaseReturns = null; }
+        ['cart', 'orders', 'profile'].forEach(key => {
+            if (state.listeners[key]) {
+                try { state.listeners[key](); } catch {}
+                state.listeners[key] = null;
+            }
+        });
+
+        // Reset admin listeners; will reattach if privileges allow
+        detachAdminListeners();
 
         // Cleanup any per-order public mirror listeners for previous user
         if (state.userOrderPublicUnsubs && typeof state.userOrderPublicUnsubs === 'object') {
@@ -4546,21 +5955,17 @@ function initializeAppAndListeners() {
             listenToCart(user.uid);
             listenToUserOrders(user.uid);
             listenToUserProfile(user.uid);
-            if (user.uid === ADMIN_UID) {
-                listenToAllOrders();
-               listenToAllTestimonials();
-                listenToAllPurchases();
-               listenToAllLocalSales();
-                listenToAllSalesReturns();
-                listenToAllPurchaseReturns();
-            }
         } else {
             state.cart = { items: {} };
             state.orders = [];
             state.allOrders = [];
             state.userProfile = null;
             if (state.listeners.profile) { try { state.listeners.profile(); } catch {} state.listeners.profile = null; }
+            state.allSuppliers = [];
+            state.allCustomers = [];
         }
+
+        refreshAdminState();
         
         renderApp();
     });
@@ -4622,9 +6027,50 @@ function addPurchaseItemRow() {
     const pricesIncludeToggle = document.getElementById('purchasePricesIncludeGst');
     const select = row.querySelector('.purchase-gst');
     if (select) {
+        // Enable GST% editing when in Inclusive mode (toggle ON)
         const enabled = !!(pricesIncludeToggle && pricesIncludeToggle.checked);
         select.disabled = !enabled;
     }
+}
+
+// Load an existing purchase into the entry form for editing
+function loadPurchaseIntoForm(purchaseId) {
+    const p = state.allPurchases.find(x => x.id === purchaseId);
+    if (!p) { showMessage('Purchase not found'); return; }
+    const idEl = document.getElementById('editingPurchaseId');
+    if (idEl) idEl.value = purchaseId;
+    const supplierEl = document.getElementById('supplierName');
+    const dateEl = document.getElementById('purchaseDate');
+    const toggleEl = document.getElementById('purchasePricesIncludeGst');
+    if (supplierEl) supplierEl.value = p.supplierName || '';
+    if (dateEl) {
+        try {
+            const d = new Date(p.purchaseDate?.seconds ? p.purchaseDate.seconds * 1000 : p.purchaseDate);
+            dateEl.value = new Date(d).toISOString().split('T')[0];
+        } catch { /* ignore */ }
+    }
+    if (toggleEl) {
+        toggleEl.checked = !!p.pricesIncludeGst;
+        setPurchaseGstEnabled(toggleEl.checked);
+    }
+    const container = document.getElementById('purchaseItemsContainer');
+    if (!container) return;
+    container.innerHTML = '';
+    for (const it of (p.items || [])) {
+        addPurchaseItemRow();
+        const row = container.lastElementChild;
+        const sel = row.querySelector('.purchase-product-select');
+        const priceEl = row.querySelector('.purchase-price');
+        const qtyEl = row.querySelector('.purchase-quantity');
+        const gstEl = row.querySelector('.purchase-gst');
+        if (sel) sel.value = it.productId;
+        if (priceEl) priceEl.value = (it.purchasePrice || 0).toString();
+        if (qtyEl) qtyEl.value = (it.quantity || 0).toString();
+        if (gstEl) gstEl.value = String(it.gstPercentage || 0);
+    }
+    updatePurchaseTotal();
+    // Scroll to form
+    document.getElementById('purchaseForm')?.scrollIntoView({ behavior: 'smooth' });
 }
 
 // Enable/disable editing of GST% selects on the purchase form
@@ -4636,7 +6082,8 @@ function setPurchaseGstEnabled(enabled) {
 }
 
 function updatePurchaseTotal() {
-    const pricesIncludeGst = document.getElementById('purchasePricesIncludeGst')?.checked || false;
+    // Toggle ON (checked) = Inclusive; OFF = Exclusive
+    const pricesIncludeGst = !!(document.getElementById('purchasePricesIncludeGst')?.checked || false);
     let subtotalEx = 0, gstTotal = 0, subtotalInc = 0;
     document.querySelectorAll('.purchase-item-row').forEach(row => {
         const price = parseFloat(row.querySelector('.purchase-price').value) || 0;
@@ -4644,21 +6091,29 @@ function updatePurchaseTotal() {
         const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
         let lineEx, lineGst, lineInc;
         if (pricesIncludeGst) {
-            lineInc = price * quantity;
-            const factor = 1 + (gstPercentage / 100);
-            lineEx = factor > 0 ? (lineInc / factor) : lineInc;
-            lineGst = lineInc - lineEx;
-        } else {
+            // Inclusive mode: treat entered price as EXCLUSIVE and ADD GST on top
             lineEx = price * quantity;
             lineGst = lineEx * (gstPercentage / 100);
             lineInc = lineEx + lineGst;
+        } else {
+            // Exclusive mode: no GST applied at all
+            lineEx = price * quantity;
+            lineGst = 0;
+            lineInc = lineEx;
         }
         row.querySelector('.purchase-item-total').textContent = `${lineInc.toFixed(2)}`;
         subtotalEx += lineEx; gstTotal += lineGst; subtotalInc += lineInc;
     });
-    document.getElementById('purchaseSubtotal').textContent = `${(pricesIncludeGst ? subtotalInc : subtotalEx).toFixed(2)}`;
-    document.getElementById('purchaseGst').textContent = `${gstTotal.toFixed(2)}`;
-    document.getElementById('purchaseTotal').textContent = `${subtotalInc.toFixed(2)}`;
+    // Always display Subtotal as Excl. GST so that in Inclusive mode GT = Subtotal + GST
+    document.getElementById('purchaseSubtotal').textContent = `${(subtotalEx).toFixed(2)}`;
+    const labelEl = document.getElementById('purchaseSubtotalLabel');
+    if (labelEl) { labelEl.textContent = 'Subtotal (Excl. GST)'; }
+    // Display GST: in Inclusive mode show extracted GST; in Exclusive mode there is NO GST
+    document.getElementById('purchaseGst').textContent = `${(pricesIncludeGst ? gstTotal : 0).toFixed(2)}`;
+    // Grand Total display:
+    // - Inclusive (toggle ON): inclusive total (Subtotal + GST)
+    // - Exclusive (toggle OFF): exclusive total
+    document.getElementById('purchaseTotal').textContent = `${(pricesIncludeGst ? subtotalInc : subtotalEx).toFixed(2)}`;
 
     const badge = document.getElementById('purchaseModeBadge');
     if (badge) {
@@ -4698,6 +6153,7 @@ function renderPurchaseHistory() {
                         <p class="font-bold">Total (₹): ${purchase.totalAmount.toFixed(2)}</p>
                         <button data-page="purchase_invoice" data-id="${purchase.id}" class="nav-btn text-xs text-blue-500 hover:underline">View Record</button>
                     </div>
+                    <button data-id="${purchase.id}" class="edit-purchase-btn bg-yellow-500 text-white p-2 rounded-full hover:bg-yellow-600 w-8 h-8 flex items-center justify-center" title="Edit Entry"><i class="fa-solid fa-pen text-xs"></i></button>
                     <button data-id="${purchase.id}" class="soft-delete-purchase-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-8 h-8 flex items-center justify-center" title="Delete Entry & Reverse Stock"><i class="fa-solid fa-trash-can-arrow-up text-xs"></i></button>
                 </div>
             </div>
@@ -4712,6 +6168,11 @@ function renderPurchaseHistory() {
     `).join('');
 
     container.innerHTML = historyHTML;
+
+    // Attach edit handlers
+    container.querySelectorAll('.edit-purchase-btn').forEach(btn => {
+        btn.addEventListener('click', () => loadPurchaseIntoForm(btn.dataset.id));
+    });
 }
 
 // --- LOCAL SALE HELPERS ---
@@ -4845,7 +6306,19 @@ async function handleGenerateLocalInvoice(e) {
         gstInfo.number = gstNum;
     }
     
-    const invoiceNumber = await getAndIncrementCounter('localSales');
+    // Partial payment inputs and validations
+    const receiveNowRaw = parseFloat(document.getElementById('localSaleReceiveNow')?.value || '0') || 0;
+    const paymentMode = (document.getElementById('localSalePaymentMode')?.value) || 'cash';
+    const selectedBank = document.getElementById('localSaleBankAccount')?.value || '';
+    if (receiveNowRaw < 0) { showMessage('Receive Now cannot be negative.'); return; }
+    if (receiveNowRaw > totalAmount) { showMessage('Receive Now cannot exceed Grand Total.'); return; }
+    if (receiveNowRaw > 0 && paymentMode === 'bank' && !selectedBank) { showMessage('Please select a bank account.'); return; }
+    const immediateAmount = Math.max(0, Math.min(receiveNowRaw, totalAmount));
+    const remainingAmount = Math.max(0, totalAmount - immediateAmount);
+    const isCreditSale = remainingAmount > 0 || !!document.getElementById('localSaleIsCredit')?.checked;
+    const editingLocalSaleId = (document.getElementById('editingLocalSaleId')?.value || '').trim();
+    const existingSale = editingLocalSaleId ? (state.allLocalSales || []).find(s => s.id === editingLocalSaleId) : null;
+    const invoiceNumber = editingLocalSaleId ? (existingSale?.invoiceNumber || editingLocalSaleId) : (await getAndIncrementCounter('localSales'));
 
     // Store data for the invoice page and for saving
     const localSaleDocData = {
@@ -4857,7 +6330,9 @@ async function handleGenerateLocalInvoice(e) {
         gstBreakdown: { rates: gstComputed.rates, total: gstComputed.total },
         totalAmount,
         gstInfo,
-        createdAt: serverTimestamp()
+        paymentMode: immediateAmount>0 ? paymentMode : undefined,
+        receivedNow: immediateAmount>0 ? { amount: immediateAmount, mode: paymentMode, bankAccount: (paymentMode==='bank' ? selectedBank : undefined) } : undefined,
+        ...(editingLocalSaleId ? { updatedAt: serverTimestamp() } : { createdAt: serverTimestamp() })
     };
     
     state.localSaleData = localSaleDocData; // for immediate navigation
@@ -4865,22 +6340,125 @@ async function handleGenerateLocalInvoice(e) {
     // Batch write to update stock and save local sale record
     try {
         const batch = writeBatch(db);
-        items.forEach(item => {
-            const productRef = doc(db, productsColPath, item.id);
-            batch.update(productRef, { stock: increment(-item.quantity) });
-        });
-        
-        // Save the local sale to its own collection
-        const localSaleRef = doc(collection(db, localSalesColPath));
-        batch.set(localSaleRef, localSaleDocData);
+        if (editingLocalSaleId && existingSale) {
+            // Adjust stock by delta: previous sale decreased stock; delta = (origQty - newQty)
+            const origMap = new Map(); (existingSale.items || []).forEach(it => { origMap.set(it.id, (origMap.get(it.id)||0) + (it.quantity||0)); });
+            const newMap = new Map(); items.forEach(it => { newMap.set(it.id, (newMap.get(it.id)||0) + (it.quantity||0)); });
+            const pids = new Set([...origMap.keys(), ...newMap.keys()]);
+            for (const pid of pids) {
+                const delta = (origMap.get(pid)||0) - (newMap.get(pid)||0);
+                if (delta !== 0) { batch.update(doc(db, productsColPath, pid), { stock: increment(delta) }); }
+            }
 
-        await batch.commit();
-        
-        state.localSaleData.id = localSaleRef.id;
-        
-    // Navigate to invoice page; capture previous route (Admin > Local Sale form)
-    state.previousRoute = { page: state.currentPage, adminTab: state.adminCurrentTab };
-    navigateTo('local_sale_invoice', localSaleRef.id);
+            const localSaleRef = doc(db, localSalesColPath, editingLocalSaleId);
+            batch.set(localSaleRef, { ...localSaleDocData, isCreditSale }, { merge: true });
+
+            // Ledgers: Debtors entry for remaining credit, immediate receipt in cash/bank with stable '-immediate' id
+            const debtRef = doc(db, debtorsLedgerColPath, editingLocalSaleId);
+            const cashImmRef = doc(db, cashLedgerColPath, `${editingLocalSaleId}-immediate`);
+            const bankImmRef = doc(db, bankLedgerColPath, `${editingLocalSaleId}-immediate`);
+
+            if (remainingAmount > 0) {
+                batch.set(debtRef, {
+                    partyName: localSaleDocData.customerName || 'Customer',
+                    date: localSaleDocData.saleDate,
+                    refType: 'Local Sale',
+                    refId: editingLocalSaleId,
+                    invoiceNumber: localSaleDocData.invoiceNumber,
+                    debit: remainingAmount,
+                    credit: 0,
+                    isDeleted: false,
+                    updatedAt: serverTimestamp(),
+                }, { merge: true });
+            } else {
+                batch.set(debtRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+            }
+
+            if (immediateAmount > 0) {
+                const payload = {
+                    date: localSaleDocData.saleDate,
+                    refType: 'Local Sale (Receipt)',
+                    refId: editingLocalSaleId,
+                    invoiceNumber: localSaleDocData.invoiceNumber,
+                    notes: `From ${localSaleDocData.customerName || 'Customer'}`,
+                    debit: immediateAmount,
+                    credit: 0,
+                    bankAccount: (paymentMode==='bank' ? selectedBank : undefined),
+                    reconciled: false,
+                    isDeleted: false,
+                    updatedAt: serverTimestamp(),
+                };
+                if (paymentMode === 'bank') {
+                    batch.set(bankImmRef, payload, { merge: true });
+                    batch.set(cashImmRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                } else {
+                    batch.set(cashImmRef, payload, { merge: true });
+                    batch.set(bankImmRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                }
+            } else {
+                // No immediate amount now; clear both immediate entries if present
+                batch.set(cashImmRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+                batch.set(bankImmRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+            }
+
+            await batch.commit();
+            state.localSaleData.id = editingLocalSaleId;
+            showMessage('Local sale updated successfully.');
+            state.previousRoute = { page: state.currentPage, adminTab: state.adminCurrentTab };
+            navigateTo('local_sale_invoice', editingLocalSaleId);
+        } else {
+            // NEW sale path (existing behaviour)
+            items.forEach(item => {
+                const productRef = doc(db, productsColPath, item.id);
+                batch.update(productRef, { stock: increment(-item.quantity) });
+            });
+
+            const localSaleRef = doc(collection(db, localSalesColPath));
+            batch.set(localSaleRef, { ...localSaleDocData, isCreditSale });
+
+            if (remainingAmount > 0) {
+                try { await ensurePartyExists(localSaleDocData.customerName, 'customer'); } catch {}
+                const debtRef = doc(db, debtorsLedgerColPath, localSaleRef.id);
+                batch.set(debtRef, {
+                    partyName: localSaleDocData.customerName || 'Customer',
+                    date: localSaleDocData.saleDate,
+                    refType: 'Local Sale',
+                    refId: localSaleRef.id,
+                    invoiceNumber: localSaleDocData.invoiceNumber,
+                    debit: remainingAmount,
+                    credit: 0,
+                    isDeleted: false,
+                    createdAt: serverTimestamp(),
+                });
+            }
+            if (immediateAmount > 0) {
+                const payload = {
+                    date: localSaleDocData.saleDate,
+                    refType: 'Local Sale (Receipt)',
+                    refId: localSaleRef.id,
+                    invoiceNumber: localSaleDocData.invoiceNumber,
+                    notes: `From ${localSaleDocData.customerName || 'Customer'}`,
+                    debit: immediateAmount,
+                    credit: 0,
+                    bankAccount: (paymentMode==='bank' ? selectedBank : undefined),
+                    reconciled: false,
+                    isDeleted: false,
+                    createdAt: serverTimestamp(),
+                };
+                if (paymentMode === 'bank') {
+                    const bankRef = doc(db, bankLedgerColPath, `${localSaleRef.id}-immediate`);
+                    batch.set(bankRef, payload);
+                } else {
+                    const cashRef = doc(db, cashLedgerColPath, `${localSaleRef.id}-immediate`);
+                    batch.set(cashRef, payload);
+                }
+            }
+
+            await batch.commit();
+            state.localSaleData.id = localSaleRef.id;
+            state.previousRoute = { page: state.currentPage, adminTab: state.adminCurrentTab };
+            navigateTo('local_sale_invoice', localSaleRef.id);
+        }
 
     } catch (error) {
         console.error("Error finalizing local sale:", error);
@@ -4891,7 +6469,11 @@ async function handleGenerateLocalInvoice(e) {
 
 function openNewProductModal(triggeringSelect) {
     window.newProductTriggerSelect = triggeringSelect; // Save the select element
-   document.getElementById('newProductModal').classList.remove('hidden');
+   const modal = document.getElementById('newProductModal');
+   if (!modal) return;
+   modal.classList.remove('hidden');
+   // Ensure proper display when showing
+   if (!modal.classList.contains('flex')) modal.classList.add('flex');
 }
 
 function closeNewProductModal() {
@@ -4899,11 +6481,1023 @@ function closeNewProductModal() {
        window.newProductTriggerSelect.value = ''; // Reset the triggering select
     }
     const modal = document.getElementById('newProductModal');
-   modal.querySelector('form').reset();
+   if (!modal) return;
+   const form = modal.querySelector('form');
+   if (form) form.reset();
+    // Hide and remove display flex to avoid CSS precedence issues
     modal.classList.add('hidden');
+    modal.classList.remove('flex');
 }
 
 document.getElementById('closeNewProductModalBtn').addEventListener('click', closeNewProductModal);
 document.getElementById('cancelNewProductBtn').addEventListener('click', closeNewProductModal);
         
 initializeAppAndListeners();
+
+// --- ADMIN LEDGERS PAGE RENDERER ---
+function renderAdminLedgersPage() {
+    const container = document.getElementById('adminLedgersContainer');
+    if (!container) return;
+    // Ensure UI state bag exists
+    state.ui = state.ui || {};
+
+    // Date range filter
+    const start = new Date(state.ledgerStartDate); start.setHours(0,0,0,0);
+    const end = new Date(state.ledgerEndDate); end.setHours(23,59,59,999);
+    const inRange = (d) => {
+        const dt = _toDate(d) || new Date(d?.seconds ? d.seconds*1000 : Date.now());
+        return dt >= start && dt <= end;
+    };
+
+    // Group creditors by supplierName and compute balances (credits - debits)
+    const creditorsByParty = {};
+    for (const e of (state.allCreditorsLedger || []).filter(x => !x.isDeleted).filter(x => inRange(x.date))) {
+        const name = e.partyName || 'Supplier';
+        if (!creditorsByParty[name]) creditorsByParty[name] = { debit: 0, credit: 0 };
+        creditorsByParty[name].debit += Number(e.debit || 0);
+        creditorsByParty[name].credit += Number(e.credit || 0);
+    }
+    // Prepare creditors list and paginate (per-pane size)
+    const creditorsList = Object.entries(creditorsByParty).map(([name, sums]) => ({ name, debit: sums.debit, credit: sums.credit }));
+    const creditorsTotal = creditorsList.length;
+    const creditorsPageSize = state.creditorsPageSize || state.ledgerPageSize || 10;
+    const creditorsPage = state.creditorsPage || 1;
+    const creditorsTotalPages = Math.max(1, Math.ceil(creditorsTotal / creditorsPageSize));
+    const creditorsSlice = creditorsList.slice((creditorsPage - 1) * creditorsPageSize, creditorsPage * creditorsPageSize);
+    const creditorsRows = (creditorsSlice.length ? creditorsSlice.map(item => {
+        const name = item.name;
+        const sums = { debit: item.debit, credit: item.credit };
+        const bal = (sums.credit - sums.debit);
+        return `<tr class="border-b text-sm hover:bg-gray-50 cursor-pointer party-row" data-ledger="creditors" data-party="${name.replace(/"/g,'&quot;')}"><td class="p-3">${name}</td><td class="p-3 text-right">${sums.debit ? sums.debit.toFixed(2) : '-'}</td><td class="p-3 text-right">${sums.credit ? sums.credit.toFixed(2) : '-'}</td><td class="p-3 text-right font-semibold">${bal.toFixed(2)}</td></tr>`;
+    }).join('') : `<tr><td colspan="4" class="p-3 text-center text-gray-500">No creditors yet</td></tr>`);
+    const creditorsPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${creditorsPageSize===n? 'selected':''}>${n}</option>`).join('');
+    const creditorsPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${creditorsSlice.length ? ((creditorsPage - 1) * creditorsPageSize + 1) : 0} - ${((creditorsPage - 1) * creditorsPageSize) + creditorsSlice.length} of ${creditorsTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="creditorsFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage<=1? 'disabled':''}>First</button><button id="creditorsPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage<=1? 'disabled':''}>Prev</button><input id="creditorsPageInput" type="number" min="1" max="${creditorsTotalPages}" value="${creditorsPage}" class="w-14 text-center border rounded p-1" /><button id="creditorsNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage>=creditorsTotalPages? 'disabled':''}>Next</button><button id="creditorsLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${creditorsPage>=creditorsTotalPages? 'disabled':''}>Last</button><select id="creditorsPageSizeSel" class="border rounded p-1 text-sm">${creditorsPageSizeOptions}</select></div></div>`;
+
+    // Group debtors by customerName and compute balances (debits - credits)
+    const debtorsByParty = {};
+    for (const e of (state.allDebtorsLedger || []).filter(x => !x.isDeleted).filter(x => inRange(x.date))) {
+        const name = e.partyName || 'Customer';
+        if (!debtorsByParty[name]) debtorsByParty[name] = { debit: 0, credit: 0 };
+        debtorsByParty[name].debit += Number(e.debit || 0);
+        debtorsByParty[name].credit += Number(e.credit || 0);
+    }
+    // Prepare debtors list and paginate (per-pane size)
+    const debtorsList = Object.entries(debtorsByParty).map(([name, sums]) => ({ name, debit: sums.debit, credit: sums.credit }));
+    const debtorsTotal = debtorsList.length;
+    const debtorsPageSize = state.debtorsPageSize || state.ledgerPageSize || 10;
+    const debtorsPage = state.debtorsPage || 1;
+    const debtorsTotalPages = Math.max(1, Math.ceil(debtorsTotal / debtorsPageSize));
+    const debtorsSlice = debtorsList.slice((debtorsPage - 1) * debtorsPageSize, debtorsPage * debtorsPageSize);
+    const debtorsRows = (debtorsSlice.length ? debtorsSlice.map(item => {
+        const name = item.name;
+        const sums = { debit: item.debit, credit: item.credit };
+        const bal = (sums.debit - sums.credit);
+        return `<tr class="border-b text-sm hover:bg-gray-50 cursor-pointer party-row" data-ledger="debtors" data-party="${name.replace(/"/g,'&quot;')}"><td class="p-3">${name}</td><td class="p-3 text-right">${sums.debit ? sums.debit.toFixed(2) : '-'}</td><td class="p-3 text-right">${sums.credit ? sums.credit.toFixed(2) : '-'}</td><td class="p-3 text-right font-semibold">${bal.toFixed(2)}</td></tr>`;
+    }).join('') : `<tr><td colspan="4" class="p-3 text-center text-gray-500">No debtors yet</td></tr>`);
+    const debtorsPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${debtorsPageSize===n? 'selected':''}>${n}</option>`).join('');
+    const debtorsPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${debtorsSlice.length ? ((debtorsPage - 1) * debtorsPageSize + 1) : 0} - ${((debtorsPage - 1) * debtorsPageSize) + debtorsSlice.length} of ${debtorsTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="debtorsFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage<=1? 'disabled':''}>First</button><button id="debtorsPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage<=1? 'disabled':''}>Prev</button><input id="debtorsPageInput" type="number" min="1" max="${debtorsTotalPages}" value="${debtorsPage}" class="w-14 text-center border rounded p-1" /><button id="debtorsNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage>=debtorsTotalPages? 'disabled':''}>Next</button><button id="debtorsLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${debtorsPage>=debtorsTotalPages? 'disabled':''}>Last</button><select id="debtorsPageSizeSel" class="border rounded p-1 text-sm">${debtorsPageSizeOptions}</select></div></div>`;
+
+    // Summary balances across filtered range
+    const cashInRange = (state.allCashLedger || []).filter(x => !x.isDeleted).filter(x => inRange(x.date));
+    const bankInRangeAll = (state.allBankLedger || []).filter(x => !x.isDeleted).filter(x => inRange(x.date));
+    const cashBalance = cashInRange.reduce((acc, e) => acc + Number(e.debit || 0) - Number(e.credit || 0), 0);
+    const bankBalance = bankInRangeAll.reduce((acc, e) => acc + Number(e.debit || 0) - Number(e.credit || 0), 0);
+
+    // Cash book rows
+    const cashEntries = (state.allCashLedger || [])
+        .filter(x => !x.isDeleted)
+        .filter(x => inRange(x.date))
+        .slice()
+        .sort((a,b) => (_toDate(a.date) - _toDate(b.date)));
+    // Cash pagination (use per-pane size if present)
+    const cashPageSize = state.cashPageSize || state.ledgerPageSize || 10;
+    const cashPage = state.cashPage || 1;
+    const cashTotal = cashEntries.length;
+    const cashTotalPages = Math.max(1, Math.ceil(cashTotal / cashPageSize));
+    const cashBefore = cashEntries.slice(0, (cashPage - 1) * cashPageSize);
+    let cashRun = cashBefore.reduce((acc, e) => acc + Number(e.debit || 0) - Number(e.credit || 0), 0);
+    const cashSlice = cashEntries.slice((cashPage - 1) * cashPageSize, cashPage * cashPageSize);
+    const cashRows = (cashSlice.length ? cashSlice.map(e => {
+        const d = formatDate(e.date);
+        const debit = Number(e.debit || 0);
+        const credit = Number(e.credit || 0);
+        cashRun += (debit - credit);
+        const ref = e.refId || '';
+        const notes = e.notes || '';
+        return `<tr class="border-b text-sm"><td class="p-2">${d}</td><td class="p-2">${e.refType || ''}</td><td class="p-2">${ref}</td><td class="p-2">${notes}</td><td class="p-2 text-right text-green-700">${debit?debit.toFixed(2):'-'}</td><td class="p-2 text-right text-red-600">${credit?credit.toFixed(2):'-'}</td><td class="p-2 text-right font-semibold">${cashRun.toFixed(2)}</td></tr>`;
+    }).join('') : `<tr><td colspan="7" class="p-3 text-center text-gray-500">No cash entries in range</td></tr>`);
+    const cashPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${cashPageSize===n? 'selected':''}>${n}</option>`).join('');
+    const cashPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${cashSlice.length ? ((cashPage - 1) * cashPageSize + 1) : 0} - ${((cashPage - 1) * cashPageSize) + cashSlice.length} of ${cashTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="cashFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage<=1? 'disabled':''}>First</button><button id="cashPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage<=1? 'disabled':''}>Prev</button><input id="cashPageInput" type="number" min="1" max="${cashTotalPages}" value="${cashPage}" class="w-14 text-center border rounded p-1" /><button id="cashNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage>=cashTotalPages? 'disabled':''}>Next</button><button id="cashLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage>=cashTotalPages? 'disabled':''}>Last</button><select id="cashPageSizeSel" class="border rounded p-1 text-sm">${cashPageSizeOptions}</select></div></div>`;
+
+    // Bank book rows with account filter
+    const selectedBank = state.bankAccountFilter || 'All';
+    const allBankAccounts = (state.allBanks || []).map(b => b.name).filter(Boolean);
+    const bankEntries = (state.allBankLedger || [])
+        .filter(x => !x.isDeleted)
+        .filter(x => inRange(x.date))
+        .filter(x => selectedBank === 'All' ? true : ((x.bankAccount || 'Main Bank') === selectedBank))
+        .slice()
+        .sort((a,b) => (_toDate(a.date) - _toDate(b.date)));
+    // Bank pagination (use per-pane size if present)
+    const bankPageSize = state.bankPageSize || state.ledgerPageSize || 10;
+    const bankPage = state.bankPage || 1;
+    const bankTotal = bankEntries.length;
+    const bankTotalPages = Math.max(1, Math.ceil(bankTotal / bankPageSize));
+    const bankBefore = bankEntries.slice(0, (bankPage - 1) * bankPageSize);
+    let bankRun = bankBefore.reduce((acc, e) => acc + Number(e.debit || 0) - Number(e.credit || 0), 0);
+    const bankSlice = bankEntries.slice((bankPage - 1) * bankPageSize, bankPage * bankPageSize);
+    const bankRows = (bankSlice.length ? bankSlice.map(e => {
+        const d = formatDate(e.date);
+        const debit = Number(e.debit || 0);
+        const credit = Number(e.credit || 0);
+        bankRun += (debit - credit);
+        const ref = e.refId || '';
+        const notes = e.notes || '';
+        const acct = e.bankAccount || 'Main Bank';
+        const rec = e.reconciled ? '✓' : '';
+        return `<tr class="border-b text-sm"><td class="p-2">${d}</td><td class="p-2">${e.refType || ''}</td><td class="p-2">${ref}</td><td class="p-2">${notes}</td><td class="p-2">${acct}</td><td class="p-2 text-center">${rec}</td><td class="p-2 text-right text-green-700">${debit?debit.toFixed(2):'-'}</td><td class="p-2 text-right text-red-600">${credit?credit.toFixed(2):'-'}</td><td class="p-2 text-right font-semibold">${bankRun.toFixed(2)}</td></tr>`;
+    }).join('') : `<tr><td colspan="7" class="p-3 text-center text-gray-500">No bank entries in range</td></tr>`);
+    const bankPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${bankPageSize===n? 'selected':''}>${n}</option>`).join('');
+    const bankPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${bankSlice.length ? ((bankPage - 1) * bankPageSize + 1) : 0} - ${((bankPage - 1) * bankPageSize) + bankSlice.length} of ${bankTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="bankFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${bankPage<=1? 'disabled':''}>First</button><button id="bankPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${bankPage<=1? 'disabled':''}>Prev</button><input id="bankPageInput" type="number" min="1" max="${bankTotalPages}" value="${bankPage}" class="w-14 text-center border rounded p-1" /><button id="bankNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${bankPage>=bankTotalPages? 'disabled':''}>Next</button><button id="bankLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${bankPage>=bankTotalPages? 'disabled':''}>Last</button><select id="bankPageSizeSel" class="border rounded p-1 text-sm">${bankPageSizeOptions}</select></div></div>`;
+
+    // Party Directory filters and lists
+    const supSearchVal = state.partySearchSuppliers || '';
+    const custSearchVal = state.partySearchCustomers || '';
+    const qSup = supSearchVal.trim().toLowerCase();
+    const qCust = custSearchVal.trim().toLowerCase();
+    const allSuppliersList = (state.allSuppliers || []);
+    const allCustomersList = (state.allCustomers || []);
+    const filteredSuppliers = allSuppliersList.filter(s => {
+        const n = (s.name || '').toLowerCase();
+        const g = (s.gstin || '').toLowerCase();
+        return !qSup || n.includes(qSup) || g.includes(qSup);
+    });
+    const filteredCustomers = allCustomersList.filter(c => {
+        const n = (c.name || '').toLowerCase();
+        const g = (c.gstin || '').toLowerCase();
+        return !qCust || n.includes(qCust) || g.includes(qCust);
+    });
+    const suppliersListHTML = (filteredSuppliers).map(s=>{ const pid=(state.__primarySuppliers||[]).find(p=>(p.name||'').toLowerCase()===(s.name||'').toLowerCase())?.id||''; const n=(s.name||'').replace(/"/g,'&quot;'); const g=(s.gstin||'').replace(/"/g,'&quot;'); const a=(s.address||'').replace(/"/g,'&quot;'); return `<li><div class=\"flex flex-col gap-0.5\"><div class=\"flex items-center gap-2\"><span>${s.name}${s.gstin?` — <span class=\\\"text-xs text-gray-500\\\">${s.gstin}</span>`:''}</span><button type=\"button\" class=\"text-blue-600 text-xs underline edit-party-btn\" data-type=\"supplier\" data-name=\"${n}\" data-gstin=\"${g}\" data-address=\"${a}\" data-docid=\"${pid}\">Edit</button></div>${s.address?`<span class=\\\"text-xs text-gray-500\\\">${s.address}</span>`:''}</div></li>`}).join('') || '<li class="text-gray-500">None</li>';
+    const customersListHTML = (filteredCustomers).map(c=>{ const pid=(state.__primaryCustomers||[]).find(p=>(p.name||'').toLowerCase()===(c.name||'').toLowerCase())?.id||''; const n=(c.name||'').replace(/"/g,'&quot;'); const g=(c.gstin||'').replace(/"/g,'&quot;'); const a=(c.address||'').replace(/"/g,'&quot;'); return `<li><div class=\"flex flex-col gap-0.5\"><div class=\"flex items-center gap-2\"><span>${c.name}${c.gstin?` — <span class=\\\"text-xs text-gray-500\\\">${c.gstin}</span>`:''}</span><button type=\"button\" class=\"text-blue-600 text-xs underline edit-party-btn\" data-type=\"customer\" data-name=\"${n}\" data-gstin=\"${g}\" data-address=\"${a}\" data-docid=\"${pid}\">Edit</button></div>${c.address?`<span class=\\\"text-xs text-gray-500\\\">${c.address}</span>`:''}</div></li>`}).join('') || '<li class="text-gray-500">None</li>';
+    const isAddCollapsed = !!state.ui.partyAddCollapsed;
+    const isListCollapsed = !!state.ui.partyListCollapsed;
+
+    container.innerHTML = `
+      <div class="grid grid-cols-1 gap-6"> <!-- removed lg:grid-cols-3 -->
+        <div class="space-y-6"> <!-- removed lg:col-span-2 -->
+        <div class="flex items-end gap-4 mb-4">
+            <div>
+                <label class="block text-sm text-gray-700">Start Date</label>
+                <input type="date" id="ledgerStartDate" class="border rounded p-2" value="${state.ledgerStartDate}">
+            </div>
+            <div>
+                <label class="block text-sm text-gray-700">End Date</label>
+                <input type="date" id="ledgerEndDate" class="border rounded p-2" value="${state.ledgerEndDate}">
+            </div>
+            <button id="applyLedgerDateBtn" class="bg-blue-600 text-white px-4 py-2 rounded">Apply</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-white rounded shadow p-4">
+              <div class="text-sm text-gray-500">Cash Balance (in range)</div>
+              <div class="text-2xl font-bold">₹${cashBalance.toFixed(2)}</div>
+            </div>
+            <div class="bg-white rounded shadow p-4">
+              <div class="text-sm text-gray-500">Bank Balance (in range)</div>
+              <div class="text-2xl font-bold">₹${bankBalance.toFixed(2)}</div>
+            </div>
+            <div class="bg-white rounded shadow p-4">
+              <div class="text-sm text-gray-500">Total Balance (in range)</div>
+              <div class="text-2xl font-bold">₹${(cashBalance+bankBalance).toFixed(2)}</div>
+            </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-xl font-bold">Cash Book</h3>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-gray-100 text-xs">
+                            <tr>
+                                <th class="p-2">Date</th>
+                                <th class="p-2">Ref Type</th>
+                                <th class="p-2">Ref</th>
+                                <th class="p-2">Notes</th>
+                                <th class="p-2 text-right">Debit (₹)</th>
+                                <th class="p-2 text-right">Credit (₹)</th>
+                                <th class="p-2 text-right">Balance (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${cashRows}
+                        </tbody>
+                    </table>
+                </div>
+                ${cashPaginationHTML}
+                <div class="mt-4 text-sm text-gray-600">Opening balance forms moved to <strong>Billing Settings</strong> — use that tab to add cash/bank opening balances.</div>
+            </div>
+            <div class="bg-white p-6 rounded-lg shadow">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-xl font-bold">Bank Book</h3>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs text-gray-600">Account</label>
+                        <select id="bankAccountFilter" class="border rounded p-1 text-sm">
+                            <option ${selectedBank==='All'?'selected':''}>All</option>
+                            ${allBankAccounts.map(n=>`<option ${selectedBank===n?'selected':''}>${n}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left">
+                        <thead class="bg-gray-100 text-xs">
+                            <tr>
+                                <th class="p-2">Date</th>
+                                <th class="p-2">Ref Type</th>
+                                <th class="p-2">Ref</th>
+                                <th class="p-2">Notes</th>
+                                <th class="p-2">Account</th>
+                                <th class="p-2 text-center">Rec</th>
+                                <th class="p-2 text-right">Debit (₹)</th>
+                                <th class="p-2 text-right">Credit (₹)</th>
+                                <th class="p-2 text-right">Balance (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${bankRows}
+                        </tbody>
+                    </table>
+                </div>
+                ${bankPaginationHTML}
+                <!-- Bank opening moved to Billing Settings tab -->
+            </div>
+        </div>
+        <div class="bg-white p-8 rounded-lg shadow-lg mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-2xl font-bold">Sundry Creditors</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-100 text-xs">
+                        <tr>
+                            <th class="p-3">Supplier</th>
+                            <th class="p-3 text-right">Debit (₹)</th>
+                            <th class="p-3 text-right">Credit (₹)</th>
+                            <th class="p-3 text-right">Balance (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${creditorsRows}
+                    </tbody>
+                </table>
+            </div>
+            ${creditorsPaginationHTML}
+        </div>
+        <div class="bg-white p-8 rounded-lg shadow-lg">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-2xl font-bold">Sundry Debtors</h3>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left">
+                    <thead class="bg-gray-100 text-xs">
+                        <tr>
+                            <th class="p-3">Customer</th>
+                            <th class="p-3 text-right">Debit (₹)</th>
+                            <th class="p-3 text-right">Credit (₹)</th>
+                            <th class="p-3 text-right">Balance (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${debtorsRows}
+                    </tbody>
+                </table>
+            </div>
+            ${debtorsPaginationHTML}
+        </div>
+        <!-- Party Directory: Add and List panes, placed below Sundry Debtors -->
+        <div class="bg-white p-8 rounded-lg shadow-lg mt-8">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold">Add Parties</h3>
+                <button id="togglePartyAdd" class="text-sm text-gray-600 hover:text-gray-800">${isAddCollapsed?'Expand':'Collapse'}</button>
+            </div>
+            <div id="partyAddBody" class="${isAddCollapsed?'hidden':''}">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <form id="addSupplierForm" class="space-y-2 border rounded p-4">
+                    <h4 class="font-semibold">Add Supplier</h4>
+                    <div class="flex gap-2">
+                        <input type="text" id="newSupplierName" placeholder="Supplier name" class="flex-1 border rounded p-2" required>
+                        <button class="bg-gray-800 text-white px-3 rounded" type="submit">Add</button>
+                    </div>
+                    <div class="grid grid-cols-1 gap-2">
+                        <input type="text" id="newSupplierGstin" placeholder="GSTIN (optional)" class="border rounded p-2" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
+                        <textarea id="newSupplierAddress" placeholder="Address (optional)" class="border rounded p-2" rows="2"></textarea>
+                    </div>
+                </form>
+                <form id="addCustomerForm" class="space-y-2 border rounded p-4">
+                    <h4 class="font-semibold">Add Customer</h4>
+                    <div class="flex gap-2">
+                        <input type="text" id="newCustomerName" placeholder="Customer name" class="flex-1 border rounded p-2" required>
+                        <button class="bg-gray-800 text-white px-3 rounded" type="submit">Add</button>
+                    </div>
+                    <div class="grid grid-cols-1 gap-2">
+                        <input type="text" id="newCustomerGstin" placeholder="GSTIN (optional)" class="border rounded p-2" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
+                        <textarea id="newCustomerAddress" placeholder="Address (optional)" class="border rounded p-2" rows="2"></textarea>
+                    </div>
+                </form>
+            </div>
+            </div>
+        </div>
+        <div class="bg-white p-8 rounded-lg shadow-lg mt-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold">Party Directory</h3>
+                <button id="togglePartyList" class="text-sm text-gray-600 hover:text-gray-800">${isListCollapsed?'Expand':'Collapse'}</button>
+            </div>
+            <div id="partyListBody" class="${isListCollapsed?'hidden':''}">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-semibold">Suppliers <span class="text-xs text-gray-500">(${filteredSuppliers.length} / ${allSuppliersList.length})</span></h4>
+                        <button id="clearSupplierSearch" class="text-xs text-gray-600 hover:text-gray-800 ${supSearchVal? '' : 'invisible'}">Clear</button>
+                    </div>
+                    <input type="text" id="supplierSearch" placeholder="Search name or GSTIN" class="border rounded p-2 w-full mb-2" value="${(supSearchVal||'').replace(/\"/g,'&quot;')}">
+                    <ul class="list-disc pl-6 text-sm mb-1">${suppliersListHTML}</ul>
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <h4 class="font-semibold">Customers <span class="text-xs text-gray-500">(${filteredCustomers.length} / ${allCustomersList.length})</span></h4>
+                        <button id="clearCustomerSearch" class="text-xs text-gray-600 hover:text-gray-800 ${custSearchVal? '' : 'invisible'}">Clear</button>
+                    </div>
+                    <input type="text" id="customerSearch" placeholder="Search name or GSTIN" class="border rounded p-2 w-full mb-2" value="${(custSearchVal||'').replace(/\"/g,'&quot;')}">
+                    <ul class="list-disc pl-6 text-sm mb-1">${customersListHTML}</ul>
+                </div>
+            </div>
+            </div>
+        </div>
+        <!-- End Party Directory panes -->
+        <div class="bg-white p-8 rounded-lg shadow-lg mt-8">
+            <h3 class="text-xl font-bold mb-4">Quick Postings</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <form id="supplierPaymentForm" class="space-y-3 border rounded p-4">
+                    <h4 class="font-semibold">Supplier Payment</h4>
+                    <input type="text" id="spParty" placeholder="Supplier Name" class="w-full border rounded p-2" list="suppliersDatalist" required>
+                    <datalist id="suppliersDatalist">${(state.allSuppliers||[]).map(s=>`<option value="${(s.name||'').replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
+                    <input type="date" id="spDate" class="w-full border rounded p-2" value="${new Date().toISOString().split('T')[0]}" required>
+                    <input type="number" id="spAmount" placeholder="Amount (₹)" class="w-full border rounded p-2" step="0.01" required>
+                    <select id="spMode" class="w-full border rounded p-2">
+                        <option value="cash" selected>Cash</option>
+                        <option value="bank">Bank</option>
+                    </select>
+                                        <div id="spBankAccountRow" class="hidden">
+                                            <select id="spBankAccount" class="w-full border rounded p-2">
+                                                ${(state.allBanks||[]).map(b=>`<option>${b.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <label class="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" id="spReconciled"> Mark as reconciled</label>
+                                        <input type="text" id="spReconNote" placeholder="Reconciliation note (optional)" class="w-full border rounded p-2">
+                    <input type="text" id="spNotes" placeholder="Notes (optional)" class="w-full border rounded p-2">
+                    <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded">Record Payment</button>
+                </form>
+                <form id="customerReceiptForm" class="space-y-3 border rounded p-4">
+                    <h4 class="font-semibold">Customer Receipt</h4>
+                    <input type="text" id="crParty" placeholder="Customer Name" class="w-full border rounded p-2" list="customersDatalist" required>
+                    <datalist id="customersDatalist">${(state.allCustomers||[]).map(c=>`<option value="${(c.name||'').replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
+                    <input type="date" id="crDate" class="w-full border rounded p-2" value="${new Date().toISOString().split('T')[0]}" required>
+                    <input type="number" id="crAmount" placeholder="Amount (₹)" class="w-full border rounded p-2" step="0.01" required>
+                    <select id="crMode" class="w-full border rounded p-2">
+                        <option value="cash" selected>Cash</option>
+                        <option value="bank">Bank</option>
+                    </select>
+                                        <div id="crBankAccountRow" class="hidden">
+                                            <select id="crBankAccount" class="w-full border rounded p-2">
+                                                ${(state.allBanks||[]).map(b=>`<option>${b.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <label class="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" id="crReconciled"> Mark as reconciled</label>
+                                        <input type="text" id="crReconNote" placeholder="Reconciliation note (optional)" class="w-full border rounded p-2">
+                    <input type="text" id="crNotes" placeholder="Notes (optional)" class="w-full border rounded p-2">
+                    <button type="submit" class="bg-indigo-600 text-white px-4 py-2 rounded">Record Receipt</button>
+                </form>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                <form id="cashBankTransferForm" class="space-y-3 border rounded p-4">
+                    <h4 class="font-semibold">Cash ↔ Bank Transfer</h4>
+                    <input type="date" id="tDate" class="w-full border rounded p-2" value="${new Date().toISOString().split('T')[0]}" required>
+                    <input type="number" id="tAmount" placeholder="Amount (₹)" class="w-full border rounded p-2" step="0.01" required>
+                    <select id="tDirection" class="w-full border rounded p-2">
+                        <option value="cashToBank">Cash to Bank (Deposit)</option>
+                        <option value="bankToCash">Bank to Cash (Withdrawal)</option>
+                    </select>
+                                        <div>
+                                            <label class="block text-xs text-gray-600">Bank Account</label>
+                                            <select id="tBankAccount" class="w-full border rounded p-2">
+                                                ${(state.allBanks||[]).map(b=>`<option>${b.name}</option>`).join('')}
+                                            </select>
+                                        </div>
+                                        <label class="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" id="tReconciled"> Mark as reconciled</label>
+                                        <input type="text" id="tReconNote" placeholder="Reconciliation note (optional)" class="w-full border rounded p-2">
+                    <input type="text" id="tNotes" placeholder="Notes (optional)" class="w-full border rounded p-2">
+                    <button type="submit" class="bg-purple-600 text-white px-4 py-2 rounded">Record Transfer</button>
+                </form>
+            </div>
+        </div>
+        <div class="bg-white p-8 rounded-lg shadow-lg mt-8">
+            <h3 class="text-xl font-bold mb-4">Maintenance</h3>
+            <p class="text-sm text-gray-600 mb-3">One-time migration of parties from legacy location into the new masters path. Safe to re-run; duplicates are skipped.</p>
+            <div class="flex items-center gap-3">
+                <button id="migratePartiesBtn" class="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded">Migrate Legacy Parties</button>
+                <span id="migratePartiesStatus" class="text-sm text-gray-500"></span>
+            </div>
+        </div>
+        </div>
+                <aside class="lg:col-span-1 lg:sticky lg:top-4 space-y-6">
+                    
+                </aside>
+      </div>
+    `;
+
+    // Date filter listeners
+    const applyBtn = document.getElementById('applyLedgerDateBtn');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            const s = document.getElementById('ledgerStartDate').value;
+            const e = document.getElementById('ledgerEndDate').value;
+            state.ledgerStartDate = s || state.ledgerStartDate;
+            state.ledgerEndDate = e || state.ledgerEndDate;
+            // Reset pagination to first page when date range changes
+            state.cashPage = 1; state.bankPage = 1; state.creditorsPage = 1; state.debtorsPage = 1;
+            renderAdminLedgersPage();
+        });
+    }
+
+    // Supplier Payment form handler
+    const spForm = document.getElementById('supplierPaymentForm');
+    if (spForm) {
+        spForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const party = document.getElementById('spParty').value.trim();
+            const date = new Date(document.getElementById('spDate').value);
+            const amount = parseFloat(document.getElementById('spAmount').value) || 0;
+            const mode = (document.getElementById('spMode')?.value || 'cash');
+            const bankAccount = mode==='bank' ? (document.getElementById('spBankAccount')?.value || 'Main Bank') : null;
+            const reconciled = !!document.getElementById('spReconciled')?.checked;
+            const reconNote = document.getElementById('spReconNote')?.value || '';
+            const notes = document.getElementById('spNotes').value.trim();
+            if (!party || amount <= 0) { showMessage('Enter supplier name and a positive amount.'); return; }
+            try {
+                const ref = doc(collection(db, creditorsLedgerColPath));
+                await setDoc(ref, {
+                    partyName: party,
+                    date,
+                    refType: 'Payment',
+                    refId: ref.id,
+                    notes,
+                    debit: amount,
+                    credit: 0,
+                    isDeleted: false,
+                    createdAt: serverTimestamp(),
+                });
+                // Mirror entry in cash/bank ledger (credit because asset decreases)
+                const cashPayload = {
+                    date,
+                    refType: 'Supplier Payment',
+                    refId: ref.id,
+                    notes: notes ? `${notes} · To ${party}` : `To ${party}`,
+                    debit: 0,
+                    credit: amount,
+                    bankAccount: bankAccount || undefined,
+                    reconciled: reconciled || false,
+                    reconNote: reconNote || undefined,
+                    isDeleted: false,
+                    createdAt: serverTimestamp(),
+                };
+                if (mode === 'bank') {
+                    await addDoc(collection(db, bankLedgerColPath), cashPayload);
+                } else {
+                    await addDoc(collection(db, cashLedgerColPath), cashPayload);
+                }
+                await ensurePartyExists(party, 'supplier');
+                // Optimistic update and re-render
+                upsertPartyInState('supplier', { name: party });
+                renderAdminLedgersPage();
+                showMessage('Supplier payment recorded.');
+                spForm.reset();
+            } catch (err) {
+                console.error('Supplier payment error:', err);
+                showMessage('Failed to record supplier payment.');
+            }
+        });
+    }
+
+    // Customer Receipt form handler
+    const crForm = document.getElementById('customerReceiptForm');
+    if (crForm) {
+        crForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const party = document.getElementById('crParty').value.trim();
+            const date = new Date(document.getElementById('crDate').value);
+            const amount = parseFloat(document.getElementById('crAmount').value) || 0;
+            const mode = (document.getElementById('crMode')?.value || 'cash');
+            const bankAccount = mode==='bank' ? (document.getElementById('crBankAccount')?.value || 'Main Bank') : null;
+            const reconciled = !!document.getElementById('crReconciled')?.checked;
+            const reconNote = document.getElementById('crReconNote')?.value || '';
+            const notes = document.getElementById('crNotes').value.trim();
+            if (!party || amount <= 0) { showMessage('Enter customer name and a positive amount.'); return; }
+            try {
+                const ref = doc(collection(db, debtorsLedgerColPath));
+                await setDoc(ref, {
+                    partyName: party,
+                    date,
+                    refType: 'Receipt',
+                    refId: ref.id,
+                    notes,
+                    debit: 0,
+                    credit: amount,
+                    isDeleted: false,
+                    createdAt: serverTimestamp(),
+                });
+                // Mirror entry in cash/bank ledger (debit because asset increases)
+                const bankPayload = {
+                    date,
+                    refType: 'Customer Receipt',
+                    refId: ref.id,
+                    notes: notes ? `${notes} · From ${party}` : `From ${party}`,
+                    debit: amount,
+                    credit: 0,
+                    bankAccount: bankAccount || undefined,
+                    reconciled: reconciled || false,
+                    reconNote: reconNote || undefined,
+                    isDeleted: false,
+                    createdAt: serverTimestamp(),
+                };
+                if (mode === 'bank') {
+                    await addDoc(collection(db, bankLedgerColPath), bankPayload);
+                } else {
+                    await addDoc(collection(db, cashLedgerColPath), bankPayload);
+                }
+                await ensurePartyExists(party, 'customer');
+                // Optimistic update and re-render
+                upsertPartyInState('customer', { name: party });
+                renderAdminLedgersPage();
+                showMessage('Customer receipt recorded.');
+                crForm.reset();
+            } catch (err) {
+                console.error('Customer receipt error:', err);
+                showMessage('Failed to record customer receipt.');
+            }
+        });
+    }
+
+    // Cash-Bank transfer form handler
+    const tForm = document.getElementById('cashBankTransferForm');
+    if (tForm) {
+        tForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const date = new Date(document.getElementById('tDate').value);
+            const amount = parseFloat(document.getElementById('tAmount').value) || 0;
+            const dir = document.getElementById('tDirection').value;
+            const bankAccount = document.getElementById('tBankAccount')?.value || 'Main Bank';
+            const reconciled = !!document.getElementById('tReconciled')?.checked;
+            const reconNote = document.getElementById('tReconNote')?.value || '';
+            const notes = document.getElementById('tNotes').value.trim();
+            if (amount <= 0) { showMessage('Enter a positive amount.'); return; }
+            try {
+                if (dir === 'cashToBank') {
+                    // Cash credit, Bank debit
+                    await addDoc(collection(db, cashLedgerColPath), {
+                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Cash → Bank` : 'Cash → Bank',
+                        debit: 0, credit: amount, isDeleted: false, createdAt: serverTimestamp(),
+                    });
+                    await addDoc(collection(db, bankLedgerColPath), {
+                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Cash → Bank` : 'Cash → Bank', bankAccount, reconciled, reconNote: reconNote || undefined,
+                        debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
+                    });
+                } else {
+                    // Bank to Cash: Bank credit, Cash debit
+                    await addDoc(collection(db, bankLedgerColPath), {
+                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Bank → Cash` : 'Bank → Cash', bankAccount, reconciled, reconNote: reconNote || undefined,
+                        debit: 0, credit: amount, isDeleted: false, createdAt: serverTimestamp(),
+                    });
+                    await addDoc(collection(db, cashLedgerColPath), {
+                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Bank → Cash` : 'Bank → Cash',
+                        debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
+                    });
+                }
+                renderAdminLedgersPage();
+                showMessage('Transfer recorded.');
+                tForm.reset();
+            } catch (err) {
+                console.error('Cash/Bank transfer error:', err);
+                showMessage('Failed to record transfer.');
+            }
+        });
+    }
+
+    // (Opening balance handlers moved to Billing Settings tab via attachAdminListeners)
+
+    // Change handlers for mode -> bank account rows
+    const spModeSel = document.getElementById('spMode');
+    const spBankRow = document.getElementById('spBankAccountRow');
+    if (spModeSel && spBankRow) { spModeSel.addEventListener('change', ()=>{ spBankRow.classList.toggle('hidden', spModeSel.value!=='bank'); }); spBankRow.classList.toggle('hidden', spModeSel.value!=='bank'); }
+    const crModeSel = document.getElementById('crMode');
+    const crBankRow = document.getElementById('crBankAccountRow');
+    if (crModeSel && crBankRow) { crModeSel.addEventListener('change', ()=>{ crBankRow.classList.toggle('hidden', crModeSel.value!=='bank'); }); crBankRow.classList.toggle('hidden', crModeSel.value!=='bank'); }
+    const bankFilterSel = document.getElementById('bankAccountFilter');
+    if (bankFilterSel) { bankFilterSel.addEventListener('change', ()=>{ state.bankAccountFilter = bankFilterSel.value; state.bankPage = 1; renderAdminLedgersPage(); }); }
+
+    // Party add forms
+    const addSupForm = document.getElementById('addSupplierForm');
+    const toggleAddBtn = document.getElementById('togglePartyAdd');
+    if (toggleAddBtn) {
+        toggleAddBtn.addEventListener('click', () => {
+            state.ui.partyAddCollapsed = !state.ui.partyAddCollapsed;
+            renderAdminLedgersPage();
+        });
+    }
+    const toggleListBtn = document.getElementById('togglePartyList');
+    if (toggleListBtn) {
+        toggleListBtn.addEventListener('click', () => {
+            state.ui.partyListCollapsed = !state.ui.partyListCollapsed;
+            renderAdminLedgersPage();
+        });
+    }
+    const supSearchInput = document.getElementById('supplierSearch');
+    if (supSearchInput) {
+        supSearchInput.addEventListener('input', (e) => {
+            state.partySearchSuppliers = e.target.value || '';
+            renderAdminLedgersPage();
+        });
+    }
+    const supClearBtn = document.getElementById('clearSupplierSearch');
+    if (supClearBtn) {
+        supClearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            state.partySearchSuppliers = '';
+            renderAdminLedgersPage();
+        });
+    }
+    const custSearchInput = document.getElementById('customerSearch');
+    if (custSearchInput) {
+        custSearchInput.addEventListener('input', (e) => {
+            state.partySearchCustomers = e.target.value || '';
+            renderAdminLedgersPage();
+        });
+    }
+    const custClearBtn = document.getElementById('clearCustomerSearch');
+    if (custClearBtn) {
+        custClearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            state.partySearchCustomers = '';
+            renderAdminLedgersPage();
+        });
+    }
+    if (addSupForm) {
+        addSupForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('newSupplierName').value.trim();
+            const gstin = (document.getElementById('newSupplierGstin')?.value || '').trim();
+            const address = (document.getElementById('newSupplierAddress')?.value || '').trim();
+            if (!name) return;
+            try {
+                await ensurePartyExists(name, 'supplier', true, { gstin: gstin || undefined, address: address || undefined });
+                // Optimistic local list update and re-render
+                upsertPartyInState('supplier', { name, gstin: gstin || undefined, address: address || undefined });
+                renderAdminLedgersPage();
+                document.getElementById('newSupplierName').value = '';
+                if (document.getElementById('newSupplierGstin')) document.getElementById('newSupplierGstin').value = '';
+                if (document.getElementById('newSupplierAddress')) document.getElementById('newSupplierAddress').value = '';
+                showMessage('Supplier added to directory.');
+            } catch (err) {
+                console.error('Add supplier error:', err);
+                showMessage('Failed to add supplier.');
+            }
+        });
+    }
+    const addCustForm = document.getElementById('addCustomerForm');
+    if (addCustForm) {
+        addCustForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('newCustomerName').value.trim();
+            const gstin = (document.getElementById('newCustomerGstin')?.value || '').trim();
+            const address = (document.getElementById('newCustomerAddress')?.value || '').trim();
+            if (!name) return;
+            try {
+                await ensurePartyExists(name, 'customer', true, { gstin: gstin || undefined, address: address || undefined });
+                // Optimistic local list update and re-render
+                upsertPartyInState('customer', { name, gstin: gstin || undefined, address: address || undefined });
+                renderAdminLedgersPage();
+                document.getElementById('newCustomerName').value = '';
+                if (document.getElementById('newCustomerGstin')) document.getElementById('newCustomerGstin').value = '';
+                if (document.getElementById('newCustomerAddress')) document.getElementById('newCustomerAddress').value = '';
+                showMessage('Customer added to directory.');
+            } catch (err) {
+                console.error('Add customer error:', err);
+                showMessage('Failed to add customer.');
+            }
+        });
+    }
+
+    // Migration button handler
+    const migBtn = document.getElementById('migratePartiesBtn');
+    const migStatus = document.getElementById('migratePartiesStatus');
+    if (migBtn) {
+        migBtn.addEventListener('click', async () => {
+            try {
+                migBtn.disabled = true; migBtn.classList.add('opacity-60');
+                if (migStatus) migStatus.textContent = 'Migrating...';
+                const res = await migratePartyMasters();
+                if (migStatus) migStatus.textContent = '';
+                showMessage(`Migration complete. Added ${res.suppliers} suppliers and ${res.customers} customers.`);
+                renderAdminLedgersPage();
+            } catch (err) {
+                console.error('Migration error:', err);
+                if (migStatus) migStatus.textContent = '';
+                showMessage('Migration failed. See console for details.');
+            } finally {
+                migBtn.disabled = false; migBtn.classList.remove('opacity-60');
+            }
+        });
+    }
+
+    // Edit party handlers (delegated)
+    container.querySelectorAll('.edit-party-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const type = btn.getAttribute('data-type');
+            const name = btn.getAttribute('data-name') || '';
+            const gstin = btn.getAttribute('data-gstin') || '';
+            const address = btn.getAttribute('data-address') || '';
+            const docId = btn.getAttribute('data-docid') || '';
+            showPartyEditModal({ type, name, gstin, address, docId });
+        });
+    });
+
+    // Drilldown handlers
+    container.querySelectorAll('.party-row').forEach(row => {
+        row.addEventListener('click', () => {
+            const party = row.getAttribute('data-party');
+            const ledger = row.getAttribute('data-ledger');
+            showLedgerDrilldown(party, ledger);
+        });
+    });
+
+    // Pagination event wiring moved to attachAdminListeners() (delegated handlers and persistence)
+}
+
+// Ensure a party exists in master lists; if missing, add it.
+async function ensurePartyExists(name, type, forceAdd = false, details = {}) {
+    const trimmed = (name || '').trim();
+    if (!trimmed) return;
+    const list = type === 'supplier' ? (state.allSuppliers || []) : (state.allCustomers || []);
+    const exists = list.some(x => (x.name || '').toLowerCase() === trimmed.toLowerCase());
+    const colPath = type === 'supplier' ? suppliersColPath : customersColPath;
+    if (exists) {
+        if (forceAdd && details && (details.gstin || details.address)) {
+            // Update existing party (first match) with provided details
+            const entry = list.find(x => (x.name || '').toLowerCase() === trimmed.toLowerCase());
+            if (entry && entry.id) {
+                try {
+                    await updateDoc(doc(db, colPath, entry.id), {
+                        ...(details.gstin ? { gstin: details.gstin } : {}),
+                        ...(details.address ? { address: details.address } : {}),
+                        updatedAt: serverTimestamp(),
+                    });
+                } catch (e) { /* ignore update failure */ }
+            }
+        }
+        return;
+    }
+    // Create a doc with auto-id; store name and any details
+    const payload = { name: trimmed, createdAt: serverTimestamp(), isDeleted: false };
+    if (details && details.gstin) payload.gstin = details.gstin;
+    if (details && details.address) payload.address = details.address;
+    await addDoc(collection(db, colPath), payload);
+}
+
+// Optimistically insert or update a party in local state for instant UI refresh
+function upsertPartyInState(type, entry) {
+    const listName = type === 'supplier' ? 'allSuppliers' : 'allCustomers';
+    const list = Array.isArray(state[listName]) ? state[listName].slice() : [];
+    const key = (entry.name || '').toLowerCase();
+    const idx = list.findIndex(x => (x.name || '').toLowerCase() === key);
+    if (idx >= 0) {
+        list[idx] = { ...list[idx], ...entry };
+    } else {
+        list.unshift({ ...entry });
+    }
+    state[listName] = list;
+        // When a new party is added/updated, reset ledger pages so the new entry is visible
+        try {
+            if (type === 'supplier') {
+                state.creditorsPage = 1;
+            } else {
+                state.debtorsPage = 1;
+            }
+            // If admin is open, refresh relevant admin tabs so UI reflects the change immediately
+            if (state.currentPage === 'admin') {
+                if (state.adminCurrentTab === 'ledgers') renderAdminLedgersPage();
+                else if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
+            }
+        } catch (e) {
+            // non-fatal UI refresh guard
+            console.warn('upsertPartyInState: refresh failed', e?.message || e);
+        }
+}
+
+// Migrate legacy party masters (suppliers/customers) into new collections. Idempotent by name.
+async function migratePartyMasters() {
+    // Read both legacy and new collections
+    const [legacySupSnap, legacyCustSnap, newSupSnap, newCustSnap] = await Promise.all([
+        getDocs(collection(db, suppliersLegacyColPath)).catch(() => ({ docs: [] })),
+        getDocs(collection(db, customersLegacyColPath)).catch(() => ({ docs: [] })),
+        getDocs(collection(db, suppliersColPath)).catch(() => ({ docs: [] })),
+        getDocs(collection(db, customersColPath)).catch(() => ({ docs: [] })),
+    ]);
+
+    const norm = s => (String(s || '').trim().toLowerCase());
+
+    const existingSup = new Set(newSupSnap.docs
+        .map(d => d.data()?.name)
+        .filter(Boolean)
+        .map(norm));
+    const existingCust = new Set(newCustSnap.docs
+        .map(d => d.data()?.name)
+        .filter(Boolean)
+        .map(norm));
+
+    let addedSuppliers = 0, addedCustomers = 0;
+
+    // Suppliers
+    for (const docSnap of legacySupSnap.docs) {
+        const data = docSnap.data() || {};
+        if (data.isDeleted) continue;
+        const name = String(data.name || '').trim();
+        if (!name) continue;
+        const key = norm(name);
+        if (existingSup.has(key)) continue;
+        await addDoc(collection(db, suppliersColPath), {
+            name,
+            isDeleted: false,
+            createdAt: serverTimestamp(),
+            migratedFrom: 'legacy',
+            legacyId: docSnap.id,
+        });
+        existingSup.add(key);
+        addedSuppliers++;
+    }
+
+    // Customers
+    for (const docSnap of legacyCustSnap.docs) {
+        const data = docSnap.data() || {};
+        if (data.isDeleted) continue;
+        const name = String(data.name || '').trim();
+        if (!name) continue;
+        const key = norm(name);
+        if (existingCust.has(key)) continue;
+        await addDoc(collection(db, customersColPath), {
+            name,
+            isDeleted: false,
+            createdAt: serverTimestamp(),
+            migratedFrom: 'legacy',
+            legacyId: docSnap.id,
+        });
+        existingCust.add(key);
+        addedCustomers++;
+    }
+
+    return { suppliers: addedSuppliers, customers: addedCustomers };
+}
+
+// Show a modal with ledger entries for a party within the selected date range
+function showLedgerDrilldown(partyName, ledgerType) {
+    const start = new Date(state.ledgerStartDate); start.setHours(0,0,0,0);
+    const end = new Date(state.ledgerEndDate); end.setHours(23,59,59,999);
+    const inRange = (d) => {
+        const dt = _toDate(d) || new Date(d?.seconds ? d.seconds*1000 : Date.now());
+        return dt >= start && dt <= end;
+    };
+    const entries = (ledgerType === 'creditors' ? (state.allCreditorsLedger || []) : (state.allDebtorsLedger || []))
+        .filter(e => !e.isDeleted && (e.partyName || '').toLowerCase() === (partyName || '').toLowerCase())
+        .filter(e => inRange(e.date))
+        .slice()
+        .sort((a,b) => (_toDate(a.date) - _toDate(b.date)));
+
+    let running = 0;
+    const rows = entries.map(e => {
+        const d = formatDate(e.date);
+        const debit = Number(e.debit || 0);
+        const credit = Number(e.credit || 0);
+        running += (ledgerType === 'creditors') ? (credit - debit) : (debit - credit);
+        const ref = e.invoiceNumber || e.refId || '';
+        return `<tr class="border-b"><td class="p-2">${d}</td><td class="p-2">${e.refType || ''}</td><td class="p-2">${ref}</td><td class="p-2 text-right text-red-600">${debit?debit.toFixed(2):'-'}</td><td class="p-2 text-right text-green-700">${credit?credit.toFixed(2):'-'}</td><td class="p-2 text-right font-semibold">${running.toFixed(2)}</td></tr>`;
+    }).join('') || `<tr><td colspan="6" class="p-4 text-center text-gray-500">No entries in range</td></tr>`;
+
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl w-[90%] max-w-4xl">
+            <div class="flex items-center justify-between px-4 py-3 border-b">
+                <h4 class="font-semibold">${ledgerType==='creditors'?'Creditors':'Debtors'} Ledger · ${partyName}</h4>
+                <button class="px-3 py-1 bg-gray-200 rounded" id="closeLedgerModal">Close</button>
+            </div>
+            <div class="p-4 overflow-x-auto">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-100">
+                        <tr>
+                            <th class="p-2 text-left">Date</th>
+                            <th class="p-2 text-left">Ref Type</th>
+                            <th class="p-2 text-left">Ref</th>
+                            <th class="p-2 text-right">Debit (₹)</th>
+                            <th class="p-2 text-right">Credit (₹)</th>
+                            <th class="p-2 text-right">Running Bal (₹)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                    </tbody>
+                </table>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector('#closeLedgerModal').addEventListener('click', () => {
+        modal.remove();
+    });
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) modal.remove();
+    });
+}
+
+// Modal to edit a party (supplier/customer)
+function showPartyEditModal({ type, name, gstin, address, docId }) {
+    const title = type === 'supplier' ? 'Edit Supplier' : 'Edit Customer';
+    const modal = document.createElement('div');
+    modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
+    modal.innerHTML = `
+        <div class="bg-white rounded-lg shadow-xl w-[90%] max-w-lg">
+            <div class="flex items-center justify-between px-4 py-3 border-b">
+                <h4 class="font-semibold">${title}</h4>
+                <button class="px-3 py-1 bg-gray-200 rounded" id="closePartyEditModal">Close</button>
+            </div>
+            <div class="p-4 space-y-3">
+                <div>
+                    <label class="block text-sm text-gray-700 mb-1">Name</label>
+                    <input type="text" id="partyEditName" class="w-full border rounded p-2" value="${(name||'').replace(/"/g,'&quot;')}" required>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-700 mb-1">GSTIN (optional)</label>
+                    <input type="text" id="partyEditGstin" class="w-full border rounded p-2" value="${(gstin||'').replace(/"/g,'&quot;')}" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-700 mb-1">Address (optional)</label>
+                    <textarea id="partyEditAddress" class="w-full border rounded p-2" rows="3">${(address||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
+                </div>
+                <div class="flex justify-end gap-2 pt-2">
+                    <button id="partyEditSaveBtn" class="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
+                </div>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+
+    const close = () => modal.remove();
+    modal.querySelector('#closePartyEditModal').addEventListener('click', close);
+    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+
+    modal.querySelector('#partyEditSaveBtn').addEventListener('click', async () => {
+        const newName = document.getElementById('partyEditName').value.trim();
+        const newGstin = document.getElementById('partyEditGstin').value.trim();
+        const newAddr = document.getElementById('partyEditAddress').value.trim();
+        if (!newName) { showMessage('Name is required.'); return; }
+        try {
+            const colPath = type === 'supplier' ? suppliersColPath : customersColPath;
+            if (docId) {
+                await updateDoc(doc(db, colPath, docId), {
+                    name: newName,
+                    gstin: newGstin || deleteFieldIfEmpty(),
+                    address: newAddr || deleteFieldIfEmpty(),
+                    updatedAt: serverTimestamp(),
+                });
+            } else {
+                // If no primary doc id, upsert into new collection
+                await addDoc(collection(db, colPath), {
+                    name: newName,
+                    ...(newGstin ? { gstin: newGstin } : {}),
+                    ...(newAddr ? { address: newAddr } : {}),
+                    createdAt: serverTimestamp(),
+                    isDeleted: false,
+                    migratedFrom: 'edit-modal',
+                });
+            }
+            upsertPartyInState(type, { name: newName, gstin: newGstin || undefined, address: newAddr || undefined });
+            renderAdminLedgersPage();
+            showMessage('Party details saved.');
+            close();
+        } catch (err) {
+            console.error('Save party error:', err);
+            showMessage('Failed to save party.');
+        }
+    });
+}
+
+// Helper to remove fields when empty in update payloads
+function deleteFieldIfEmpty() {
+    // As client web SDK lacks direct deleteField import in this file, fallback to omitting fields by not setting when empty.
+    // This function exists to keep code readable above; it just returns undefined.
+    return undefined;
+}

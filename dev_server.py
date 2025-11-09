@@ -3,6 +3,8 @@ import os
 import sys
 
 class HeaderHandler(SimpleHTTPRequestHandler):
+    # Make responses clearly identifiable as our custom handler
+    server_version = "COOPServer/1.0"
     """Static server that adds COOP header to allow cross-origin popups.
 
     This prevents Chromium errors like:
@@ -12,6 +14,8 @@ class HeaderHandler(SimpleHTTPRequestHandler):
     def end_headers(self) -> None:
         # Keep the popup<->opener relationship for cross-origin auth/payment windows
         self.send_header("Cross-Origin-Opener-Policy", "same-origin-allow-popups")
+        # Extra diagnostic header to confirm we're serving from the custom handler
+        self.send_header("X-Dev-Server", "coop")
         # Do NOT set COEP here to avoid inadvertent cross-origin isolation issues
         super().end_headers()
 

@@ -35,7 +35,7 @@
         </div>
 
         <!-- New Product Modal -->
-        <div id="newProductModal" class="fixed inset-0 z-[100] bg-black bg-opacity-60 flex items-center justify-center p-4 hidden">
+    <div id="newProductModal" class="fixed inset-0 z-[100] bg-black bg-opacity-60 items-center justify-center p-4 hidden">
             <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg p-8 transform transition-all">
                 <div class="flex justify-between items-center mb-6">
                     <h3 class="text-2xl font-playfair">Add New Product (from Purchase)</h3>
@@ -207,14 +207,6 @@
             const total = subtotal + totalGst + shipping;
             
             pageContent.innerHTML = `<div class="bg-gray-50"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><h1 class="text-4xl font-playfair text-center mb-12">Checkout</h1><div class="grid grid-cols-1 lg:grid-cols-2 gap-16"><div><h2 class="text-2xl font-semibold mb-6">Shipping Information</h2><form id="checkoutForm" class="space-y-4"><div><label for="fullName" class="block text-sm font-medium text-gray-700">Full Name</label><input type="text" id="fullName" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="address" class="block text-sm font-medium text-gray-700">Address</label><input type="text" id="address" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div class="grid grid-cols-1 md:grid-cols-3 gap-4"><div><label for="city" class="block text-sm font-medium text-gray-700">City</label><input type="text" id="city" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="state" class="block text-sm font-medium text-gray-700">State</label><input type="text" id="state" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="zip" class="block text-sm font-medium text-gray-700">ZIP Code</label><input type="text" id="zip" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div></div><div class="pt-4 ${state.siteSettings.isGstEnabled ? '' : 'hidden'}"><label class="flex items-center"><input type="checkbox" id="requestGstInvoice" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"><span class="ml-2 text-sm text-gray-700">I need a GST invoice</span></label></div><div id="gstNumberContainer" class="hidden mt-4"><label for="gstNumber" class="block text-sm font-medium text-gray-700">GST Number</label><input type="text" id="gstNumber" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" placeholder="e.g., 29ABCDE1234F1Z5"></div><div class="pt-8"><button type="submit" class="w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Place Order</button></div></form></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-semibold mb-6">Order Summary</h2><div class="space-y-3 divide-y">${orderItemsHTML}</div><div class="border-t mt-6 pt-6 space-y-3"><div class="flex justify-between"><span>Subtotal (₹)</span><span>${subtotal.toFixed(2)}</span></div> ${Object.keys(gstBreakdown).map(rate => `<div class="flex justify-between"><span>GST (${rate}%) (₹)</span><span>${gstBreakdown[rate].toFixed(2)}</span></div>`).join('')} <div class="flex justify-between"><span>Shipping (₹)</span><span>${shipping.toFixed(2)}</span></div><div class="flex justify-between font-bold text-lg"><span>Total (₹)</span><span>${total.toFixed(2)}</span></div></div></div></div></div></div>`;
-            
-            const gstInvoiceCheckbox = document.getElementById('requestGstInvoice');
-            const gstNumberContainer = document.getElementById('gstNumberContainer');
-            
-            gstInvoiceCheckbox.addEventListener('change', () => {
-                gstNumberContainer.classList.toggle('hidden', !gstInvoiceCheckbox.checked);
-                document.getElementById('gstNumber').required = gstInvoiceCheckbox.checked;
-            });
         }
 
         function renderOrderSuccessPage() {
@@ -339,7 +331,7 @@
 
             const slideFormHTML = `<input type="hidden" id="slideId"><div><label for="slideHeadline" class="block text-sm font-medium text-gray-700 mb-1">Headline</label><input type="text" id="slideHeadline" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideSubtitle" class="block text-sm font-medium text-gray-700 mb-1">Subtitle</label><input type="text" id="slideSubtitle" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideImageUrl" class="block text-sm font-medium text-gray-700 mb-1">Image URL</label><input type="url" id="slideImageUrl" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label for="slideButtonText" class="block text-sm font-medium text-gray-700 mb-1">Button Text</label><input type="text" id="slideButtonText" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideButtonLink" class="block text-sm font-medium text-gray-700 mb-1">Button Link</label><input type="text" id="slideButtonLink" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="#" required></div></div><div class="flex items-center space-x-4"><button type="submit" id="slideFormSubmitBtn" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-blue-700 transition">Add Slide</button><button type="button" id="slideFormCancelBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition hidden">Cancel</button></div>`;
 
-            const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Enable GST Calculations</span><label class="toggle-switch"><input type="checkbox" id="gstEnabled" ${state.siteSettings.isGstEnabled ? 'checked' : ''}><span class="toggle-slider"></span></label></div></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstin || ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5"></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><hr><div><h3 class="text-2xl font-bold mb-4">Scrolling Announcement Bar</h3><div class="space-y-4"><div><label for="scrollingBarText" class="block text-sm font-medium text-gray-700 mb-1">Display Text</label><input type="text" id="scrollingBarText" value="${state.siteSettings.scrollingBarText}" class="w-full px-4 py-2 border border-gray-300 rounded-md"></div><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Show Scrolling Bar</span><label class="toggle-switch"><input type="checkbox" id="scrollingBarVisible" ${state.siteSettings.isScrollingBarVisible ? 'checked' : ''}><span class="toggle-slider"></span></label></div></div></div><div class="mt-8 border-t pt-6"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button></div></form></div>`;
+            const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Enable GST Calculations</span><label class="toggle-switch"><input type="checkbox" id="gstEnabled" ${state.siteSettings.isGstEnabled ? 'checked' : ''}><span class="toggle-slider"></span></label></div></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstin || ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5"></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><div class="mt-8 border-t pt-6"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button></div></form></div>`;
 
             const tabsContent = {
                 orders: `<div><div id="adminOrderList" class="space-y-4"></div></div>`,
@@ -902,12 +894,10 @@
                         </tbody>
                     </table>
                     <div class="flex justify-end">
-                        <div class="w-full max-w-xs space-y-2">
+                        <div class="w-full max-w-sm ml-auto space-y-2 text-sm">
                             <div class="flex justify-between"><span>Subtotal (₹):</span><span>${subtotal.toFixed(2)}</span></div>
                            ${Object.keys(order.gstBreakdown.rates || {}).map(rate => 
-                                 `<div class="flex justify-between"><span>GST (${rate}%) (₹):</span><span>${order.gstBreakdown.rates[rate].toFixed(2)}</span></div>`
-                            ).join('')}
-                            <div class="flex justify-between"><span>Shipping (₹):</span><span>${(order.totalAmount - subtotal - (order.gstBreakdown?.total || 0)).toFixed(2)}</span></div>
+                                 `<div class="flex justify-between"><span>GST (${rate}%) (₹):</span><span>${order.gstBreakdown.rates[rate].toFixed(2)}</span></div>`).join('')} <div class="flex justify-between"><span>Shipping (₹)</span><span>${(order.totalAmount - subtotal - (order.gstBreakdown?.total || 0)).toFixed(2)}</span></div>
                             <div class="flex justify-between font-bold text-lg border-t pt-2 mt-2"><span>Grand Total (₹):</span><span>${order.totalAmount.toFixed(2)}</span></div>
                         </div>
                     </div>
@@ -1227,10 +1217,9 @@
                     </table>
                     <div class="flex justify-end">
                         <div class="w-full max-w-xs space-y-2">
-                            <div class="flex justify-between"><span>Subtotal (₹):</span><span>${saleData.subtotal.toFixed(2)}</span></div>
+                            <div class="flex justify-between"><span>Subtotal (₹):</span><span>${subtotal.toFixed(2)}</span></div>
                            ${Object.keys(saleData.gstBreakdown.rates || {}).map(rate => 
-                                 `<div class="flex justify-between"><span>GST (${rate}%) (₹):</span><span>${saleData.gstBreakdown.rates[rate].toFixed(2)}</span></div>`
-                            ).join('')}
+                                 `<div class="flex justify-between"><span>GST (${rate}%) (₹):</span><span>${saleData.gstBreakdown.rates[rate].toFixed(2)}</span></div>`).join('')}
                             <div class="flex justify-between font-bold text-lg border-t pt-2 mt-2"><span>Grand Total (₹):</span><span>${saleData.totalAmount.toFixed(2)}</span></div>
                         </div>
                     </div>
@@ -1415,7 +1404,7 @@
         }
 
         function listenToAllOrders() {
-            if (state.listeners.allOrders) state.listeners.allOrders();
+            if (state.listeners.allOrders) state.listeners.allOrders;
             state.listeners.allOrders = onSnapshot(query(collection(db, ordersColPath)), snapshot => {
                 state.allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 if (state.currentPage === 'admin') renderApp();
@@ -1660,15 +1649,19 @@
                settingsForm.addEventListener('submit', async (e) => {
                     e.preventDefault();
                     console.log('Saving settings...');
-                    const newSettings = {
-                        scrollingBarText: document.getElementById('scrollingBarText').value,
-                        isScrollingBarVisible: document.getElementById('scrollingBarVisible').checked,
-                        isGstEnabled: document.getElementById('gstEnabled').checked,
-                        // --- UPDATED: Save new GST fields ---
-                        merchantGstin: document.getElementById('merchantGstin').value,
-                        businessAddress: document.getElementById('businessAddress').value,
-                        // ------------------------------------
-                    };
+                    // Build settings payload safely: only include scrolling bar values if the inputs exist
+                    const newSettings = {};
+                    const scrollingBarTextEl = document.getElementById('scrollingBarText');
+                    const scrollingBarVisibleEl = document.getElementById('scrollingBarVisible');
+                    if (scrollingBarTextEl) newSettings.scrollingBarText = scrollingBarTextEl.value;
+                    if (scrollingBarVisibleEl) newSettings.isScrollingBarVisible = scrollingBarVisibleEl.checked;
+                    // GST and other settings
+                    const gstEnabledEl = document.getElementById('gstEnabled');
+                    if (gstEnabledEl) newSettings.isGstEnabled = gstEnabledEl.checked;
+                    const merchantGstinEl = document.getElementById('merchantGstin');
+                    if (merchantGstinEl) newSettings.merchantGstin = merchantGstinEl.value;
+                    const businessAddressEl = document.getElementById('businessAddress');
+                    if (businessAddressEl) newSettings.businessAddress = businessAddressEl.value;
                     try {
                         await setDoc(doc(db, siteSettingsDocPath), newSettings, { merge: true });
                         showMessage("Settings saved successfully!");
@@ -1764,7 +1757,7 @@
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
-           link.setAttribute("download", filename);
+            link.setAttribute("download", filename);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -2057,7 +2050,7 @@
                         if(item.gstPercentage > 0) {
                             const rate = item.gstPercentage;
                             if (!gstBreakdown.rates[rate]) gstBreakdown.rates[rate] = 0;
-                            const itemGst = (item.price * item.quantity) * (rate / 100);
+                            const itemGst = item.price * item.quantity * (rate / 100);
                             gstBreakdown.rates[rate] += itemGst;
                             gstBreakdown.total += itemGst;
                         }
@@ -2070,10 +2063,8 @@
                 if (state.siteSettings.isGstEnabled) {
                     const requestGstInvoice = document.getElementById('requestGstInvoice').checked;
                     if (requestGstInvoice) {
-                        gstInfo = {
-                            requested: true,
-                            number: document.getElementById('gstNumber').value
-                        };
+                        gstInfo.requested = true;
+                        gstInfo.number = document.getElementById('gstNumber').value;
                     }
                 }
 
@@ -2399,7 +2390,7 @@
 
                 if (user && !user.isAnonymous) {
                     listenToCart(user.uid);
-                    listenToUserOrders(user.uid);
+                                       listenToUserOrders(user.uid);
                     if (user.uid === ADMIN_UID) {
                         listenToAllOrders();
                        listenToAllTestimonials();
@@ -2568,12 +2559,12 @@
                     itemTotal = product.salePrice * quantity;
                     subtotal += itemTotal;
 
-                    if (state.siteSettings.isGstEnabled) {
-                        const gstRate = product.gstPercentage || 0;
-                        if (gstRate > 0) {
-                            if (!gstBreakdown[gstRate]) gstBreakdown[gstRate] = 0;
-                           gstBreakdown[gstRate] += itemTotal * (gstRate / 100);
-                        }
+                    if (state.siteSettings.isGstEnabled && item.gstPercentage > 0) {
+                        const rate = item.gstPercentage;
+                        if (!gstBreakdown.rates[rate]) gstBreakdown.rates[rate] = 0;
+                        const itemGst = itemTotal * (rate / 100);
+                       gstBreakdown.rates[rate] += itemGst;
+                        gstBreakdown.total += itemGst;
                     }
                 }
                row.querySelector('.local-sale-item-total').textContent = `${itemTotal.toFixed(2)}`;
@@ -2623,10 +2614,11 @@
                         const rate = item.gstPercentage;
                         if (!gstBreakdown.rates[rate]) gstBreakdown.rates[rate] = 0;
                         const itemGst = itemSubtotal * (rate / 100);
-                       gstBreakdown.rates[rate] += itemGst;
+                        gstBreakdown.rates[rate] += itemGst;
                         gstBreakdown.total += itemGst;
                     }
                 }
+               row.querySelector('.local-sale-item-total').textContent = `${itemTotal.toFixed(2)}`;
             });
 
             if (stockError) return;

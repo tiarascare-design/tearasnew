@@ -1,0 +1,10 @@
+{
+  "name": "tiaras-web",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tiaras Web local project - minimal package.json added to enable tooling checks",
+  "scripts": {
+    "test": "npx playwright test",
+    "lint": "echo 'No linter configured'"
+  }
+}
