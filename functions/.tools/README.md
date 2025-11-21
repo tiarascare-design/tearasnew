@@ -4,6 +4,8 @@ This directory contains convenience helper scripts intended for local emulator t
 
 Files:
 - `seed_master_password.js` - compute a SHA-256 of a random or supplied password and write `masterResetPasswordHash` into Firestore emulator.
+- `seed_master_password.js` - compute a SHA-256 of a random or supplied password and write `masterResetPasswordHash` into Firestore emulator (or production with --force, not recommended).
+- `bump_visibility_epochs.js` - non-destructive helper to mark selected data buckets as "reset" by updating `visibilityEpochs` in `siteSettings`. Useful for testing without deleting documents.
 - `write_master_hash.js` - write a precomputed hash into the emulator (useful to avoid shell quoting issues).
 - `read_master_hash.js` - print the siteSettings document to inspect the stored hash.
 - `verify_master_password.js` - compute SHA-256 of a supplied plaintext and compare it to the stored `masterResetPasswordHash`.

@@ -1,8 +1,126 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, signInAnonymously, signInWithCustomToken, GoogleAuthProvider, signInWithPopup, linkWithPopup, signInWithRedirect, getRedirectResult, linkWithRedirect, signInWithCredential, connectAuthEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, signInAnonymously, signInWithCustomToken, GoogleAuthProvider, signInWithPopup, linkWithPopup, signInWithRedirect, getRedirectResult, linkWithRedirect, signInWithCredential, connectAuthEmulator, RecaptchaVerifier, signInWithPhoneNumber, linkWithPhoneNumber } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { getFirestore, collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, updateDoc, serverTimestamp, query, where, getDocs, getDoc, writeBatch, increment, runTransaction, connectFirestoreEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getFunctions, httpsCallable, connectFunctionsEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
+import { initFirebase, getFirebase } from './modules/firebase.js';
+import * as Router from './router.js';
 import { GSTIN_REGEX, getStateCodeFromGstin, computeGstForItems, attachGstinValidation, GST_STATE_CODES } from '../../src/gst.js';
+
+// Debug marker to verify browser loads the latest script build
+try { console.info('TIARAS_APP_JS_UPDATED_v1'); } catch (_) {}
+
+// Ensure a global stub exists so early calls won't throw if the full renderer isn't parsed yet
+try {
+    if (typeof window !== 'undefined') {
+        window.renderAdminOrderList = window.renderAdminOrderList || function() { console.warn('renderAdminOrderList: early global stub'); };
+    }
+} catch(_) {}
+// Aggressive diagnostic: always log pointerdown events (capture phase).
+// Additional defensive handlers: pointerup and keyboard activation (Enter/Space)
+// These catch interactions that for some reason don't produce a bubble-phase click
+// (e.g. prevented by other code during pointerdown) and ensure navigation still runs.
+try {
+    // pointerup covers mouse/touch interactions that might not trigger click
+    document.addEventListener('pointerup', (e) => {
+        try {
+            if (e.__handledByNavCapture) return;
+            const pageEl = e.target && e.target.closest ? e.target.closest('[data-page]') : null;
+            if (!pageEl) return;
+            // Accept any element that declares data-page (avoid relying on classes here)
+            const page = pageEl.getAttribute && pageEl.getAttribute('data-page');
+            if (!page) return;
+            try { console.debug('[NAV_CAPTURE] pointerup -> found', { page, id: pageEl.getAttribute('data-id'), classes: pageEl.className }); } catch(_){}
+            e.__handledByNavCapture = true;
+            try { e.preventDefault(); } catch(_) {}
+            const id = pageEl.getAttribute('data-id') || null;
+            const category = pageEl.getAttribute('data-category') || null;
+            const group = pageEl.getAttribute('data-group') || null;
+            try {
+                if (typeof window.navigateTo === 'function') {
+                    try { console.debug('[NAV_CAPTURE] pointerup -> calling window.navigateTo', { page, id, category, group }); } catch(_){}
+                    window.navigateTo(page, id, category, group);
+                } else if (typeof Router !== 'undefined' && typeof Router.navigate === 'function') {
+                    try { console.debug('[NAV_CAPTURE] pointerup -> calling Router.navigate', { page, id, category, group }); } catch(_){}
+                    Router.navigate(page, { id, category, group });
+                }
+            } catch (_) {}
+        } catch (_) {}
+    }, true);
+
+    // keyboard activation support: handle Enter/Space on focused elements with data-page
+    document.addEventListener('keydown', (e) => {
+        try {
+            if (e.key !== 'Enter' && e.key !== ' ') return;
+            const el = document.activeElement;
+            if (!el) return;
+            const pageEl = el.closest && el.closest('[data-page]') ? el.closest('[data-page]') : null;
+            if (!pageEl) return;
+            // prevent scrolling on Space when activating
+            try { e.preventDefault(); } catch(_) {}
+            const page = pageEl.getAttribute && pageEl.getAttribute('data-page');
+            if (!page) return;
+            try { console.debug('[NAV_CAPTURE] keydown -> activating', { key: e.key, page, id: pageEl.getAttribute('data-id'), classes: pageEl.className }); } catch(_){}
+            const id = pageEl.getAttribute('data-id') || null;
+            const category = pageEl.getAttribute('data-category') || null;
+            const group = pageEl.getAttribute('data-group') || null;
+            try {
+                if (typeof window.navigateTo === 'function') {
+                    try { console.debug('[NAV_CAPTURE] keydown -> calling window.navigateTo', { page, id, category, group }); } catch(_){}
+                    window.navigateTo(page, id, category, group);
+                } else if (typeof Router !== 'undefined' && typeof Router.navigate === 'function') {
+                    try { console.debug('[NAV_CAPTURE] keydown -> calling Router.navigate', { page, id, category, group }); } catch(_){}
+                    Router.navigate(page, { id, category, group });
+                }
+            } catch (_) {}
+        } catch (_) {}
+    }, true);
+} catch(_) {}
+// Capturing-phase handler for top-level navigation clicks (data-page / nav-btn)
+// Some other scripts may stop propagation in bubble phase which prevents
+// the router's delegated handlers from receiving the event. This early
+// listener ensures clicks on `[data-page]` elements still navigate.
+try {
+    document.addEventListener('click', (e) => {
+        try {
+            // Find nearest data-page element
+            const pageEl = e.target && e.target.closest ? e.target.closest('[data-page]') : null;
+            if (!pageEl) return;
+            // Defensive: only handle nav buttons / links
+            if (!pageEl.classList || !pageEl.classList.contains('nav-btn')) return;
+            // Avoid duplicate handling
+            if (e.__handledByNavCapture) return;
+            e.__handledByNavCapture = true;
+            try { e.preventDefault(); } catch(_) {}
+            const page = pageEl.getAttribute('data-page');
+            if (!page) return;
+            const id = pageEl.getAttribute('data-id') || null;
+            const category = pageEl.getAttribute('data-category') || null;
+            const group = pageEl.getAttribute('data-group') || null;
+            try {
+                if (typeof window.navigateTo === 'function') {
+                    window.navigateTo(page, id, category, group);
+                } else if (typeof Router !== 'undefined' && typeof Router.navigate === 'function') {
+                    Router.navigate(page, { id, category, group });
+                }
+            } catch (_) {}
+        } catch (_) {}
+    }, true);
+} catch(_) {}
+
+// Aggressive diagnostic: always log pointerdown events (capture phase).
+// This prints coordinates, the event target, and the topmost element at the pointer
+// so we can detect overlays or elements intercepting pointer events.
+try {
+    document.addEventListener('pointerdown', function __navAlwaysLog(ev) {
+        try {
+            const x = ev.clientX, y = ev.clientY;
+            const top = document.elementFromPoint && document.elementFromPoint(x, y);
+            try {
+                console.debug('[NAV_ALWAYS] pointerdown', { x, y, isTrusted: ev.isTrusted, type: ev.type, target: ev.target, topElement: top, topTag: top && top.tagName, topClasses: top && top.className, path0: (ev.composedPath && ev.composedPath()[0]) || null });
+            } catch (_) {}
+        } catch (_) {}
+    }, true);
+} catch(_) {}
 
 // --- CONFIG & INITIALIZATION ---
 const firebaseConfig = {
@@ -15,28 +133,261 @@ const firebaseConfig = {
     measurementId: "G-1GCV051MCM"
 };
 
-const finalFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : firebaseConfig;
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        
+// Deterministic app id used for Firestore paths. Prefers a window-provided `__app_id`.
+const appId = (typeof window !== 'undefined' && window.__app_id) ? window.__app_id : 'tiaras-website';
+
+// Admin UID (used by admin-only checks)
 const ADMIN_UID = "5FA4SZNeMicQz0MC1waRTSUh0lB2";
 
-const app = initializeApp(finalFirebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const functionsSvc = getFunctions(app, 'us-central1');
+// Allow an override of the firebase config via a global `__firebase_config` (stringified JSON).
+const finalFirebaseConfig = (typeof __firebase_config !== 'undefined') ? JSON.parse(__firebase_config) : firebaseConfig;
+
+// Initialize Firebase via the new centralized module. This keeps initialization and
+// references in one place so we can control lifecycle and lazy-load Firebase later.
+initFirebase(finalFirebaseConfig);
+const { app, auth, db, functionsSvc } = getFirebase();
+
+    document.getElementById('closeNewProductModalBtn').addEventListener('click',
+    closeNewProductModal);
+    document.getElementById('cancelNewProductBtn').addEventListener('click', closeNewProductModal);
+
+    // Temporary test helper: expose an in-page function to add a product group
+    // This helper is intended for automated tests only and may be removed after verification.
+    try {
+        if (typeof window !== 'undefined') {
+            window.__TEST_addProductGroup = async function(name) {
+                try {
+                    if (!name || typeof name !== 'string') return { ok: false, error: 'invalid-name' };
+                    // Use the same runtime helpers used elsewhere in this file
+                    const ref = await addDoc(collection(db, productGroupsColPath), { name, createdAt: serverTimestamp() });
+                    // Optimistically update in-memory state and use centralized renderer (deduped)
+                    try { state.productGroups = [{ id: ref.id, name }, ...(state.productGroups || [])]; } catch (_) {}
+                    try { renderProductGroupSelects(name); } catch (_) {}
+                    return { ok: true, id: ref.id };
+                } catch (err) {
+                    return { ok: false, error: String(err && err.message ? err.message : err) };
+                }
+            };
+        }
+    } catch (_) {}
+
+    // Ensure redirect-handled flag exists before any initialization calls
+    let _redirectHandled = false;
+    initializeAppAndListeners();
+
+// Initialize the client router (lazy-loads page modules). Provide the shared `state`.
+try {
+    Router.initRouter({ mountElId: 'pageContent', state });
+} catch (_) {}
+// Capturing-phase handler for admin tab clicks.
+// Some other scripts add capturing/bubble handlers that call stopPropagation
+// which can prevent the bubble-phase delegated handler from running.
+// This early listener ensures admin `data-tab` clicks always switch tabs.
+try {
+    document.addEventListener('click', (e) => {
+        try {
+            const tabEl = e.target && e.target.closest ? e.target.closest('[data-tab]') : null;
+            if (!tabEl) return;
+            // Only handle admin tab buttons (defensive):
+            if (!tabEl.classList || !tabEl.classList.contains('admin-tab-btn')) return;
+            // Avoid duplicate handling
+            if (e.__handledByAdminTabCapture) return;
+            e.__handledByAdminTabCapture = true;
+            try { e.preventDefault(); } catch(_) {}
+            const tab = tabEl.dataset && tabEl.dataset.tab;
+            if (!tab) return;
+            if (tab !== state.adminCurrentTab) {
+                state.adminCurrentTab = tab;
+                try { renderAdminPage(); } catch (_) {}
+            }
+        } catch (_) {}
+    }, true);
+} catch(_) {}
+function renderAuditPage() {
+    const container = document.getElementById('adminAuditContainer');
+    if (!container) return;
+
+    container.innerHTML = `
+        <div class="bg-white p-8 rounded-lg shadow-lg mb-6">
+            <h3 class="text-2xl font-bold mb-4">Invoice Reuse Audit</h3>
+            <p class="text-sm text-gray-600 mb-4">Recent reused invoice events are listed below.</p>
+            <div id="auditListContainer">Loading...</div>
+        </div>
+    `;
+
+    (async () => {
+        try {
+            const col = collection(db, invoiceReusesColPath);
+            const q = query(col, orderBy('createdAt', 'desc'), limit(50));
+            const snap = await getDocs(q);
+            const rows = [];
+            snap.forEach(d => {
+                const data = d.data() || {};
+                rows.push({ id: d.id, ...data });
+            });
+            const html = rows.length ? `
+                <div class="overflow-x-auto">
+                <table class="w-full text-sm text-left">
+                    <thead class="bg-gray-100"><tr><th class="p-2">When</th><th class="p-2">Invoice</th><th class="p-2">Original Purchase</th><th class="p-2">New Purchase</th><th class="p-2">By</th></tr></thead>
+                    <tbody>
+                        ${rows.map(r => `
+                            <tr class="border-t"><td class="p-2">${formatDate(r.reusedAt || r.createdAt)}</td><td class="p-2">${(r.invoiceNumber||'')}</td><td class="p-2">${(r.originalPurchaseId||'')}</td><td class="p-2">${(r.newPurchaseId||'')}</td><td class="p-2">${(r.reusedBy||'')}</td></tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                </div>
+            ` : `<div class="text-sm text-gray-600">No reuse events found.</div>`;
+            const out = document.getElementById('auditListContainer');
+            if (out) out.innerHTML = html;
+        } catch (err) {
+            console.error('renderAuditPage', err);
+            const out = document.getElementById('auditListContainer');
+            if (out) out.innerHTML = `<div class="text-sm text-red-600">Failed to load audit events.</div>`;
+        }
+    })();
+}
+
+function closeCreditEditModal() { try { const m = document.getElementById('creditEditModal'); if (!m) return; m.classList.add('hidden'); } catch(_) {} }
+
+// If you have a reCAPTCHA site key (from Google reCAPTCHA admin), set it here so
+// RecaptchaVerifier uses the correct key for your domain. Do NOT put the secret key
+// (server-side only) into client-side code.
+// Provided site key (from your reCAPTCHA admin):
+try { window.__recaptcha_site_key = window.__recaptcha_site_key || '6Le2VQosAAAAAE0SwHQdNBXHjaV8vKt1GScvokd0'; } catch(_){}
 
 // If running on localhost, connect the client SDKs to the local emulator suite so
 // the browser reads/writes the emulator data (siteSettings seeded in emulator).
+// To force using production Firebase when serving locally, add ?useProd=1 to the URL
+// or set `window.__use_production = true` before the app script runs.
+let __tiaras_forceProd = false;
 try {
     const host = window && window.location && (window.location.hostname || '');
-    if (host === 'localhost' || host === '127.0.0.1') {
-        // Auth emulator (browser must be pointed at the emulator URL)
+    const urlParams = new URLSearchParams(window.location.search || '');
+    // Allow forcing production via URL (?useProd) or a global/window override.
+    // Also support a localStorage toggle so developers can persist the choice in their browser:
+    //   localStorage.setItem('tiaras_useProd','1')  -> force production
+    //   localStorage.removeItem('tiaras_useProd')  -> use emulator when on localhost
+    const localForce = (typeof localStorage !== 'undefined' && localStorage.getItem('tiaras_useProd') === '1');
+    __tiaras_forceProd = urlParams.has('useProd') || (typeof window.__use_production !== 'undefined' && window.__use_production === true) || localForce;
+    if ((host === 'localhost' || host === '127.0.0.1') && !__tiaras_forceProd) {
+        // If serving from localhost and developer has NOT forced production, connect to emulators.
         try { connectAuthEmulator(auth, 'http://127.0.0.1:9099'); } catch (e) { /* ignore if not available */ }
+        try {
+            if (typeof auth !== 'undefined') {
+                try {
+                    if (!auth.settings) auth.settings = {};
+                    auth.settings.appVerificationDisabledForTesting = true;
+                } catch (_e) {
+                    try { auth.appVerificationDisabledForTesting = true; } catch (_) {}
+                }
+            }
+        } catch(_) {}
         // Firestore emulator
         try { connectFirestoreEmulator(db, '127.0.0.1', 8080); } catch (e) { /* ignore */ }
         // Functions emulator
         try { connectFunctionsEmulator(functionsSvc, '127.0.0.1', 5001); } catch (e) { /* ignore */ }
+        try { console && console.info && console.info('Connected SDKs to local emulators (localhost)'); } catch (_) {}
+    } else {
+        // Use production Firebase services when either not localhost or when the developer forces production
+        try { console && console.info && console.info('Using production Firebase services'); } catch (e) {}
     }
+
+    // Modal for editing credit days / credit limit
+    function openCreditEditModal(entityType, docId, name, currentDays, currentLimit) {
+        try {
+            let modal = document.getElementById('creditEditModal');
+            if (!modal) {
+                const tpl = `
+                <div id="creditEditModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden" role="dialog" aria-modal="true">
+                    <div class="bg-white p-6 rounded-md w-full max-w-md">
+                        <h3 id="creditEditModalTitle" class="text-lg font-semibold mb-2">Edit Credit Settings</h3>
+                        <form id="creditEditForm" class="space-y-3" aria-labelledby="creditEditModalTitle">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">Name</label>
+                                <div id="creditEditName" class="mt-1 text-sm text-gray-700"></div>
+                            </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Credit Days (Net)</label>
+                                    <input id="creditEditDays" type="number" min="0" step="1" class="w-full px-3 py-2 border rounded" />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700">Credit Limit (₹)</label>
+                                    <input id="creditEditLimit" type="number" min="0" step="0.01" class="w-full px-3 py-2 border rounded" />
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-2">
+                                <button type="button" id="creditEditCancelBtn" class="px-3 py-2 bg-gray-200 rounded">Cancel</button>
+                                <button type="submit" id="creditEditSaveBtn" class="px-3 py-2 bg-blue-600 text-white rounded">Save</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>`;
+                const wrap = document.createElement('div'); wrap.innerHTML = tpl.trim(); document.body.appendChild(wrap.firstElementChild);
+                modal = document.getElementById('creditEditModal');
+
+                document.getElementById('creditEditCancelBtn')?.addEventListener('click', () => { closeCreditEditModal(); });
+
+                document.getElementById('creditEditForm')?.addEventListener('submit', async (ev) => {
+                    ev.preventDefault();
+                    const saveBtn = document.getElementById('creditEditSaveBtn');
+                    const originalText = saveBtn ? saveBtn.textContent : '';
+                    try {
+                        if (saveBtn) { saveBtn.disabled = true; saveBtn.textContent = 'Saving...'; }
+                        const daysRaw = (document.getElementById('creditEditDays')?.value || '').toString().trim();
+                        const days = daysRaw === '' ? null : (parseInt(daysRaw, 10) || 0);
+                        const limRaw = (document.getElementById('creditEditLimit')?.value || '').toString().trim();
+                        const limit = limRaw === '' ? null : (parseFloat(limRaw.replace(/,/g, '')) || 0);
+                        const colPath = (entityType === 'customers') ? customersColPath : suppliersColPath;
+                        if (!docId) {
+                            showMessage('Unable to identify document to update.');
+                            return;
+                        }
+                        const payload = {};
+                        if (days !== null) payload.creditDays = days;
+                        else payload.creditDays = deleteFieldIfEmpty();
+                        if (limit !== null) payload.creditLimit = limit;
+                        else payload.creditLimit = deleteFieldIfEmpty();
+                        // Clean undefined
+                        const clean = Object.fromEntries(Object.entries(payload).filter(([k,v]) => v !== undefined));
+                        await updateDoc(doc(db, colPath, docId), clean);
+                        // Update local state copy
+                        try {
+                            const arr = (entityType === 'customers') ? state.allCustomers : state.allSuppliers;
+                            if (Array.isArray(arr)) {
+                                state = state || {};
+                                const idx = arr.findIndex(x => x.id === docId);
+                                if (idx >= 0) {
+                                    arr[idx] = { ...arr[idx], ...clean };
+                                }
+                            }
+                        } catch (_) {}
+                        showMessage('Credit settings saved.');
+                        closeCreditEditModal();
+                        try {
+                            if (typeof renderAdminBillingSettings === 'function') renderAdminBillingSettings();
+                            else if (typeof window !== 'undefined' && typeof window.renderAdminBillingSettings === 'function') window.renderAdminBillingSettings();
+                            else renderAdminPage();
+                        } catch (e) {
+                            try { if (typeof window !== 'undefined' && typeof window.renderAdminBillingSettings === 'function') window.renderAdminBillingSettings(); } catch(_){}
+                        }
+                    } catch (err) {
+                        console.error('Failed to save credit settings', err);
+                        showMessage('Failed to save credit settings.');
+                    } finally {
+                        try { if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = originalText || 'Save'; } } catch(_){}
+                    }
+                });
+            }
+            // populate and show
+            try { document.getElementById('creditEditName').textContent = name || ''; } catch(_) {}
+            try { document.getElementById('creditEditDays').value = (currentDays || '') } catch(_) {}
+            try { document.getElementById('creditEditLimit').value = (currentLimit || '') } catch(_) {}
+            modal.classList.remove('hidden');
+        } catch (err) { console.error('openCreditEditModal error', err); }
+    }
+
+    function closeCreditEditModal() { try { const m = document.getElementById('creditEditModal'); if (!m) return; m.classList.add('hidden'); } catch(_) {} }
 } catch (e) { /* ignore in environments without window */ }
 
 // --- DOM ELEMENTS ---
@@ -46,6 +397,21 @@ const mainFooter = document.getElementById('main-footer');
 const topBarsContainer = document.getElementById('top-bars-container');
 
 // --- APP STATE ---
+// Compute financial year start (assumes FY starts on April 1st)
+function getFinancialYearStart(d) {
+    try {
+        const dt = d ? new Date(d) : new Date();
+        const year = dt.getFullYear();
+        // If month >= April (3), FY started this calendar year on Apr 1
+        // months are 0-indexed: Apr is 3
+        const fyStartYear = (dt.getMonth() >= 3) ? year : (year - 1);
+        const start = new Date(fyStartYear, 3, 1); // Apr 1
+        return start.toISOString().split('T')[0];
+    } catch (e) { return new Date().toISOString().split('T')[0]; }
+}
+
+const _defaultLedgerStart = getFinancialYearStart(new Date());
+
 let state = {
     currentPage: 'home',
     currentProductId: null,
@@ -84,9 +450,11 @@ let state = {
     billingStartDate: new Date().toISOString().split('T')[0],
     billingEndDate: new Date().toISOString().split('T')[0],
     billingSearchText: '',
-    ledgerStartDate: new Date().toISOString().split('T')[0],
+    ledgerStartDate: _defaultLedgerStart,
+    ledgerStartUseToday: false,
     ledgerEndDate: new Date().toISOString().split('T')[0],
     bankAccountFilter: 'All',
+    bankEditingId: null,
     ledgerPageSize: 25,
     cashPage: 1,
     bankPage: 1,
@@ -98,10 +466,17 @@ let state = {
     debtorsPageSize: 10,
     registerPage: 1,
     registerPageSize: 25,
+    inventoryPage: 1,
+    inventoryPageSize: 10,
     billingPage: 1,
     billingPageSize: 25,
     currentUser: null,
     adminOrderFilter: 'All',
+    ordersStartDate: new Date().toISOString().split('T')[0],
+    ordersEndDate: new Date().toISOString().split('T')[0],
+    ordersUseToday: true,
+    ordersPage: 1,
+    ordersPageSize: 10,
     reportsIncludeArchived: false,
     reportData: { orders: [], purchases: [], localSales: [], salesReturns: [], purchaseReturns: [], lastRange: null },
     listeners: {
@@ -132,6 +507,23 @@ let state = {
     isAdmin: false,
     adminListenersActive: false
 };
+// Whether time pickers are unlocked (always enabled now)
+state.timePickerUnlocked = true;
+// Sorting state for ledger tables (default: newest first)
+state.cashSort = { key: 'date', dir: 'desc' };
+state.bankSort = { key: 'date', dir: 'desc' };
+
+// If the full admin orders renderer is missing for any reason, provide a safe stub
+if (typeof renderAdminOrderList !== 'function') {
+    function renderAdminOrderList() {
+        try {
+            console.warn('renderAdminOrderList: fallback stub invoked');
+            const listEl = document.getElementById('adminOrderList') || document.getElementById('adminOrderContainer');
+            if (!listEl) return;
+            listEl.innerHTML = `<div class="bg-white p-6 rounded-md text-sm text-gray-700">Orders view is currently unavailable. Please reload or check the console for errors.</div>`;
+        } catch (e) { console.error('renderAdminOrderList stub error', e); }
+    }
+}
 
 // Pending retry hook: when a purchase save is blocked because supplier is missing data,
 // we open the supplier edit modal and set `pendingPurchaseRetryFn` so that after the
@@ -176,6 +568,175 @@ function normalizeList(input) {
             .filter(Boolean);
     }
     return [];
+}
+
+// Attach mobile number validation to an input element.
+// Behavior:
+// - Strip non-digit characters while typing.
+// - While length < 10: neutral (no border color).
+// - When length == 10 and all digits: green border, aria-invalid=false.
+// - When length > 10 or not digits: red border, aria-invalid=true and show feedback (if provided).
+function attachMobileValidation(el, feedbackEl) {
+    if (!el) return;
+    const run = () => {
+        try {
+            let v = (el.value || '').toString();
+            // Keep only digits
+            const digits = v.replace(/\D/g, '');
+            if (digits !== v) {
+                // Update value preserving cursor would be more complex; simple replace is acceptable here.
+                el.value = digits;
+            }
+            const len = digits.length;
+            if (!digits) {
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-valid'); el.classList.remove('tiaras-invalid'); el.removeAttribute && el.removeAttribute('aria-invalid'); } catch(_) {}
+                return;
+            }
+            if (len < 10) {
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-valid'); el.classList.remove('tiaras-invalid'); el.removeAttribute && el.removeAttribute('aria-invalid'); } catch(_) {}
+                return;
+            }
+            // len >= 10
+            if (len === 10) {
+                // valid
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-invalid'); el.classList.add('tiaras-valid'); el.setAttribute && el.setAttribute('aria-invalid', 'false'); } catch(_) {}
+            } else {
+                // too long
+                if (feedbackEl) { try { feedbackEl.classList.remove('hidden'); feedbackEl.textContent = 'Mobile number must be exactly 10 digits.'; } catch(_) {} }
+                try { el.classList.remove('tiaras-valid'); el.classList.add('tiaras-invalid'); el.setAttribute && el.setAttribute('aria-invalid', 'true'); } catch(_) {}
+            }
+        } catch (_) {}
+    };
+    const handler = () => { try { run(); } catch(_) {} };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+    el.addEventListener('blur', handler);
+    // initialize
+    try { run(); } catch(_) {}
+}
+
+// Attach PIN input behavior: allow digits only, enforce maxlength 6, show red while typing (<6), green when exactly 6
+function attachPinBehavior(el, feedbackEl) {
+    if (!el) return;
+    const run = () => {
+        try {
+            let v = (el.value || '').toString();
+            // keep only digits
+            let digits = v.replace(/\D/g, '');
+            // trim to max 6
+            if (digits.length > 6) digits = digits.substring(0,6);
+            if (digits !== v) el.value = digits;
+            const len = digits.length;
+            if (!digits) {
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-valid'); el.classList.remove('tiaras-invalid'); el.removeAttribute && el.removeAttribute('aria-invalid'); } catch(_) {}
+                return;
+            }
+            // while typing (<6) show invalid (red)
+            if (len > 0 && len < 6) {
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-valid'); el.classList.add('tiaras-invalid'); el.setAttribute && el.setAttribute('aria-invalid','true'); } catch(_) {}
+                return;
+            }
+            if (len === 6) {
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-invalid'); el.classList.add('tiaras-valid'); el.setAttribute && el.setAttribute('aria-invalid','false'); } catch(_) {}
+            }
+        } catch (_) {}
+    };
+    const onInput = (e) => { try { run(); } catch(_) {} };
+    const onKeyDown = (e) => {
+        // allow control keys
+        const allowed = ['Backspace','ArrowLeft','ArrowRight','Delete','Tab'];
+        if (allowed.includes(e.key)) return;
+        // allow digits only
+        if (!/^[0-9]$/.test(e.key)) {
+            e.preventDefault();
+        }
+    };
+    const onPaste = (e) => {
+        try {
+            const text = (e.clipboardData && e.clipboardData.getData) ? e.clipboardData.getData('text') : (window.clipboardData ? window.clipboardData.getData('Text') : '');
+            const digits = (text || '').replace(/\D/g, '').substring(0,6);
+            if (digits) {
+                e.preventDefault();
+                const cur = el.value || '';
+                // insert digits at cursor position would be complex; replace whole value
+                el.value = digits;
+                try { run(); } catch(_) {}
+            }
+        } catch(_) {}
+    };
+    el.addEventListener('input', onInput);
+    el.addEventListener('keydown', onKeyDown);
+    el.addEventListener('paste', onPaste);
+    el.addEventListener('blur', onInput);
+    // initialize
+    try { run(); } catch(_) {}
+}
+
+// Simple email validation helper: toggles classes and feedback
+function attachEmailValidation(el, feedbackEl) {
+    if (!el) return;
+    const isEmail = (v) => {
+        if (!v) return false;
+        // simple but practical email check
+        return /^\S+@\S+\.\S+$/.test(v.trim());
+    };
+    const run = () => {
+        try {
+            const v = (el.value || '').toString().trim();
+            if (!v) {
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-valid'); el.classList.remove('tiaras-invalid'); el.removeAttribute && el.removeAttribute('aria-invalid'); } catch(_) {}
+                return;
+            }
+            if (isEmail(v)) {
+                if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                try { el.classList.remove('tiaras-invalid'); el.classList.add('tiaras-valid'); el.setAttribute && el.setAttribute('aria-invalid','false'); } catch(_) {}
+            } else {
+                if (feedbackEl) { try { feedbackEl.classList.remove('hidden'); feedbackEl.textContent = 'Enter a valid email address.'; } catch(_) {} }
+                try { el.classList.remove('tiaras-valid'); el.classList.add('tiaras-invalid'); el.setAttribute && el.setAttribute('aria-invalid','true'); } catch(_) {}
+            }
+        } catch(_) {}
+    };
+    const handler = () => { try { run(); } catch(_) {} };
+    el.addEventListener('input', handler);
+    el.addEventListener('change', handler);
+    el.addEventListener('blur', handler);
+    try { run(); } catch(_) {}
+}
+
+// Capitalize first letter of a name input while preserving the rest
+function attachNameCapitalization(el) {
+    if (!el) return;
+    const toTitle = (s) => {
+        s = (s || '').toString().trim().replace(/\s+/g, ' ');
+        if (!s) return '';
+        return s.split(' ').map(w => {
+            if (!w) return '';
+            return w.charAt(0).toUpperCase() + w.slice(1);
+        }).join(' ');
+    };
+    const normalize = () => {
+        try { el.value = toTitle(el.value); } catch(_) {}
+    };
+    el.addEventListener('blur', normalize);
+    el.addEventListener('change', normalize);
+    // On input, capitalize letters at start and after spaces as user types
+    el.addEventListener('input', () => {
+        try {
+            const v = (el.value || '').toString();
+            if (!v) return;
+            // Uppercase first char and any char after whitespace
+            const updated = v.replace(/(^|\s)([a-z])/g, (m, p, c) => p + c.toUpperCase());
+            // Do not aggressively collapse spaces on input; keep user's spacing until blur
+            if (updated !== v) el.value = updated;
+        } catch(_) {}
+    });
 }
 
 function getAllowedAdminUids() {
@@ -246,22 +807,79 @@ function ensureAdminListenersAttached() {
         if (state.adminListenersActive) detachAdminListeners();
         return;
     }
-
+    // Attach admin listeners once when admin privileges are present
     if (state.adminListenersActive) return;
+    try {
+        document.body.addEventListener('click', async (ev) => {
+            // Edit handler
+            const editBtn = ev.target && ev.target.closest ? ev.target.closest('.edit-bank-btn') : ev.target;
+            if (editBtn && editBtn.classList && editBtn.classList.contains('edit-bank-btn')) {
+                ev.preventDefault();
+                const id = editBtn.dataset && editBtn.dataset.id;
+                if (!id) return;
+                // populate form with bank data and switch to edit mode
+                const bank = (state.allBanks || []).find(b => b.id === id);
+                if (!bank) return;
+                try {
+                    document.getElementById('bankName').value = bank.name || '';
+                    document.getElementById('bankAccountNumber').value = bank.accountNumber || '';
+                    document.getElementById('bankIfsc').value = bank.ifsc || '';
+                    document.getElementById('bankAddress').value = bank.address || '';
+                    document.getElementById('bankNotes').value = bank.notes || '';
+                    state.bankEditingId = id;
+                    const submitBtn = document.getElementById('bankMasterSubmitBtn');
+                    if (submitBtn) submitBtn.textContent = 'Save Changes';
+                    try { document.getElementById('bankMasterCancelBtn').style.display = 'inline-block'; } catch(_){ }
+                    // focus account number for quick editing
+                    try { document.getElementById('bankAccountNumber').focus(); } catch(_){ }
+                } catch (err) { console.error('Failed to start editing bank', err); }
+                return;
+            }
 
-    listenToAllOrders();
-    listenToAllTestimonials();
-    listenToAllPurchases();
-    listenToAllLocalSales();
-    listenToAllSalesReturns();
-    listenToAllPurchaseReturns();
-    listenToAllCreditorsLedger();
-    listenToAllDebtorsLedger();
-    listenToAllCashLedger();
-    listenToAllBankLedger();
-    state.adminListenersActive = true;
+            const btn = ev.target && ev.target.closest ? ev.target.closest('.delete-bank-btn') : ev.target;
+            if (!btn) return;
+            const id = btn.dataset && btn.dataset.id;
+            if (!id) return;
+            if (!confirm('Delete this bank account? This cannot be undone.')) return;
+            try {
+                // Require master password before allowing a destructive delete
+                const allowed = await verifyMasterPassword('delete this bank account');
+                if (!allowed) return;
+                btn.disabled = true;
+                await deleteDoc(doc(db, banksColPath, id));
+                // optimistic UI: remove from state immediately
+                state.allBanks = (state.allBanks || []).filter(b => b.id !== id);
+                // re-render admin area so Billing Settings updates
+                renderAdminPage();
+                showMessage('Bank account deleted.');
+            } catch (err) {
+                console.error('Failed to delete bank account', err);
+                showMessage('Failed to delete bank account.');
+            } finally {
+                try { btn.disabled = false; } catch(_){ }
+            }
+        });
+        state.adminListenersActive = true;
+        // Attach admin-level data listeners so admin tabs (Orders, Purchases, Testimonials, Local Sales, Ledgers) are populated
+        try {
+            // These are idempotent: each listener implementation will unsubscribe any existing one before reattaching where appropriate
+            if (typeof listenToAllOrders === 'function') listenToAllOrders();
+            if (typeof listenToAllTestimonials === 'function') listenToAllTestimonials();
+            if (typeof listenToAllPurchases === 'function') listenToAllPurchases();
+            if (typeof listenToAllLocalSales === 'function') listenToAllLocalSales();
+            if (typeof listenToAllSalesReturns === 'function') listenToAllSalesReturns();
+            if (typeof listenToAllPurchaseReturns === 'function') listenToAllPurchaseReturns();
+            if (typeof listenToAllCreditorsLedger === 'function') listenToAllCreditorsLedger();
+            if (typeof listenToAllDebtorsLedger === 'function') listenToAllDebtorsLedger();
+            if (typeof listenToAllCashLedger === 'function') listenToAllCashLedger();
+            if (typeof listenToAllBankLedger === 'function') listenToAllBankLedger();
+        } catch (e) {
+            console.warn('Failed to attach some admin listeners:', e?.message || e);
+        }
+    } catch (_) {}
 }
 
+// Recompute and apply admin state: attach/detach listeners as needed
 function refreshAdminState() {
     const previous = !!state.isAdmin;
     // Compute real admin status, but allow a local preview override via ?admin in the URL
@@ -277,7 +895,12 @@ function refreshAdminState() {
     if (next) {
         ensureAdminListenersAttached();
     }
+    // Re-render header so admin icon appears/disappears
+    try { renderHeader(); } catch (_) {}
+    return next;
 }
+// Expose for legacy callers / console debugging
+try { window.refreshAdminState = refreshAdminState; } catch (_) {}
 
 // --- DATE HELPERS ---
 function _toDate(input) {
@@ -300,20 +923,360 @@ function formatDate(input) {
     return `${dd}/${mm}/${yyyy}`;
 }
 
+function formatDateTime(input) {
+    const d = _toDate(input);
+    if (!d) return '';
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const min = String(d.getMinutes()).padStart(2, '0');
+    return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
+function parseDateTimeFromInputs(dateId, timeId) {
+    try {
+        const dateVal = (document.getElementById(dateId)?.value || '').toString().trim();
+        const timeVal = (timeId && document.getElementById(timeId)) ? (document.getElementById(timeId).value || '').toString().trim() : '';
+        if (dateVal && timeVal) {
+            // Construct ISO datetime string
+            const iso = `${dateVal}T${timeVal}:00`;
+            const d = new Date(iso);
+            if (!isNaN(d)) return d;
+        }
+        if (dateVal) {
+            const d = new Date(dateVal);
+            if (!isNaN(d)) return d;
+        }
+    } catch (e) { /* ignore */ }
+    return new Date();
+}
+
+// Combine a date input (YYYY-MM-DD) with the current local time and return a Date
+function parseDateWithNow(dateId) {
+    try {
+        const dateVal = (document.getElementById(dateId)?.value || '').toString().trim();
+        if (!dateVal) return new Date();
+        const now = new Date();
+        // Use the date part from dateVal and the current time from now (include seconds)
+        const iso = `${dateVal}T${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+        const d = new Date(iso);
+        if (!isNaN(d)) return d;
+        return new Date(dateVal);
+    } catch (_) { return new Date(); }
+}
+
+// Start a minute-ticker that refreshes posting time displays on the page.
+function startPostingTimeTicker() {
+    try {
+        // Clear existing ticker if any to avoid duplicates on re-render
+        try { if (state._postingTimeTickerId) { clearInterval(state._postingTimeTickerId); state._postingTimeTickerId = null; } } catch(_) {}
+        const update = () => {
+            try {
+                const hhmmss = getLocalTimeHHMMSS();
+                ['spTimeDisplay','crTimeDisplay','tTimeDisplay','ledgerEntryTimeDisplay'].forEach(id => {
+                    try { const el = document.getElementById(id); if (el) el.textContent = `Posting time: ${hhmmss}`; } catch(_) {}
+                });
+            } catch(_) {}
+        };
+        // Run immediately
+        update();
+        // Align the first tick to the next second boundary, then run every 1s to reflect system time
+        try {
+            const now = new Date();
+            const msToNextSecond = 1000 - now.getMilliseconds();
+            setTimeout(() => {
+                try { update(); state._postingTimeTickerId = setInterval(update, 1000); } catch(_) {}
+            }, msToNextSecond);
+        } catch (_) {
+            state._postingTimeTickerId = setInterval(update, 1000);
+        }
+    } catch (_) {}
+}
+
+function getLocalTimeHHMM() {
+    try {
+        const d = new Date();
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        return `${hh}:${mm}`;
+    } catch (_) { return '00:00'; }
+}
+
+// Return local time with seconds (HH:MM:SS)
+function getLocalTimeHHMMSS() {
+    try {
+        const d = new Date();
+        const hh = String(d.getHours()).padStart(2, '0');
+        const mm = String(d.getMinutes()).padStart(2, '0');
+        const ss = String(d.getSeconds()).padStart(2, '0');
+        return `${hh}:${mm}:${ss}`;
+    } catch (_) { return '00:00:00'; }
+}
+
+// Show one quick-posting form and hide the others. Scroll it into view.
+function showQuickPostingForm(formId) {
+    try {
+        ['supplierPaymentForm','customerReceiptForm','cashBankTransferForm'].forEach(id => {
+            try {
+                const el = document.getElementById(id);
+                if (!el) return;
+                if (id === formId) el.classList.remove('hidden'); else el.classList.add('hidden');
+            } catch(_) {}
+        });
+        const target = document.getElementById(formId);
+        if (target && typeof target.scrollIntoView === 'function') target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        try {
+            // focus first input inside the shown form
+            const t = document.getElementById(formId);
+            if (t) {
+                const focusEl = t.querySelector('input:not([type="hidden"]), select, textarea, button');
+                try { if (focusEl && typeof focusEl.focus === 'function') focusEl.focus(); } catch(_){}
+            }
+            // update aria-pressed state on buttons
+            try {
+                const btnMap = { supplierPaymentForm: 'quickPostingBtnSp', customerReceiptForm: 'quickPostingBtnCr', cashBankTransferForm: 'quickPostingBtnT' };
+                Object.keys(btnMap).forEach(fid => {
+                    try { const b = document.getElementById(btnMap[fid]); if (!b) return; b.setAttribute('aria-pressed', fid === formId ? 'true' : 'false'); } catch(_){}
+                });
+            } catch(_){}
+        } catch(_) {}
+    } catch (_) {}
+}
+
+// Open modal by id with focus trapping and restore on close
+function openModalById(modalId) {
+    try {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        // set ARIA visible
+        try { modal.setAttribute('aria-hidden', 'false'); } catch(_){}
+        // remember previous active element
+        try { modal._previousActive = document.activeElement; } catch(_){}
+        // show
+        modal.classList.remove('hidden');
+        // find focusable elements
+        const focusable = Array.from(modal.querySelectorAll('a[href], button:not([disabled]), textarea, input:not([disabled]), select:not([disabled])'));
+        const first = focusable[0] || modal;
+        try { first.focus(); } catch(_){}
+        // trap keyboard inside modal
+        const trap = (e) => {
+            try {
+                if (e.key === 'Escape') { e.preventDefault(); closeModalById(modalId); return; }
+                if (e.key === 'Tab') {
+                    const f = focusable.length ? focusable : Array.from(modal.querySelectorAll('a[href], button:not([disabled]), textarea, input:not([disabled]), select:not([disabled])'));
+                    if (!f.length) return;
+                    const firstEl = f[0];
+                    const lastEl = f[f.length - 1];
+                    if (e.shiftKey && document.activeElement === firstEl) { e.preventDefault(); lastEl.focus(); }
+                    else if (!e.shiftKey && document.activeElement === lastEl) { e.preventDefault(); firstEl.focus(); }
+                }
+            } catch(_){}
+        };
+        modal._trapHandler = trap;
+        document.addEventListener('keydown', trap);
+    } catch (_) {}
+}
+
+// Close modal by id and cleanup trap + restore focus
+function closeModalById(modalId) {
+    try {
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        modal.classList.add('hidden');
+        try { modal.setAttribute('aria-hidden', 'true'); } catch(_){}
+        try { if (modal._trapHandler) document.removeEventListener('keydown', modal._trapHandler); } catch(_){}
+        try { if (modal._previousActive && typeof modal._previousActive.focus === 'function') modal._previousActive.focus(); } catch(_){}
+    } catch(_){}
+}
+try { window.openModalById = openModalById; window.closeModalById = closeModalById; } catch(_){}
+// Expose to global scope so inline `onclick` handlers can call it when this file is loaded as a module
+try { window.showQuickPostingForm = showQuickPostingForm; } catch (_) {}
+
+function enableTimePickers(enabled) {
+    try {
+        state.timePickerUnlocked = !!enabled;
+        const ids = ['ledgerEntryTimeDisplay','cashObTime','bankObTime','spTime','crTime','tTime'];
+        ids.forEach(id => {
+            try {
+                const el = document.getElementById(id);
+                if (!el) return;
+                el.disabled = !enabled;
+            } catch (_) {}
+        });
+        // Update toggle button text if present
+        const btn = document.getElementById('toggleTimeEntryBtn');
+        if (btn) btn.textContent = enabled ? 'Disable Time Entry' : 'Enable Time Entry';
+    } catch (_) {}
+}
+
 // GST helpers are imported from src/gst.js (computeGstForItems, getStateCodeFromGstin, GSTIN_REGEX, attachGstinValidation)
 
+// Ensure text inputs intended for GSTIN are forced to uppercase while preserving caret position
+function enforceUppercaseInput(el) {
+    try {
+        if (!el) return;
+        const handler = (e) => {
+            try {
+                const start = el.selectionStart;
+                const end = el.selectionEnd;
+                const val = (el.value || '').toUpperCase();
+                if (el.value !== val) el.value = val;
+                // restore selection where possible
+                if (typeof start === 'number' && typeof end === 'number') {
+                    try { el.setSelectionRange(start, end); } catch (_) {}
+                }
+            } catch (_) {}
+        };
+        el.addEventListener('input', handler);
+        el.addEventListener('change', handler);
+        el.addEventListener('paste', () => setTimeout(handler, 0));
+    } catch (_) {}
+}
+
+// Ensure text inputs intended for emails are forced to lowercase while preserving caret position
+function enforceLowercaseInput(el) {
+    try {
+        if (!el) return;
+        const handler = (e) => {
+            try {
+                const start = el.selectionStart;
+                const end = el.selectionEnd;
+                const val = (el.value || '').toLowerCase();
+                if (el.value !== val) el.value = val;
+                if (typeof start === 'number' && typeof end === 'number') {
+                    try { el.setSelectionRange(start, end); } catch (_) {}
+                }
+            } catch (_) {}
+        };
+        el.addEventListener('input', handler);
+        el.addEventListener('change', handler);
+        el.addEventListener('paste', () => setTimeout(handler, 0));
+    } catch (_) {}
+}
+
 // --- ROUTING & NAVIGATION ---
-function navigateTo(page, id = null, category = null, group = null) {
+async function navigateTo(page, id = null, category = null, group = null) {
     state.currentPage = page;
     state.currentProductId = page === 'product_detail' ? id : null;
     state.currentOrderId = (page === 'order_success' || page === 'invoice' || page === 'purchase_invoice' || page === 'local_sale_invoice') ? id : null;
     state.currentCategory = page === 'products' ? category : null;
     state.currentGroup = page === 'products' ? group : null;
     window.scrollTo(0, 0);
-    renderApp();
+
+    // Safety: ensure product detail renderer exists before attempting to render
+    if (page === 'product_detail' && typeof renderProductDetailPage !== 'function') {
+        try {
+            if (typeof window !== 'undefined' && typeof window.renderProductDetailPage === 'function') {
+                renderProductDetailPage = window.renderProductDetailPage.bind(window);
+            }
+        } catch (e) { /* ignore */ }
+        if (typeof renderProductDetailPage !== 'function') {
+            // provide a minimal fallback to avoid ReferenceError in older/cached bundles
+            renderProductDetailPage = function () {
+                pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><p class="text-lg">Loading product details...</p></div>`;
+            };
+        }
+    }
+
+    // Ask the router to handle this page via dynamic import. If the router returns
+    // false (no module available), fall back to the legacy renderer.
+    let handledByModule = false;
+    try {
+        handledByModule = await Router.navigate(page, { id, category, group });
+    } catch (_) { handledByModule = false; }
+
+    if (!handledByModule) renderApp();
 }
 
+// Expose navigateTo globally so delegated clicks in the router can call it
+try { window.navigateTo = navigateTo; } catch (_) {}
+
 // --- RENDER FUNCTIONS ---
+// Define a module-scoped `renderCheckoutPage` so it's available to `renderApp()` regardless
+// of whether an inline/global function was provided in index.html. We prefer any global
+// `window.renderCheckoutPage` if present (legacy), otherwise use the built-in implementation.
+let renderCheckoutPage;
+try {
+    if (typeof window !== 'undefined' && typeof window.renderCheckoutPage === 'function') {
+        renderCheckoutPage = window.renderCheckoutPage.bind(window);
+    }
+} catch (e) { /* ignore */ }
+if (typeof renderCheckoutPage !== 'function') {
+    renderCheckoutPage = function () {
+        console.info('renderCheckoutPage: using app.js fallback implementation');
+        const cartProductIds = Object.keys((state.cart && state.cart.items) || {});
+        if (cartProductIds.length === 0) {
+            navigateTo('products');
+            return;
+        }
+
+        let subtotal = 0;
+        const orderItemsHTML = state.products
+            .filter(p => cartProductIds.includes(p.id))
+            .map(product => {
+                const quantity = state.cart.items[product.id].quantity;
+                const itemTotal = product.salePrice * quantity;
+                subtotal += itemTotal;
+                return `<div class="flex justify-between items-center py-3"><div class="flex items-center space-x-4"><img src="${product.image}" class="w-16 h-16 object-cover rounded-md"><div><p class="font-semibold">${product.name}</p><p class="text-sm text-gray-500">Qty: ${quantity}</p></div></div><p class="font-medium">${itemTotal.toFixed(2)}</p></div>`;
+            }).join('');
+
+        const shipping = 50.00;
+            const gstBreakdown = {};
+        if (state.siteSettings && state.siteSettings.isGstEnabled) {
+            state.products.filter(p => cartProductIds.includes(p.id)).forEach(product => {
+                const gstRate = product.gstPercentage || 0;
+                if (gstRate > 0) {
+                    if (!gstBreakdown[gstRate]) gstBreakdown[gstRate] = 0;
+                    const quantity = state.cart.items[product.id].quantity;
+                    gstBreakdown[gstRate] += product.salePrice * quantity * (gstRate / 100);
+                }
+            });
+        }
+        const totalGst = Object.values(gstBreakdown).reduce((sum, amount) => sum + amount, 0);
+        const total = subtotal + totalGst + shipping;
+
+    pageContent.innerHTML = `<div class="bg-gray-50"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><h1 class="text-4xl font-playfair text-center mb-12">Checkout</h1><div class="grid grid-cols-1 lg:grid-cols-2 gap-16"><div><h2 class="text-2xl font-semibold mb-6">Shipping Information</h2><form id="checkoutForm" class="space-y-4"><div><label for="fullName" class="block text-sm font-medium text-gray-700">Full Name</label><input type="text" id="fullName" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="phone" class="block text-sm font-medium text-gray-700">Mobile Number</label><input type="tel" id="phone" required placeholder="10-digit mobile number" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="address" class="block text-sm font-medium text-gray-700">Address</label><input type="text" id="address" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div class="grid grid-cols-1 md:grid-cols-3 gap-4"><div><label for="city" class="block text-sm font-medium text-gray-700">City</label><input type="text" id="city" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="state" class="block text-sm font-medium text-gray-700">State</label><input type="text" id="state" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="zip" class="block text-sm font-medium text-gray-700">ZIP Code</label><input type="text" id="zip" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div></div><div class="pt-4 ${state.siteSettings && state.siteSettings.isGstEnabled ? '' : 'hidden'}"><label class="flex items-center"><input type="checkbox" id="requestGstInvoice" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"><span class="ml-2 text-sm text-gray-700">I need a GST invoice</span></label></div><div id="gstNumberContainer" class="hidden mt-4"><label for="gstNumber" class="block text-sm font-medium text-gray-700">GST Number</label><input type="text" id="gstNumber" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" placeholder="e.g., 29ABCDE1234F1Z5"></div><div class="mt-4"><label class="inline-flex items-center"><input type="checkbox" id="saveAsDefaultAddress" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"><span class="ml-2 text-sm text-gray-700">Save as default shipping address</span></label></div><div class="pt-8"><button type="submit" class="w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Place Order</button></div></form></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-semibold mb-6">Order Summary</h2><div class="space-y-3 divide-y">${orderItemsHTML}</div><div class="border-t mt-6 pt-6 space-y-3"><div class="flex justify-between"><span>Subtotal (₹)</span><span>${subtotal.toFixed(2)}</span></div> ${Object.keys(gstBreakdown).map(rate => `<div class="flex justify-between"><span>GST (${rate}%) (₹)</span><span>${gstBreakdown[rate].toFixed(2)}</span></div>`).join('')} <div class="flex justify-between"><span>Shipping (₹)</span><span>${shipping.toFixed(2)}</span></div><div class="flex justify-between font-bold text-lg"><span>Total (₹)</span><span>${total.toFixed(2)}</span></div></div></div></div></div>`;
+    };
+}
+// Ensure `renderOrderSuccessPage` is available in module scope. Prefer a global implementation
+// (legacy inline in `index.html`) when present, otherwise provide a fallback here.
+let renderOrderSuccessPage;
+try {
+    if (typeof window !== 'undefined' && typeof window.renderOrderSuccessPage === 'function') {
+        renderOrderSuccessPage = window.renderOrderSuccessPage.bind(window);
+    }
+} catch (e) { /* ignore */ }
+if (typeof renderOrderSuccessPage !== 'function') {
+    renderOrderSuccessPage = function () {
+        pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><div class="bg-green-100 text-green-800 p-6 rounded-lg max-w-md mx-auto mb-8"><i class="fas fa-check-circle fa-3x"></i></div><h1 class="text-4xl font-playfair mb-4">Thank You For Your Order!</h1><p class="text-gray-600 mb-2">Your order has been placed successfully.</p><p class="text-gray-800 font-semibold mb-8">Order ID: <span class="font-mono">${state.currentOrderId || ''}</span></p><button data-page="products" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Continue Shopping</button></div>`;
+    };
+}
+
+// Ensure `renderProductDetailPage` is available in module scope. Prefer a global implementation
+// (legacy inline in `index.html`) when present, otherwise provide a fallback here.
+let renderProductDetailPage;
+try {
+    if (typeof window !== 'undefined' && typeof window.renderProductDetailPage === 'function') {
+        renderProductDetailPage = window.renderProductDetailPage.bind(window);
+    }
+} catch (e) { /* ignore */ }
+if (typeof renderProductDetailPage !== 'function') {
+    renderProductDetailPage = function () {
+        const product = state.products.find(p => p.id === state.currentProductId);
+        if (!product) {
+            pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-20"><div class="loader mx-auto"></div><p class="mt-4">Loading Product...</p></div>`;
+            return;
+        }
+
+        const isOutOfStock = !product.stock || product.stock <= 0;
+        const addToCartButton = isOutOfStock
+            ? `<button class="w-full bg-gray-400 text-white font-semibold py-4 px-10 rounded-full uppercase tracking-wider text-sm cursor-not-allowed" disabled>Out of Stock</button>`
+            : `<button data-id="${product.id}" class="add-to-cart-btn-detail w-full bg-black text-white font-semibold py-4 px-10 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all duration-300">Add to Cart</button>`;
+
+        pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><div class="grid md:grid-cols-2 gap-16 items-start"><div class="bg-gray-100 p-4 rounded-lg relative"><img src="${product.image}" alt="${product.name}" class="w-full h-auto object-cover rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/600x600/f0f0f0/ccc?text=Image+Not+Found';"> ${isOutOfStock ? `<div class="out-of-stock-overlay"><span class="bg-black text-white font-bold py-2 px-4 rounded-md uppercase">Out of Stock</span></div>` : ''}</div><div><h1 class="text-4xl font-playfair mb-4">${product.name}</h1><p class="text-3xl font-semibold text-gray-800 mb-6">₹${Number(product.salePrice).toFixed(2)}</p><p class="text-gray-600 leading-relaxed mb-8">${product.description}</p><div class="flex items-center space-x-4 mb-8"><label for="quantity" class="font-semibold text-sm">QUANTITY</label><input type="number" id="quantitySelector" value="1" min="1" class="w-20 p-2 border border-gray-300 rounded-md text-center"></div> ${addToCartButton} <div class="mt-12 border-t"><div class="accordion-item border-b"><button class="accordion-header w-full flex justify-between items-center py-4 text-left"><span class="font-semibold uppercase text-sm">Description</span><i class="fas fa-chevron-down transform transition-transform"></i></button><div class="accordion-content pb-4 text-gray-600"><p>${product.description}</p></div></div><div class="accordion-item border-b"><button class="accordion-header w-full flex justify-between items-center py-4 text-left"><span class="font-semibold uppercase text-sm">Shipping & Returns</span><i class="fas fa-chevron-down transform transition-transform"></i></button><div class="accordion-content pb-4 text-gray-600"><p>Free standard shipping on orders over ₹4000. Returns are accepted within 30 days of purchase. Please see our full policy for details.</p></div></div></div></div></div></div>`;
+    };
+}
 function renderApp() {
     renderTopBars();
     renderHeader();
@@ -369,6 +1332,267 @@ function renderApp() {
     }
 }
 
+    // Delegated handlers (fallback) for product-group inline controls
+    // These ensure clicks are handled even if elements are recreated or handlers
+    // failed to attach during render lifecycle.
+    try {
+        document.body.addEventListener('click', async (ev) => {
+            try {
+                // Accept clicks on <button>, <a>, or any element with an id attribute
+                const el = ev.target && ev.target.closest ? ev.target.closest('button, a, [id]') : ev.target;
+                if (!el || !el.id) return;
+                const id = el.id;
+                // Show/hide inline rows
+                if (id === 'showNewProductGroupBtn') {
+                    ev.preventDefault();
+                    const row = document.getElementById('newProductGroupRow');
+                    const input = document.getElementById('newProductGroupName');
+                    if (!row) return;
+                    row.classList.toggle('hidden');
+                    if (!row.classList.contains('hidden')) setTimeout(() => input && input.focus(), 50);
+                    return;
+                }
+                if (id === 'showModalNewProductGroupBtn') {
+                    ev.preventDefault();
+                    const row = document.getElementById('modalNewProductGroupRow');
+                    const input = document.getElementById('modalNewProductGroupName');
+                    if (!row) return;
+                    row.classList.toggle('hidden');
+                    if (!row.classList.contains('hidden')) setTimeout(() => input && input.focus(), 50);
+                    return;
+                }
+
+                // Add group (admin product form)
+                if (id === 'addProductGroupInlineBtn') {
+                    ev.preventDefault();
+                    const input = document.getElementById('newProductGroupName');
+                    const name = (input?.value || '').trim();
+                    // Delegate to centralized helper which handles validation, Firestore write,
+                    // optimistic state update and deduped select rendering.
+                    try { await addProductGroupHelper(name, 'productGroup', input, 'newProductGroupRow'); } catch (e) { console.error(e); }
+                    return;
+                }
+
+                // Add group (modal)
+                if (id === 'modalAddProductGroupInlineBtn') {
+                    ev.preventDefault();
+                    const input = document.getElementById('modalNewProductGroupName');
+                    const name = (input?.value || '').trim();
+                    try { await addProductGroupHelper(name, 'modalProductGroup', input, 'modalNewProductGroupRow'); } catch (e) { console.error(e); }
+                    return;
+                }
+            } catch (_) {}
+        });
+    } catch(_) {}
+
+    // Debug: capturing click logger for product-group add controls
+    try {
+        document.addEventListener('click', function __capClickLogger(ev) {
+            try {
+                const idsToWatch = new Set(['modalAddProductGroupInlineBtn','addProductGroupInlineBtn','showModalNewProductGroupBtn','showNewProductGroupBtn']);
+                const path = (ev.composedPath && ev.composedPath()) || ev.path || [];
+                // include the direct target as fallback
+                if (!path.length) path.push(ev.target);
+                for (const el of path) {
+                    if (!el || !el.id) continue;
+                    if (idsToWatch.has(el.id)) {
+                        console.log('CAPTURE_CLICK:', el.id, 'eventTarget:', ev.target, 'pathIds:', path.slice(0,10).map(x => x && x.id));
+                        break;
+                    }
+                }
+            } catch (_) {}
+        }, true); // capturing phase
+    } catch(_) {}
+
+    // Capturing pointer event logger to see which element receives pointer interaction
+    try {
+        document.addEventListener('pointerdown', function __capPointerLogger(ev) {
+            try {
+                const path = (ev.composedPath && ev.composedPath()) || ev.path || [];
+                if (!path.length) path.push(ev.target);
+                // If pointerdown inside the modal/new-group rows, log details
+                const modalRow = path.find(el => el && el.id === 'modalNewProductGroupRow');
+                const adminRow = path.find(el => el && el.id === 'newProductGroupRow');
+                if (modalRow || adminRow) {
+                    const target = ev.target;
+                    console.log('POINTERDOWN in new-group row -> target:', target, 'targetId:', target && target.id, 'targetClass:', target && target.className);
+                }
+            } catch(_) {}
+        }, true);
+    } catch(_) {}
+
+    // Extended pointer inspector: logs top-most element at click coordinates
+    try {
+        document.addEventListener('pointerdown', function __pointInspector(ev) {
+            try {
+                const x = ev.clientX, y = ev.clientY;
+                const top = document.elementFromPoint(x, y);
+                if (!top) return;
+                const path = (ev.composedPath && ev.composedPath()) || ev.path || [];
+                const inModalRow = path.some(el => el && el.id === 'modalNewProductGroupRow');
+                const inAdminRow = path.some(el => el && el.id === 'newProductGroupRow');
+                if (inModalRow || inAdminRow) {
+                    console.log('ELEMENT_FROM_POINT at', x, y, '->', top, 'id:', top.id, 'classes:', top.className, 'rect:', (function(){try{return top.getBoundingClientRect();}catch(e){return null;}})());
+                    // Also log the Add/Cancel button rects to compare
+                    try {
+                        const addBtn = document.getElementById('modalAddProductGroupInlineBtn');
+                        const cancelBtn = document.getElementById('modalCancelNewProductGroupBtn');
+                        if (addBtn) console.log('ADD_BTN rect:', addBtn.getBoundingClientRect());
+                        if (cancelBtn) console.log('CANCEL_BTN rect:', cancelBtn.getBoundingClientRect());
+                    } catch(_) {}
+                }
+            } catch(_) {}
+        }, true);
+    } catch(_) {}
+
+    // Robust fallback: detect clicks anywhere inside the inline new-group rows
+    try {
+        document.addEventListener('click', async function __robustAddGroupClick(ev) {
+            try {
+                const path = (ev.composedPath && ev.composedPath()) || ev.path || [];
+                if (!path.length) path.push(ev.target);
+                // If click occurred inside modalNewProductGroupRow, trigger helper
+                const modalRow = path.find(el => el && el.id === 'modalNewProductGroupRow');
+                if (modalRow) {
+                    // find if the event target is the Add button or a descendant
+                    const addBtn = path.find(el => el && el.id === 'modalAddProductGroupInlineBtn');
+                    if (addBtn) {
+                        // let existing handlers proceed (they should also run), but call helper as a fallback
+                        const input = document.getElementById('modalNewProductGroupName');
+                        await addProductGroupHelper(input?.value, 'modalProductGroup', input, 'modalNewProductGroupRow');
+                        return;
+                    }
+                    // if Add button not directly found, but click landed inside the row (maybe on text/icon), still attempt
+                    const input2 = document.getElementById('modalNewProductGroupName');
+                    const maybeText = (ev.target && ev.target.textContent || '').toString().trim().toLowerCase();
+                    if (maybeText === 'add' || maybeText.includes('add')) {
+                        await addProductGroupHelper(input2?.value, 'modalProductGroup', input2, 'modalNewProductGroupRow');
+                        return;
+                    }
+                }
+
+                // Same for admin inline row
+                const adminRow = path.find(el => el && el.id === 'newProductGroupRow');
+                if (adminRow) {
+                    const addBtn2 = path.find(el => el && el.id === 'addProductGroupInlineBtn');
+                    if (addBtn2) {
+                        const input = document.getElementById('newProductGroupName');
+                        await addProductGroupHelper(input?.value, 'productGroup', input, 'newProductGroupRow');
+                        return;
+                    }
+                    const input3 = document.getElementById('newProductGroupName');
+                    const maybeText2 = (ev.target && ev.target.textContent || '').toString().trim().toLowerCase();
+                    if (maybeText2 === 'add' || maybeText2.includes('add')) {
+                        await addProductGroupHelper(input3?.value, 'productGroup', input3, 'newProductGroupRow');
+                        return;
+                    }
+                }
+            } catch (_) {}
+        }, false);
+    } catch(_) {}
+
+    // Fallback helper and direct listeners for Add Group controls.
+    async function addProductGroupHelper(name, targetSelectId, inputEl, rowId) {
+        try {
+            // Preserve scroll & focus so adding a group doesn't reset the purchase UI
+            const prevScrollY = (typeof window !== 'undefined' && window.scrollY) ? window.scrollY : 0;
+            const prevScrollX = (typeof window !== 'undefined' && window.scrollX) ? window.scrollX : 0;
+            const prevActive = (typeof document !== 'undefined') ? document.activeElement : null;
+
+            const trimmed = (name || '').trim();
+            if (!trimmed) { showMessage('Enter a group name.'); return; }
+            const exists = (state.productGroups || []).some(g => (g.name || '').trim().toLowerCase() === trimmed.toLowerCase());
+            if (exists) { showMessage('A product group with this name already exists.'); return; }
+            console.log('addProductGroupHelper: adding', trimmed);
+            const ref = await addDoc(collection(db, productGroupsColPath), { name: trimmed, createdAt: serverTimestamp() });
+            // Optimistically add to in-memory list then re-render selects (deduped)
+            state.productGroups = [{ id: ref.id, name: trimmed }, ...(state.productGroups || [])];
+            try { renderProductGroupSelects(trimmed); } catch (_) {}
+            showMessage('Product group added.');
+            if (inputEl) inputEl.value = '';
+            document.getElementById(rowId)?.classList.add('hidden');
+            try { if (state.currentPage === 'admin') { if (state.adminCurrentTab === 'product_groups') renderAdminProductGroupsPage(); else if (state.adminCurrentTab === 'products') renderAdminProductList(); } } catch (_) {}
+            // Restore previous scroll & focus to avoid resetting the purchase bill position
+            try {
+                if (typeof window !== 'undefined' && (prevScrollY || prevScrollX)) window.scrollTo(prevScrollX, prevScrollY);
+            } catch (_) {}
+            try { if (prevActive && typeof prevActive.focus === 'function') prevActive.focus(); } catch(_) {}
+        } catch (err) {
+            console.error('addProductGroupHelper failed:', err);
+            showMessage('Failed to add product group.');
+        }
+    }
+
+    // Expose helper globally as a last-resort hook for inline handlers/tests
+    try { window.addProductGroupHelper = addProductGroupHelper; } catch(_) {}
+
+    // Render product-group selects from state.productGroups with deduplication
+    function renderProductGroupSelects(setSelectedName) {
+        try {
+            const groups = (state.productGroups || []).filter(Boolean).map(g => ({ id: g.id, name: (g.name||g).toString() }));
+            // Deduplicate by trimmed lowercase name
+            const map = new Map();
+            groups.forEach(g => {
+                const key = (g.name || '').toString().trim().toLowerCase();
+                if (!map.has(key)) map.set(key, g);
+            });
+            const uniq = Array.from(map.values()).sort((a,b) => (a.name||'').localeCompare(b.name||''));
+            const optionsHtml = ['<option value="">— Select group —</option>'].concat(uniq.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)}</option>`)).join('');
+
+            const selIds = ['modalProductGroup', 'productGroup'];
+            selIds.forEach(id => {
+                const sel = document.getElementById(id);
+                if (!sel) return;
+                // Replace innerHTML atomically to avoid duplicate append
+                try { sel.innerHTML = optionsHtml; } catch (e) {
+                    // Fallback: remove existing options then add
+                    while (sel.firstChild) sel.removeChild(sel.firstChild);
+                    const temp = document.createElement('div'); temp.innerHTML = optionsHtml;
+                    Array.from(temp.children).forEach(ch => sel.appendChild(ch));
+                }
+                if (setSelectedName) {
+                    try { sel.value = setSelectedName; } catch (_) {}
+                }
+            });
+            // Debug: optional logging of product groups after render
+            try {
+                if (window.__debugProductGroups) console.debug('renderProductGroupSelects -> state.productGroups:', JSON.parse(JSON.stringify(state.productGroups || [])));
+            } catch (_) {}
+        } catch (err) { console.error('renderProductGroupSelects failed', err); }
+    }
+
+    try {
+        const inlineBtn = document.getElementById('addProductGroupInlineBtn');
+        if (inlineBtn) inlineBtn.addEventListener('click', async (e) => { e.preventDefault(); const input = document.getElementById('newProductGroupName'); await addProductGroupHelper(input?.value, 'productGroup', input, 'newProductGroupRow'); });
+        const modalBtn = document.getElementById('modalAddProductGroupInlineBtn');
+        if (modalBtn) modalBtn.addEventListener('click', async (e) => { e.preventDefault(); const input = document.getElementById('modalNewProductGroupName'); await addProductGroupHelper(input?.value, 'modalProductGroup', input, 'modalNewProductGroupRow'); });
+    } catch (_) {}
+
+    // Ensure listeners are attached even if buttons are dynamically re-created
+    try {
+        function installAddGroupListeners() {
+            try {
+                const inline = document.getElementById('addProductGroupInlineBtn');
+                if (inline && !inline.dataset.addListenerAttached) {
+                    inline.dataset.addListenerAttached = '1';
+                    inline.addEventListener('click', async (e) => { e.preventDefault(); console.log('INLINE_ADD_CLICK'); const input = document.getElementById('newProductGroupName'); await addProductGroupHelper(input?.value, 'productGroup', input, 'newProductGroupRow'); });
+                }
+                const modal = document.getElementById('modalAddProductGroupInlineBtn');
+                if (modal && !modal.dataset.addListenerAttached) {
+                    modal.dataset.addListenerAttached = '1';
+                    modal.addEventListener('click', async (e) => { e.preventDefault(); console.log('MODAL_ADD_CLICK'); const input = document.getElementById('modalNewProductGroupName'); await addProductGroupHelper(input?.value, 'modalProductGroup', input, 'modalNewProductGroupRow'); });
+                }
+            } catch (_) {}
+        }
+        // Run immediately
+        installAddGroupListeners();
+        // Observe DOM changes and re-install if buttons are replaced
+        const mo = new MutationObserver((mutations) => {
+            try { installAddGroupListeners(); } catch(_) {}
+        });
+        mo.observe(document.body, { childList: true, subtree: true });
+    } catch (_) {}
+
 function renderTopBars() {
     let scrollingBarHTML = '';
     if (state.siteSettings.isScrollingBarVisible && state.siteSettings.scrollingBarText) {
@@ -396,7 +1620,14 @@ function renderTopBars() {
         </div>
     </div>
     `;
-    topBarsContainer.innerHTML = scrollingBarHTML + announcementRibbonHTML;
+    // If developer forced production mode locally, show a prominent banner to avoid accidental destructive actions
+    const prodBannerHTML = (__tiaras_forceProd ? `
+        <div class="bg-red-600 text-white text-sm font-semibold text-center py-2">
+            <span>Production mode: You are connected to PRODUCTION Firebase. Avoid destructive actions.</span>
+        </div>
+    ` : '');
+
+    topBarsContainer.innerHTML = prodBannerHTML + scrollingBarHTML + announcementRibbonHTML;
 }
 
 function renderHeader() {
@@ -416,36 +1647,61 @@ function renderHeader() {
         userControls = `${adminIcon} ${profileIcon} ${ordersIcon} ${logoutIcon}`;
     }
 
-    mainHeader.innerHTML = `
-        <div class="container mx-auto px-4 sm:px-6 lg:px-8">
-            <div class="relative flex justify-center items-center py-10">
-                <div class="absolute left-0 top-1/2 -translate-y-1/2">
-                    <a href="#" data-page="home" class="nav-btn block">
-                        <img src="https://i.postimg.cc/j2gPH9Kb/tiaras-logo-removebg-preview.png" alt="TIARAS Logo" class="h-40">
-                    </a>
-                </div>
-                <div class="text-center">
-                        <a href="#" data-page="home" class="nav-btn inline-flex items-center justify-center gap-3">
+        mainHeader.innerHTML = `
+            <div class="container mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="relative py-6">
+                    <div class="absolute left-0 top-1/2 -translate-y-1/2">
+                        <a href="#" data-page="home" onclick="(window.navigateTo||function(){})('home')" class="nav-btn block">
+                            <img src="https://i.postimg.cc/j2gPH9Kb/tiaras-logo-removebg-preview.png" alt="TIARAS Logo" class="h-14">
+                        </a>
+                    </div>
+                    <div class="text-center">
+                        <a href="#" data-page="home" onclick="(window.navigateTo||function(){})('home')" class="nav-btn inline-flex items-center justify-center gap-3">
                             <span class="text-4xl font-playfair text-black font-bold tracking-widest">TIARAS</span>
                         </a>
-                </div>
-                <div class="absolute right-0 top-1/2 -translate-y-1/2 flex items-center space-x-6 text-black">
-                    ${userControls}
-                    <a href="#" data-page="cart" class="nav-btn relative hover:text-gray-500">
-                        <i class="fa-solid fa-cart-shopping fa-lg"></i>
-                        ${cartItemCount > 0 ? `<span class="badge">${cartItemCount}</span>` : ''}
-                    </a>
+                    </div>
+                    <div class="absolute right-0 top-1/2 -translate-y-1/2 flex items-center space-x-6 text-black">
+                        ${userControls}
+                        <a href="#" data-page="cart" class="nav-btn relative hover:text-gray-500">
+                            <i class="fa-solid fa-cart-shopping fa-lg"></i>
+                            ${cartItemCount > 0 ? `<span class="badge">${cartItemCount}</span>` : ''}
+                        </a>
+                    </div>
+                    <nav class="hidden md:flex justify-center items-center space-x-10 text-sm font-medium uppercase pb-4 mt-6 w-full">
+                        <a href="#" data-page="home" onclick="(window.navigateTo||function(){})('home')" class="nav-btn nav-link ${state.currentPage === 'home' ? 'active' : ''}">Home</a>
+                        <a href="#" data-page="products" class="nav-btn nav-link ${state.currentPage === 'products' && !state.currentCategory ? 'active' : ''}">Shop All</a>
+                        <a href="#" data-page="products" data-category="ornament" class="nav-btn nav-link ${state.currentCategory === 'ornament' ? 'active' : ''}">Ornaments</a>
+                        <a href="#" data-page="products" data-category="beauty" class="nav-btn nav-link ${state.currentCategory === 'beauty' ? 'active' : ''}">Beauty</a>
+                        <a href="#" data-page="testimonials" class="nav-btn nav-link ${state.currentPage === 'testimonials' ? 'active' : ''}">Testimonials</a>
+                    </nav>
                 </div>
             </div>
-            <nav class="hidden md:flex justify-center items-center space-x-10 text-sm font-medium uppercase pb-4">
-                <a href="#" data-page="home" class="nav-btn nav-link ${state.currentPage === 'home' ? 'active' : ''}">Home</a>
-                <a href="#" data-page="products" class="nav-btn nav-link ${state.currentPage === 'products' && !state.currentCategory ? 'active' : ''}">Shop All</a>
-                <a href="#" data-page="products" data-category="ornament" class="nav-btn nav-link ${state.currentCategory === 'ornament' ? 'active' : ''}">Ornaments</a>
-                <a href="#" data-page="products" data-category="beauty" class="nav-btn nav-link ${state.currentCategory === 'beauty' ? 'active' : ''}">Beauty</a>
-                <a href="#" data-page="testimonials" class="nav-btn nav-link ${state.currentPage === 'testimonials' ? 'active' : ''}">Testimonials</a>
-            </nav>
-        </div>
-    `;
+        `;
+    // Attach explicit click handlers to nav buttons to ensure navigation works
+    try {
+        const navEls = mainHeader.querySelectorAll('.nav-btn');
+        navEls.forEach(el => {
+            el.addEventListener('click', (e) => {
+                try {
+                    e.preventDefault();
+                    const page = el.dataset.page || null;
+                    const id = el.dataset.id || null;
+                    const category = el.dataset.category || null;
+                    const group = el.dataset.group || null;
+                    // Immediately toggle active class for responsiveness
+                    try {
+                        const headerNavLinks = mainHeader.querySelectorAll('nav .nav-link');
+                        headerNavLinks.forEach(n => n.classList.remove('active'));
+                        if (el.classList && el.classList.contains('nav-link')) el.classList.add('active');
+                    } catch (_) {}
+                    try { navigateTo(page, id, category, group); } catch (err) { try { window.navigateTo && window.navigateTo(page, id, category, group); } catch(_){} }
+                    // Fallback: ensure the app renders after navigation in case the Router
+                    // handles navigation asynchronously or prevents an immediate re-render.
+                    try { setTimeout(() => { try { if (typeof renderApp === 'function') renderApp(); } catch(_){} }, 80); } catch(_) {}
+                } catch(_) {}
+            });
+        });
+    } catch (_) {}
 }
         
 function renderFooter() {
@@ -509,12 +1765,12 @@ function renderCartPage() {
 
     let total = 0;
     const cartItemsHTML = state.products
-        .filter(p => cartProductIds.includes(p.id))
+            .filter(p => cartProductIds.includes(p.id) && p.salePrice > 0)
         .map(product => {
             const quantity = state.cart.items[product.id].quantity;
             const subtotal = product.salePrice * quantity;
-            total += subtotal;
-            return `<div class="flex items-center justify-between py-6"><div class="flex items-center space-x-6 flex-1"><img src="${product.image}" class="w-28 h-28 object-cover rounded-md"><div><h3 class="font-semibold text-lg">${product.name}</h3><p class="text-gray-500 text-sm mt-1">₹${Number(product.salePrice).toFixed(2)}</p><div class="flex items-center border rounded-md w-28 mt-4"><button data-id="${product.id}" data-change="-1" class="cart-quantity-stepper p-2">-</button><input type="number" data-id="${product.id}" value="${quantity}" min="1" class="cart-quantity-selector w-12 text-center border-l border-r"><button data-id="${product.id}" data-change="1" class="cart-quantity-stepper p-2">+</button></div></div></div><div class="flex items-center space-x-5"><p class="font-semibold text-lg w-24 text-right">${subtotal.toFixed(2)}</p><button data-id="${product.id}" class="remove-from-cart-btn text-gray-400 hover:text-black text-xl">&times;</button></div></div>`;
+                total += subtotal;
+                return `<div class="flex items-center justify-between py-6"><div class="flex items-center space-x-6 flex-1"><img src="${product.image}" class="w-28 h-28 object-cover rounded-md"><div><h3 class="font-semibold text-lg">${product.name}</h3><p class="text-gray-500 text-sm mt-1">₹${formatMoney(Number(product.salePrice))}</p><div class="flex items-center border rounded-md w-28 mt-4"><button data-id="${product.id}" data-change="-1" class="cart-quantity-stepper p-2">-</button><input type="number" data-id="${product.id}" value="${quantity}" min="1" class="cart-quantity-selector w-12 text-center border-l border-r"><button data-id="${product.id}" data-change="1" class="cart-quantity-stepper p-2">+</button></div></div></div><div class="flex items-center space-x-5"><p class="font-semibold text-lg w-24 text-right">${formatMoney(subtotal)}</p><button data-id="${product.id}" class="remove-from-cart-btn text-gray-400 hover:text-black text-xl">&times;</button></div></div>`;
         }).join('');
 
     pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">Shopping Cart</h1><div class="grid grid-cols-1 lg:grid-cols-3 gap-12"><div class="lg:col-span-2 bg-white p-8 rounded-lg shadow-sm"><div class="divide-y">${cartItemsHTML}</div></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-playfair mb-6">Order Summary</h2><div class="flex justify-between items-center text-lg mb-6"><span>Subtotal (₹)</span><span class="font-semibold">${total.toFixed(2)}</span></div><button data-page="checkout" class="nav-btn w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Proceed to Checkout</button></div></div></div></div>`;
@@ -588,7 +1844,9 @@ function renderHomePage() {
     const ornamentImageUrl = ornamentProducts.length > 0 ? ornamentProducts[0].image : "https://i.postimg.cc/DyMNP27y/antique-german-silver.webp";
     const beautyImageUrl = "https://images.unsplash.com/photo-1598440947619-2c35fc9aa908?q=80&w=1887&auto=format&fit=crop";
 
-    const productGroupsHTML = state.productGroups.length > 0 ? state.productGroups.map(group => {
+    // Use deduplicated list of groups for display
+    const _uniqueProductGroups = Array.from(new Map((state.productGroups || []).map(g => [(g.name || g.id || g), g])).values());
+    const productGroupsHTML = _uniqueProductGroups.length > 0 ? _uniqueProductGroups.map(group => {
         const firstProductInGroup = state.products.find(p => p.productGroup === group.name);
         const groupImageUrl = firstProductInGroup ? firstProductInGroup.image : 'https://placehold.co/600x400/f5f5f5/cccccc?text=tiaras';
         
@@ -709,14 +1967,18 @@ function renderProductsPage(category = null, group = null) {
     }
     
     if (group) {
-        // Filter products by group identifier when provided
-        productsToDisplay = productsToDisplay.filter(p => (p.groupId || p.productGroupId || p.group) === group);
+        // Filter products by group identifier or group name when provided
+        // Some products use `productGroup` (name) while others may use ids (groupId/productGroupId)
+        productsToDisplay = productsToDisplay.filter(p => {
+            return (p.groupId || p.productGroupId || p.group || p.productGroup || p.productGroupName) === group;
+        });
         title = 'All Products';
         subtitle = 'Browse our curated collection';
     }
     // Render the products listing using the existing helper
     pageContent.innerHTML = `<div class="bg-white"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-2">${title}</h1><p class="text-center text-gray-500 mb-12">${subtitle}</p>${renderProductGrid(productsToDisplay)}</div></div>`;
 }
+try { window.renderProductsPage = renderProductsPage; } catch(_) {}
 
 function renderTestimonialsPage() {
     const testimonialFormHTML = `
@@ -831,6 +2093,7 @@ function renderAuthPage() {
     pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><div class="max-w-md mx-auto bg-white p-10 rounded-lg"><div id="authFormContainer"></div></div></div>`;
     showAuthForm(true);
 }
+try { window.renderAuthPage = renderAuthPage; } catch(_) {}
         
 function showAuthForm(isLogin) {
     const container = document.getElementById('authFormContainer');
@@ -846,8 +2109,9 @@ function showAuthForm(isLogin) {
             <div>
                 <input type="email" id="email" required placeholder="Email" class="w-full px-4 py-3 border-b border-gray-300 focus:outline-none focus:border-black">
             </div>
-            <div>
+            <div class="relative">
                 <input type="password" id="password" required placeholder="Password" class="w-full px-4 py-3 border-b border-gray-300 focus:outline-none focus:border-black">
+                <button type="button" id="toggleAuthPasswordBtn" class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600">Show</button>
             </div>
             <button type="submit" class="w-full bg-black text-white font-semibold py-3 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition duration-300">${submitBtnText}</button>
         </form>
@@ -863,6 +2127,13 @@ function showAuthForm(isLogin) {
         <div class="text-center mt-6">
             <button id="switchAuthMode" class="text-sm text-gray-600 hover:underline">${switchBtnText}</button>
         </div>`;
+
+    // Wire auth password show/hide toggle
+    try {
+        const toggleAuth = document.getElementById('toggleAuthPasswordBtn');
+        const pwdEl = document.getElementById('password');
+        if (toggleAuth && pwdEl) toggleAuth.addEventListener('click', () => { pwdEl.type = pwdEl.type === 'password' ? 'text' : 'password'; toggleAuth.textContent = pwdEl.type === 'password' ? 'Show' : 'Hide'; });
+    } catch(_){}
 
     document.getElementById('authForm').addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -939,7 +2210,6 @@ async function handleGoogleSignIn() {
     }
 }
 
-let _redirectHandled = false;
 async function handleAuthRedirectResultOnce() {
     if (_redirectHandled) return;
     _redirectHandled = true;
@@ -994,7 +2264,21 @@ function renderProductGrid(productsToRender) {
         return `<div class="product-card group text-center"><a href="#" data-page="product_detail" data-id="${product.id}" class="nav-btn block product-image-container mb-4 rounded-lg overflow-hidden bg-gray-100"><img src="${product.image}" alt="${product.name}" class="product-image w-full h-full aspect-[4/5] object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x500/f0f0f0/ccc?text=Image+Not+Found';"> ${isOutOfStock ? `<div class="out-of-stock-overlay"><span class="bg-black text-white font-bold py-1 px-3 rounded-md uppercase text-xs">Out of Stock</span></div>` : ''} </a><h4 class="font-semibold text-gray-800 mb-1">${product.name}</h4><p class="text-gray-600">₹${Number(product.salePrice).toFixed(2)}</p><div class="mt-2">${button}</div></div>`
     }).join('')}</div>`;
 }
-        
+
+function escapeHtml(s) { return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function tooltipHTML(text) {
+    const t = escapeHtml(text||'');
+    return `
+        <span class="ml-2 relative inline-block group">
+            <button type="button" class="focus:outline-none" aria-label="${t}" tabindex="0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="inline-block h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M12 18a6 6 0 100-12 6 6 0 000 12z"/></svg>
+            </button>
+            <div class="pointer-events-none opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150 absolute z-50 left-6 -top-1 w-64 bg-white text-xs text-gray-700 border rounded shadow p-2">
+                ${t}
+            </div>
+        </span>`;
+}
+
 function renderAdminPage() {
     if (!state.isAdmin) {
         pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><h1 class="text-4xl font-playfair mb-4">Access Denied</h1><p class="text-gray-600">You do not have permission to view this page.</p><button data-page="home" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Go to Homepage</button></div>`;
@@ -1024,8 +2308,9 @@ function renderAdminPage() {
                     <label class="block text-xs font-medium text-gray-500">Last Purchase Price</label>
                     <p id="lastPurchasePriceDisplay" class="font-bold text-gray-800 mt-2">N/A</p>
                 </div>
-            </div>
-        </div>
+                </div>
+                </div>
+            
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
             <div>
                 <label for="productCategory" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
@@ -1035,11 +2320,11 @@ function renderAdminPage() {
                 </select>
             </div>
             <div>
-                <label for="productGroup" class="block text-sm font-medium text-gray-700 mb-1">Product Group (Collection)</label>
+                <label for="productGroup" class="block text-sm font-medium text-gray-700 mb-1">Group</label>
                 <div class="flex items-center gap-2">
                     <select id="productGroup" class="flex-1 px-4 py-2 border border-gray-300 rounded-md">
                         <option value="">None</option>
-                       ${state.productGroups.map(g => `<option value="${g.name}">${g.name}</option>`).join('')}
+                       ${Array.from(new Map((state.productGroups||[]).map(g => [(g.name||g.id||g), g])).values()).map(g => `<option value="${g.name||g.id||g}">${g.name||g.id||g}</option>`).join('')}
                     </select>
                     <button type="button" id="showNewProductGroupBtn" class="text-sm text-blue-600 hover:underline">+ Add</button>
                 </div>
@@ -1061,57 +2346,192 @@ function renderAdminPage() {
 
     const slideFormHTML = `<input type="hidden" id="slideId"><div><label for="slideHeadline" class="block text-sm font-medium text-gray-700 mb-1">Headline</label><input type="text" id="slideHeadline" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideSubtitle" class="block text-sm font-medium text-gray-700 mb-1">Subtitle</label><input type="text" id="slideSubtitle" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideImageUrl" class="block text-sm font-medium text-gray-700 mb-1">Image URL</label><input type="url" id="slideImageUrl" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label for="slideButtonText" class="block text-sm font-medium text-gray-700 mb-1">Button Text</label><input type="text" id="slideButtonText" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideButtonLink" class="block text-sm font-medium text-gray-700 mb-1">Button Link</label><input type="text" id="slideButtonLink" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="#" required></div></div><div class="flex items-center space-x-4"><button type="submit" id="slideFormSubmitBtn" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-blue-700 transition">Add Slide</button><button type="button" id="slideFormCancelBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition hidden">Cancel</button></div>`;
 
-    const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Merchant is GST registered</span><label class="toggle-switch"><input type="checkbox" id="merchantGstRegistered" ${state.siteSettings.merchantGstRegistered ? 'checked' : ''}><span class="toggle-slider"></span></label></div><p class="text-xs text-gray-500">Sales GST is applied automatically when the merchant is GST registered. If not registered, GST will not be charged on sales, and purchase GST will be treated as part of item cost.</p></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstRegistered ? (state.siteSettings.merchantGstin || '') : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5" ${state.siteSettings.merchantGstRegistered ? '' : 'disabled title="Disabled when not GST registered"'}></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Admin Access</h3><p class="text-xs text-gray-500">Grant additional admins by listing their email addresses or Firebase Auth UIDs (comma separated). Primary developer admin access always remains.</p><div><label for="adminEmails" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin Emails</label><textarea id="adminEmails" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="name@example.com, other@example.com">${adminEmailsPrefill}</textarea></div><div><label for="adminUids" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin UIDs</label><textarea id="adminUids" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="UID1, UID2">${adminUidsPrefill}</textarea></div><p class="text-[11px] text-gray-500">Changes take effect immediately after saving.</p></div></div><div class="mt-8 border-t pt-6 flex items-center justify-between"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button></div></form></div>`;
+    
+
+    
+    
+    
+    
+    
+
+    
+
+    const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings ${tooltipHTML('General store configuration such as GST registration and core behaviour.')}</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Merchant is GST registered</span><label class="toggle-switch"><input type="checkbox" id="merchantGstRegistered" ${state.siteSettings.merchantGstRegistered ? 'checked' : ''}><span class="toggle-slider"></span></label></div><p class="text-xs text-gray-500">Sales GST is applied automatically when the merchant is GST registered. If not registered, GST will not be charged on sales, and purchase GST will be treated as part of item cost.</p></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details ${tooltipHTML('Enter merchant GSTIN and business address used on invoices and tax reports.')}</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstRegistered ? (state.siteSettings.merchantGstRegistered ? (state.siteSettings.merchantGstin || '') : '') : ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5" ${state.siteSettings.merchantGstRegistered ? '' : 'disabled title="Disabled when not GST registered"'}></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Admin Access ${tooltipHTML('Add admin emails or Firebase UIDs to grant admin panel access.')}</h3><p class="text-xs text-gray-500">Grant additional admins by listing their email addresses or Firebase Auth UIDs (comma separated). Primary developer admin access always remains.</p><div><label for="adminEmails" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin Emails</label><textarea id="adminEmails" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="name@example.com, other@example.com">${adminEmailsPrefill}</textarea></div><div><label for="adminUids" class="block text-sm font-medium text-gray-700 mb-1">Additional Admin UIDs</label><textarea id="adminUids" rows="2" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="UID1, UID2">${adminUidsPrefill}</textarea></div><p class="text-[11px] text-gray-500">Changes take effect immediately after saving.</p></div>
+    </div><div class="mt-8 border-t pt-6 flex items-center justify-between"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button></div>
+    </div></form></div>
+
+    <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
+        <div class="space-y-4 pt-4 border-t">
+            <h3 class="text-2xl font-bold mb-4">App Reset (Admin) ${tooltipHTML('Dangerous: selects data buckets to reset; requires master password and is irreversible.')}</h3>
+            <p class="text-xs text-gray-500 mb-3">Select the data buckets to reset. These operations are destructive and require the master password.</p>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-700 mb-4">
+                <label class="flex items-center"><input type="checkbox" id="reset_products" class="mr-2">Products</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_productGroups" class="mr-2">Product Groups</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_slides" class="mr-2">Hero Slides</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_gallery" class="mr-2">Gallery Images</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_testimonials" class="mr-2">Testimonials</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_purchases" class="mr-2">Purchases</label>
+                    <label class="flex items-center"><input type="checkbox" id="reset_suppliers" class="mr-2">Suppliers</label>
+                    <label class="flex items-center"><input type="checkbox" id="reset_customers" class="mr-2">Customers</label>
+                    <label class="flex items-center"><input type="checkbox" id="reset_banks" class="mr-2">Banks</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_cash" class="mr-2">Cash Book</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_bank" class="mr-2">Bank Book</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_localSales" class="mr-2">Local Sales</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_orders" class="mr-2">Orders</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_carts" class="mr-2">User Carts</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_siteSettings" class="mr-2">Site Settings</label>
+                <label class="flex items-center"><input type="checkbox" id="reset_counters" class="mr-2">Counters</label>
+            </div>
+            <div class="flex items-center gap-3">
+                <button type="button" id="resetSelectedBtn" class="bg-yellow-600 text-white font-semibold py-2 px-4 rounded hover:bg-yellow-700">Reset Selected</button>
+                <button type="button" id="masterResetBtn" class="bg-red-600 text-white font-semibold py-2 px-4 rounded hover:bg-red-700">Master Reset (Full)</button>
+            </div>
+        </div>
+    </div>`;
+
+    
 
     const tabsContent = {
         orders: `<div><div id="adminOrderList" class="space-y-4"></div></div>`,
         products: `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><h3 id="productFormTitle" class="text-2xl font-bold mb-6">Add New Product</h3><form id="productForm" class="space-y-6">${productFormHTML}</form></div><div><h3 class="text-2xl font-bold mb-6">Manage Products</h3><div id="adminProductList" class="space-y-4"></div></div>`,
         product_groups: `<div id="adminProductGroupsContainer"></div>`,
         purchases: `<div id="adminPurchasesContainer"></div>`,
+        audit: `<div id="adminAuditContainer"></div>`,
         media: `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><h3 id="slideFormTitle" class="text-2xl font-bold mb-6">Add New Hero Slide</h3><form id="slideForm" class="space-y-6">${slideFormHTML}</form></div><div class="mb-12"><h3 class="text-2xl font-bold mb-6">Manage Hero Slides</h3><div id="adminSlideList" class="space-y-4"></div></div><div class="bg-white p-8 rounded-lg shadow-lg"><h3 class="text-2xl font-bold mb-6">Manage Gallery Images</h3><div id="galleryImageFormContainer"><label for="galleryImageUrl" class="block text-sm font-medium text-gray-700 mb-1">New Image URL</label><div class="flex"><input type="url" id="galleryImageUrl" class="w-full px-4 py-2 border border-r-0 border-gray-300 rounded-l-md" required placeholder="https://example.com/photo.jpg"><button type="button" id="addGalleryImageBtn" class="bg-indigo-600 text-white font-semibold py-2 px-6 rounded-r-md shadow hover:bg-indigo-700 transition">Add Image</button></div></div><div class="mt-8"><h4 class="text-lg font-bold mb-4">Current Images</h4><div id="adminGalleryImageList" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div></div></div>`,
-        billing_settings: `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><h3 class="text-2xl font-bold mb-6">Billing Settings — Opening Balances</h3>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <h3 class="text-xl font-bold mb-2">Cash Opening Balance</h3>
-                    <form id="cashOpeningForm" class="mt-2 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
-                        <div>
-                            <label class="block text-xs text-gray-600">Date</label>
-                            <input type="date" id="cashObDate" class="border rounded p-2 w-full" value="${state.ledgerStartDate}">
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-600">Amount (₹)</label>
-                            <input type="number" id="cashObAmount" class="border rounded p-2 w-full" step="0.01" min="0">
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-600">Notes</label>
-                            <input type="text" id="cashObNotes" class="border rounded p-2 w-full" placeholder="Opening balance">
-                        </div>
-                        <button class="bg-gray-800 text-white px-3 py-2 rounded" type="submit">Add Opening</button>
-                    </form>
-                </div>
-                <div class="bg-white p-6 rounded-lg shadow">
-                    <h3 class="text-xl font-bold mb-2">Bank Opening Balance</h3>
-                    <form id="bankOpeningForm" class="mt-2 grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
-                        <div>
-                            <label class="block text-xs text-gray-600">Date</label>
-                            <input type="date" id="bankObDate" class="border rounded p-2 w-full" value="${state.ledgerStartDate}">
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-600">Amount (₹)</label>
-                            <input type="number" id="bankObAmount" class="border rounded p-2 w-full" step="0.01" min="0">
-                        </div>
-                        <div>
-                            <label class="block text-xs text-gray-600">Account</label>
-                            <select id="bankObAccount" class="border rounded p-2 w-full">
-                                ${(state.allBanks||[]).map(b=>`<option value="${(b.name||'').replace(/"/g,'&quot;')}">${b.name}</option>`).join('')}
+        billing_settings: `<div class="bg-white p-8 rounded-lg shadow-lg mb-12">
+                <h3 class="text-2xl font-bold mb-6">Manage Bank Accounts ${tooltipHTML('Add and manage bank accounts used for payment and receipt transactions.')}</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                    <form id="bankMasterForm" class="col-span-2 grid grid-cols-1 md:grid-cols-4 gap-2 items-end">
+                        <div class="md:col-span-4">
+                            <label class="block text-xs text-gray-600">Popular banks (India)</label>
+                            <select id="existingBanksDropdown" class="border rounded p-2 w-full">
+                                <option value="">-- Select a popular bank to autofill --</option>
+                                <option value="State Bank of India">State Bank of India</option>
+                                <option value="HDFC Bank">HDFC Bank</option>
+                                <option value="ICICI Bank">ICICI Bank</option>
+                                <option value="Axis Bank">Axis Bank</option>
+                                <option value="Kotak Mahindra Bank">Kotak Mahindra Bank</option>
+                                <option value="Punjab National Bank">Punjab National Bank</option>
+                                <option value="Bank of Baroda">Bank of Baroda</option>
+                                <option value="Canara Bank">Canara Bank</option>
+                                <option value="Union Bank of India">Union Bank of India</option>
+                                <option value="Other">Other / Custom</option>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs text-gray-600">Notes</label>
-                            <input type="text" id="bankObNotes" class="border rounded p-2 w-full" placeholder="Opening balance">
+                            <label class="block text-xs text-gray-600">Bank Name</label>
+                            <input type="text" id="bankName" class="border rounded p-2 w-full" placeholder="Bank/Account name" required>
                         </div>
-                        <button class="bg-gray-800 text-white px-3 py-2 rounded" type="submit">Add Opening</button>
+                        <div>
+                            <label class="block text-xs text-gray-600">Account Number</label>
+                            <input type="text" id="bankAccountNumber" class="border rounded p-2 w-full" placeholder="Account number">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">IFSC</label>
+                            <input type="text" id="bankIfsc" class="border rounded p-2 w-full" placeholder="IFSC code">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">Bank Address</label>
+                            <input type="text" id="bankAddress" class="border rounded p-2 w-full" placeholder="Branch / Address (optional)">
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600">Notes</label>
+                            <input type="text" id="bankNotes" class="border rounded p-2 w-full" placeholder="Optional notes">
+                        </div>
+                        <div class="md:col-span-4">
+                            <div class="flex items-center gap-2">
+                                <button id="bankMasterSubmitBtn" class="bg-green-600 text-white px-3 py-2 rounded" type="submit">Add Bank Account</button>
+                                <button id="bankMasterCancelBtn" type="button" class="bg-gray-300 text-gray-800 px-3 py-2 rounded" style="display:none;">Cancel</button>
+                            </div>
+                        </div>
                     </form>
+                    <div class="col-span-1 md:col-span-1">
+                        <h4 class="text-sm text-gray-600 mb-2">Existing Accounts</h4>
+                        <div id="bankMasterTableContainer" class="w-full overflow-auto">
+                            <table id="bankMasterTable" class="w-full text-sm text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-gray-100 text-xs text-gray-700">
+                                        <th class="p-2 border">Name</th>
+                                        <th class="p-2 border">Account No.</th>
+                                        <th class="p-2 border">IFSC</th>
+                                        <th class="p-2 border">Address</th>
+                                        <th class="p-2 border">Notes</th>
+                                        <th class="p-2 border">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${(state.allBanks||[]).map(b=>`<tr class="border-b hover:bg-gray-50"><td class="p-2 align-top">${(b.name||'').replace(/</g,'&lt;')}</td><td class="p-2 align-top font-mono">${(b.accountNumber||'')}</td><td class="p-2 align-top">${(b.ifsc||'')}</td><td class="p-2 align-top">${(b.address||'')}</td><td class="p-2 align-top">${(b.notes||'')}</td><td class="p-2 align-top"><div class="flex items-center gap-2"><button type="button" data-id="${b.id}" class="edit-bank-btn text-blue-600 text-xs">Edit</button><button type="button" data-id="${b.id}" class="delete-bank-btn text-red-600 text-xs">Delete</button></div></td></tr>`).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <!-- Billing: Invoice Number Formats -->
+                <div style="margin-top:12px;" class="border-t pt-6">
+                    <h3 class="text-2xl font-bold mb-3">Invoice Number Formats ${tooltipHTML('Configure invoice number templates. Tokens: {COUNTER},{COUNTER_PAD},{YYYY},{YY},{MM},{DD},{PREFIX}.')}</h3>
+                    <p class="text-xs text-gray-500 mb-3">Use tokens: {COUNTER}, {COUNTER_PAD} (4 digits), {YYYY}, {YY}, {MM}, {DD}, {PREFIX}</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Sales (Orders)</label>
+                            <input id="fmt_sales" class="w-full px-3 py-2 border rounded" value="${escapeHtml((state.siteSettings && state.siteSettings.invoiceFormats && state.siteSettings.invoiceFormats.sales) || 'INV-{YYYY}-{COUNTER_PAD}')}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Purchases</label>
+                            <input id="fmt_purchases" class="w-full px-3 py-2 border rounded" value="${escapeHtml((state.siteSettings && state.siteSettings.invoiceFormats && state.siteSettings.invoiceFormats.purchases) || 'PUR-{YYYY}-{COUNTER_PAD}')}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Sales Returns (Credit Notes)</label>
+                            <input id="fmt_salesReturns" class="w-full px-3 py-2 border rounded" value="${escapeHtml((state.siteSettings && state.siteSettings.invoiceFormats && state.siteSettings.invoiceFormats.salesReturns) || 'CR-{YYYY}-{COUNTER_PAD}')}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Purchase Returns (Debit Notes)</label>
+                            <input id="fmt_purchaseReturns" class="w-full px-3 py-2 border rounded" value="${escapeHtml((state.siteSettings && state.siteSettings.invoiceFormats && state.siteSettings.invoiceFormats.purchaseReturns) || 'DR-{YYYY}-{COUNTER_PAD}')}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Local Sales</label>
+                            <input id="fmt_localSales" class="w-full px-3 py-2 border rounded" value="${escapeHtml((state.siteSettings && state.siteSettings.invoiceFormats && state.siteSettings.invoiceFormats.localSales) || 'LS-{YYYY}-{COUNTER_PAD}')}">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Global Prefix (optional)</label>
+                            <input id="invoicePrefix" class="w-full px-3 py-2 border rounded" value="${escapeHtml(state.siteSettings?.invoicePrefix || '')}">
+                        </div>
+                    </div>
+                </div>
+                <!-- Credit Settings: Unified (Supplier / Customer) -->
+                <div style="margin-top:18px;" class="border-t pt-6">
+                    <h3 class="text-2xl font-bold mb-3">Credit Settings ${tooltipHTML('Select Suppliers or Customers to view configured credit days, credit limits, outstanding and overdue status.')}</h3>
+                    <div class="mb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
+                        <div class="flex items-center gap-3">
+                            <label class="text-sm text-gray-600">Entity</label>
+                            <select id="creditEntityType" class="border rounded p-2">
+                                <option value="suppliers">Suppliers</option>
+                                <option value="customers">Customers</option>
+                            </select>
+                            <label class="text-sm text-gray-600">Select</label>
+                            <select id="creditEntitySelect" class="border rounded p-2 min-w-[220px]"><option value="">-- All --</option></select>
+                        </div>
+                        <div>
+                            <button id="refreshCreditTableBtn" type="button" class="bg-blue-600 text-white px-3 py-2 rounded text-sm">Refresh</button>
+                        </div>
+                    </div>
+                    <div id="creditTableContainer" class="w-full overflow-auto">
+                        <table id="creditTable" class="w-full text-sm text-left border-collapse" style="table-layout: auto;">
+                            <thead>
+                                <tr class="bg-gray-100 text-xs text-gray-700">
+                                    <th class="p-2 border">Name</th>
+                                    <th class="p-2 border">Credit Days (Net)</th>
+                                    <th class="p-2 border">Credit Limit (₹)</th>
+                                    <th class="p-2 border">Outstanding (₹)</th>
+                                    <th class="p-2 border">Overdue (days)</th>
+                                    <th class="p-2 border">Status</th>
+                                    <th class="p-2 border">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="creditTableBody">
+                                <!-- Populated dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>`,
@@ -1149,7 +2569,7 @@ function renderAdminPage() {
     // Also remove any other variants (different spacing/containers) by stripping from the <hr> up to the following section
     tabsContent.settings = tabsContent.settings.replace(/<hr>[\s\S]*?<div class="mt-8 border-t pt-6/, '<div class="mt-8 border-t pt-6');
 
-    pageContent.innerHTML = `<div class="container mx-auto px-6 py-12"><div class="flex justify-between items-center mb-8"><h2 class="text-4xl font-playfair">Admin Panel</h2><button data-page="home" class="nav-btn bg-gray-800 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-gray-900 transition duration-300">View Store</button></div><div class="border-b border-gray-200 mb-8"><nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs"><a href="#" data-tab="orders" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'orders' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Orders</a><a href="#" data-tab="products" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'products' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Products</a><a href="#" data-tab="product_groups" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'product_groups' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Product Groups</a><a href="#" data-tab="purchases" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'purchases' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Purchases</a><a href="#" data-tab="media" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'media' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Media</a><a href="#" data-tab="testimonials" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'testimonials' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Testimonials</a><a href="#" data-tab="reports" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'reports' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing & Reports</a><a href="#" data-tab="billing_settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'billing_settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing Settings</a><a href="#" data-tab="local_sale" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'local_sale' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Local Sale</a><a href="#" data-tab="returns" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'returns' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Returns</a><a href="#" data-tab="transactions" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'transactions' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Transactions</a><a href="#" data-tab="settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Settings</a></nav></div><div id="adminTabContent">${tabsContent[state.adminCurrentTab]}</div></div>`;
+    pageContent.innerHTML = `<div class="container mx-auto px-6 py-12"><div class="flex justify-between items-center mb-8"><h2 class="text-4xl font-playfair">Admin Panel</h2><button data-page="home" onclick="(window.navigateTo||function(){})('home')" class="nav-btn bg-gray-800 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-gray-900 transition duration-300">View Store</button></div><div class="border-b border-gray-200 mb-8"><nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs"><a href="#" data-tab="orders" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'orders' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Orders</a><a href="#" data-tab="products" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'products' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Products</a><a href="#" data-tab="product_groups" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'product_groups' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Product Groups</a><a href="#" data-tab="purchases" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'purchases' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Purchases</a><a href="#" data-tab="audit" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'audit' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Audit</a><a href="#" data-tab="media" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'media' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Media</a><a href="#" data-tab="testimonials" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'testimonials' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Testimonials</a><a href="#" data-tab="reports" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'reports' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing & Reports</a><a href="#" data-tab="billing_settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'billing_settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing Settings</a><a href="#" data-tab="local_sale" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'local_sale' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Local Sale</a><a href="#" data-tab="returns" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'returns' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Returns</a><a href="#" data-tab="transactions" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'transactions' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Transactions</a><a href="#" data-tab="settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Settings</a></nav></div><div id="adminTabContent">${tabsContent[state.adminCurrentTab]}</div></div>`;
 
     if (state.adminCurrentTab === 'orders') renderAdminOrderList();
     else if (state.adminCurrentTab === 'products') renderAdminProductList();
@@ -1158,11 +2578,164 @@ function renderAdminPage() {
     else if (state.adminCurrentTab === 'media') { renderAdminMediaPage(); }
     else if (state.adminCurrentTab === 'testimonials') renderAdminTestimonialsList();
     else if (state.adminCurrentTab === 'reports') renderAdminBillingPage();
+    else if (state.adminCurrentTab === 'billing_settings') renderAdminBillingSettings();
     else if (state.adminCurrentTab === 'local_sale') renderLocalSalePage();
     else if (state.adminCurrentTab === 'returns') renderAdminReturnsPage();
     else if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
     else if (state.adminCurrentTab === 'settings') { /* no gallery here anymore */ }
 
+    // --- Billing Settings: Supplier Credit Helpers & Renderer ---
+    function _toDate(ts) {
+        try {
+            if (!ts) return null;
+            if (ts instanceof Date) return ts;
+            if (typeof ts === 'number') return new Date(ts);
+            if (typeof ts.toDate === 'function') return ts.toDate();
+            if (typeof ts.seconds === 'number') return new Date(ts.seconds * 1000);
+            if (typeof ts === 'string') return new Date(ts);
+            return null;
+        } catch (e) { return null; }
+    }
+
+    function computeSupplierOutstandingAndOverdue(supplierName) {
+        try {
+            const all = (state.allCreditorsLedger || []).filter(x => !x.isDeleted && (x.partyName||'').trim().toLowerCase() === (supplierName||'').trim().toLowerCase());
+            // Purchase-origin entries (bills)
+            const purchaseEntries = all.filter(e => (e.refType||'').toLowerCase().includes('purchase'));
+            const byRef = {};
+            for (const e of purchaseEntries) {
+                const refId = e.refId || e.id || ('ref_' + (e.id||Math.random()));
+                if (!byRef[refId]) byRef[refId] = { refId, invoice: e.invoiceNumber || '', date: e.date || e.createdAt || null, credit: 0, paid: 0 };
+                byRef[refId].credit += Number(e.credit || 0);
+            }
+            // Payments/debits that reference these refIds
+            const payments = all.filter(e => Number(e.debit || 0) > 0);
+            for (const p of payments) {
+                const refId = p.refId || p.id;
+                if (refId && byRef[refId]) byRef[refId].paid += Number(p.debit || 0);
+            }
+            const bills = Object.values(byRef).map(b => ({
+                refId: b.refId,
+                invoice: b.invoice,
+                date: _toDate(b.date) || null,
+                outstanding: Math.round(((b.credit || 0) - (b.paid || 0) + Number.EPSILON) * 100) / 100
+            })).filter(b => b.outstanding > 0).sort((a,b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
+            const totalOutstanding = bills.reduce((acc,b)=>acc + b.outstanding, 0);
+            return { totalOutstanding: Math.round((totalOutstanding+Number.EPSILON)*100)/100, bills };
+        } catch (err) { console.error('computeSupplierOutstandingAndOverdue error', err); return { totalOutstanding: 0, bills: [] }; }
+    }
+
+    function computeCustomerOutstandingAndOverdue(customerName) {
+        try {
+            const all = (state.allDebtorsLedger || []).filter(x => !x.isDeleted && (x.partyName||'').trim().toLowerCase() === (customerName||'').trim().toLowerCase());
+            // Sales-origin entries (invoices)
+            const saleEntries = all.filter(e => { const t=(e.refType||'').toLowerCase(); return t.includes('sale') || t.includes('invoice') || t.includes('local'); });
+            const byRef = {};
+            for (const e of saleEntries) {
+                const refId = e.refId || e.id || ('ref_' + (e.id||Math.random()));
+                if (!byRef[refId]) byRef[refId] = { refId, invoice: e.invoiceNumber || '', date: e.date || e.createdAt || null, debit: 0, received: 0 };
+                byRef[refId].debit += Number(e.debit || 0);
+            }
+            // Receipts (credits) against these refIds
+            const receipts = all.filter(e => Number(e.credit || 0) > 0);
+            for (const r of receipts) {
+                const refId = r.refId || r.id;
+                if (refId && byRef[refId]) byRef[refId].received += Number(r.credit || 0);
+            }
+            const bills = Object.values(byRef).map(b => ({
+                refId: b.refId,
+                invoice: b.invoice,
+                date: _toDate(b.date) || null,
+                outstanding: Math.round(((b.debit || 0) - (b.received || 0) + Number.EPSILON) * 100) / 100
+            })).filter(b => b.outstanding > 0).sort((a,b) => (b.date ? b.date.getTime() : 0) - (a.date ? a.date.getTime() : 0));
+            const totalOutstanding = bills.reduce((acc,b)=>acc + b.outstanding, 0);
+            return { totalOutstanding: Math.round((totalOutstanding+Number.EPSILON)*100)/100, bills };
+        } catch (err) { console.error('computeCustomerOutstandingAndOverdue error', err); return { totalOutstanding: 0, bills: [] }; }
+    }
+
+    function renderAdminBillingSettings() {
+        try {
+            const tbody = document.getElementById('creditTableBody');
+            if (!tbody) return;
+            const entityTypeEl = document.getElementById('creditEntityType');
+            const entitySelectEl = document.getElementById('creditEntitySelect');
+            const entityType = (entityTypeEl?.value || 'suppliers');
+
+            // Populate entity select options
+            const items = entityType === 'customers' ? (state.allCustomers || []) : (state.allSuppliers || []);
+            // Build options (include -- All --)
+            if (entitySelectEl) {
+                const prev = entitySelectEl.value;
+                entitySelectEl.innerHTML = '<option value="">-- All --</option>' + (items.filter(i=>!i.isDeleted).sort((a,b)=>((a.name||'').toLowerCase()> (b.name||'').toLowerCase()?1:-1)).map(function(i){ return '<option value="' + escapeHtml(i.name || '') + '">' + escapeHtml(i.name || '') + '</option>'; }).join(''));
+                // restore previous selection if still present
+                try { if (prev) entitySelectEl.value = prev; } catch(_) {}
+            }
+
+            const selectedName = (entitySelectEl?.value || '').trim();
+            const listToRender = selectedName ? items.filter(i => ((i.name||'').trim().toLowerCase() === selectedName.toLowerCase())) : items.filter(i=>!i.isDeleted);
+
+            const rows = listToRender.map(s => {
+                const name = s.name || '';
+                const creditDays = (typeof s.creditDays === 'number') ? s.creditDays : (s.creditDays ? Number(s.creditDays) : 0);
+                const creditLimit = (typeof s.creditLimit === 'number') ? s.creditLimit : (s.creditLimit ? Number(s.creditLimit) : 0);
+                const totals = entityType === 'customers' ? computeCustomerOutstandingAndOverdue(name) : computeSupplierOutstandingAndOverdue(name);
+                const outstanding = totals.totalOutstanding || 0;
+                let maxOverdueDays = 0;
+                const today = new Date();
+                for (const b of totals.bills) {
+                    const billDate = b.date || new Date();
+                    const ageDays = Math.floor((today.getTime() - billDate.getTime()) / (1000 * 60 * 60 * 24));
+                    const overdue = Math.max(0, ageDays - (creditDays || 0));
+                    if (overdue > maxOverdueDays) maxOverdueDays = overdue;
+                }
+                let status = 'OK';
+                if ((creditLimit || 0) > 0 && outstanding > (creditLimit || 0)) status = 'OVER LIMIT';
+                if (maxOverdueDays > 0) status = status === 'OK' ? 'OVERDUE' : (status + ' / OVERDUE');
+                const statusClass = status.includes('OVER') ? 'text-red-600 font-semibold' : 'text-green-600';
+                return `<tr class="border-b hover:bg-gray-50" data-id="${s.id||''}" data-type="${entityType}"><td class="p-2 align-top">${escapeHtml(name)}</td><td class="p-2 align-top">${creditDays || ''}</td><td class="p-2 align-top">${creditLimit ? Number(creditLimit).toFixed(2) : ''}</td><td class="p-2 align-top">${outstanding ? Number(outstanding).toFixed(2) : '0.00'}</td><td class="p-2 align-top">${maxOverdueDays || ''}</td><td class="p-2 align-top"><span class="${statusClass}">${status}</span></td><td class="p-2 align-top"><button type="button" class="credit-edit-btn px-2 py-1 bg-gray-200 rounded text-sm" data-id="${s.id||''}" data-type="${entityType}" data-name="${escapeHtml(name)}" data-credit-days="${creditDays || ''}" data-credit-limit="${creditLimit || ''}">Edit</button></td></tr>`;
+            }).join('');
+
+            tbody.innerHTML = rows || '<tr><td class="p-2" colspan="7"><div class="text-gray-500">No entries found.</div></td></tr>';
+
+            // Attach refresh handler (single button)
+            const refreshBtn = document.getElementById('refreshCreditTableBtn');
+            if (refreshBtn && !refreshBtn._attached) {
+                refreshBtn.addEventListener('click', () => renderAdminBillingSettings());
+                refreshBtn._attached = true;
+            }
+
+            // Attach change handlers for selectors
+            if (entityTypeEl && !entityTypeEl._attached) {
+                entityTypeEl.addEventListener('change', () => renderAdminBillingSettings());
+                entityTypeEl._attached = true;
+            }
+            if (entitySelectEl && !entitySelectEl._attached) {
+                entitySelectEl.addEventListener('change', () => renderAdminBillingSettings());
+                entitySelectEl._attached = true;
+            }
+
+            // Attach delegated click handler for Edit buttons in credit table
+            try {
+                const container = document.getElementById('creditTableContainer');
+                if (container && !container._creditEditAttached) {
+                    container.addEventListener('click', async (ev) => {
+                        const btn = ev.target && ev.target.closest ? ev.target.closest('.credit-edit-btn') : null;
+                        if (!btn) return;
+                        ev.preventDefault();
+                        const id = btn.dataset && btn.dataset.id;
+                        const type = btn.dataset && btn.dataset.type; // 'suppliers' or 'customers'
+                        const name = btn.dataset && btn.dataset.name;
+                        const currentDays = btn.dataset && btn.dataset.creditDays;
+                        const currentLimit = btn.dataset && btn.dataset.creditLimit;
+                        openCreditEditModal(type, id, name, currentDays, currentLimit);
+                    });
+                    container._creditEditAttached = true;
+                }
+            } catch (_) {}
+        } catch (err) { console.error('renderAdminBillingSettings error', err); }
+    }
+
+    try { if (typeof window !== 'undefined') window.renderAdminBillingSettings = renderAdminBillingSettings; } catch(_){}
     attachAdminListeners();
     // Inject optional Auth-deletion controls into the Danger Zone if present (added dynamically to avoid editing large template strings)
     // deleteAuth UI injection removed: master-reset and selection-reset
@@ -1170,10 +2743,12 @@ function renderAdminPage() {
     // controlled helper under functions/.tools instead of injecting
     // destructive controls into the live admin UI.
 }
+try { window.renderAdminPage = renderAdminPage; } catch(_) {}
 
 function renderAdminBillingPage() {
     const container = document.getElementById('adminReportsContainer');
     if (!container) return;
+    try {
     
     const startDate = new Date(state.registerStartDate);
     startDate.setHours(0, 0, 0, 0);
@@ -1182,91 +2757,93 @@ function renderAdminBillingPage() {
     endDate.setHours(23, 59, 59, 999);
 
     // --- Purchase & Sales Register ---
-    const salesEntries = state.allOrders
+    const salesEntries = (state.allOrders || [])
         .filter(order => {
-            const orderDate = new Date(order.orderDate.seconds * 1000);
+            const orderDate = _toDate(order.orderDate);
+            if (!orderDate) return false;
             return orderDate >= startDate && orderDate <= endDate;
         })
         .map(order => ({
-            date: new Date(order.orderDate.seconds * 1000),
+            date: _toDate(order.orderDate) || new Date(),
             id: order.id,
             invoiceNumber: order.invoiceNumber,
             type: 'Sale',
-            details: `To: ${order.shippingInfo.fullName}`,
-            itemCount: order.items.reduce((acc, item) => acc + item.quantity, 0),
+            details: `To: ${order.shippingInfo?.fullName || 'Customer'}`,
+            itemCount: (order.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
             debit: 0,
-            credit: order.totalAmount,
+            credit: order.totalAmount || 0,
         }));
 
-    const purchaseEntries = state.allPurchases
+    const purchaseEntries = (state.allPurchases || [])
         .filter(purchase => {
             // **MODIFIED:** Exclude deleted purchases from register
             if (purchase.isDeleted) return false;
-
-            const purchaseDate = new Date(purchase.purchaseDate.seconds * 1000);
+            const purchaseDate = _toDate(purchase.purchaseDate);
+            if (!purchaseDate) return false;
             return purchaseDate >= startDate && purchaseDate <= endDate;
         })
         .map(purchase => ({
-            date: new Date(purchase.purchaseDate.seconds * 1000),
+            date: _toDate(purchase.purchaseDate) || new Date(),
             id: purchase.id,
             invoiceNumber: purchase.invoiceNumber,
             type: 'Purchase',
-            details: `From: ${purchase.supplierName}`,
-            itemCount: purchase.items.reduce((acc, item) => acc + item.quantity, 0),
-            debit: purchase.totalAmount,
+            details: `From: ${purchase.supplierName || ''}`,
+            itemCount: (purchase.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
+            debit: purchase.totalAmount || 0,
             credit: 0,
         }));
     
     // Sales Returns (reduce revenue)
-    const salesReturnEntries = state.allSalesReturns
+    const salesReturnEntries = (state.allSalesReturns || [])
         .filter(ret => {
-            const d = _toDate(ret.returnDate?.seconds ? {seconds: ret.returnDate.seconds} : ret.returnDate);
-            const date = d || new Date(ret.returnDate.seconds * 1000);
+            const date = _toDate(ret.returnDate) || null;
+            if (!date) return false;
             return date >= startDate && date <= endDate;
         })
         .map(ret => ({
-            date: _toDate(ret.returnDate?.seconds ? {seconds: ret.returnDate.seconds} : ret.returnDate) || new Date(),
+            date: _toDate(ret.returnDate) || new Date(),
             id: ret.id,
             invoiceNumber: ret.creditNoteNumber || ret.id,
             type: 'Sales Return',
             details: `From: ${ret.customerName || ret.orderShippingName || 'Customer'}`,
-            itemCount: ret.items.reduce((acc, item) => acc + item.quantity, 0),
-            debit: ret.totalAmount,
+            itemCount: (ret.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
+            debit: ret.totalAmount || 0,
             credit: 0,
         }));
 
     // Purchase Returns (reduce cost)
-    const purchaseReturnEntries = state.allPurchaseReturns
+    const purchaseReturnEntries = (state.allPurchaseReturns || [])
         .filter(ret => {
-            const d = _toDate(ret.returnDate?.seconds ? {seconds: ret.returnDate.seconds} : ret.returnDate);
-            const date = d || new Date(ret.returnDate.seconds * 1000);
+            const date = _toDate(ret.returnDate) || null;
+            if (!date) return false;
             return date >= startDate && date <= endDate;
         })
         .map(ret => ({
-            date: _toDate(ret.returnDate?.seconds ? {seconds: ret.returnDate.seconds} : ret.returnDate) || new Date(),
+            date: _toDate(ret.returnDate) || new Date(),
             id: ret.id,
             invoiceNumber: ret.debitNoteNumber || ret.id,
             type: 'Purchase Return',
             details: `To: ${ret.supplierName || 'Supplier'}`,
-            itemCount: ret.items.reduce((acc, item) => acc + item.quantity, 0),
+            itemCount: (ret.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
             debit: 0,
-            credit: ret.totalAmount,
+            credit: ret.totalAmount || 0,
         }));
     
-    const localSalesEntries = state.allLocalSales
+    const localSalesEntries = (state.allLocalSales || [])
              .filter(sale => {
-                const saleDate = new Date(sale.saleDate.seconds * 1000);
+                const saleDate = _toDate(sale.saleDate);
+                if (!saleDate) return false;
                 return saleDate >= startDate && saleDate <= endDate;
             })
             .map(sale => ({
-                date: new Date(sale.saleDate.seconds * 1000),
+                date: _toDate(sale.saleDate) || new Date(),
                 id: sale.id,
                 invoiceNumber: sale.invoiceNumber,
                 type: 'Local Sale',
-                details: `To: ${sale.customerName}`,
-                itemCount: sale.items.reduce((acc, item) => acc + item.quantity, 0),
+                details: `To: ${sale.customerName || ''}`,
+                itemCount: (sale.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
                 debit: 0,
-                credit: sale.totalAmount,
+                credit: sale.totalAmount || 0,
             }));
 
     let combinedEntries;
@@ -1309,9 +2886,9 @@ function renderAdminBillingPage() {
                 </td>
                 <td class="p-3">${entry.details}</td>
                 <td class="p-3 text-center">${entry.itemCount}</td>
-                <td class="p-3 text-right text-red-600">${entry.debit > 0 ? entry.debit.toFixed(2) : '-'}</td>
-                <td class="p-3 text-right text-green-600">${entry.credit > 0 ? entry.credit.toFixed(2) : '-'}</td>
-                <td class="p-3 text-right font-bold">${runningBalance.toFixed(2)}</td>
+                <td class="p-3 text-right text-red-600">${entry.debit > 0 ? formatMoney(entry.debit) : '-'}</td>
+                <td class="p-3 text-right text-green-600">${entry.credit > 0 ? formatMoney(entry.credit) : '-'}</td>
+                <td class="p-3 text-right font-bold">${formatMoney(runningBalance)}</td>
             </tr>
         `;
     }).join('');
@@ -1329,6 +2906,70 @@ function renderAdminBillingPage() {
             <button id="applyDateFilterBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition">Apply Filter</button>
         </div>
     `;
+    
+    // Attach delegated handlers once to the container so buttons/inputs keep working after re-renders
+    try {
+        if (!container.dataset.delegationAttached) {
+            // Click delegation for quick-add buttons and modal cancel
+            container.addEventListener('click', (ev) => {
+                const btn = ev.target.closest && ev.target.closest('button') ? ev.target.closest('button') : ev.target;
+                if (!btn) return;
+                const id = btn.id || '';
+                try {
+                    if (id === 'addCashDebitBtn') { ev.preventDefault(); openLedgerEntryModal('cash', 'debit'); return; }
+                    if (id === 'addCashCreditBtn') { ev.preventDefault(); openLedgerEntryModal('cash', 'credit'); return; }
+                    if (id === 'addBankDebitBtn') { ev.preventDefault(); openLedgerEntryModal('bank', 'debit'); return; }
+                    if (id === 'addBankCreditBtn') { ev.preventDefault(); openLedgerEntryModal('bank', 'credit'); return; }
+                    if (id === 'ledgerEntryCancelBtn') { ev.preventDefault(); closeLedgerEntryModal(); return; }
+                    // supplier quick buttons
+                    if (btn.classList && btn.classList.contains('pay-supplier-btn')) { ev.preventDefault(); const party = btn.getAttribute('data-party')||''; const amount = btn.getAttribute('data-amount')||''; const spPartyEl = document.getElementById('spParty'); const spAmountEl = document.getElementById('spAmount'); if (spPartyEl) spPartyEl.value = party; if (spAmountEl) spAmountEl.value = Number(amount).toFixed(2); spAmountEl?.focus(); return; }
+                    if (btn.classList && btn.classList.contains('receive-customer-btn')) { ev.preventDefault(); const party = btn.getAttribute('data-party')||''; const amount = btn.getAttribute('data-amount')||''; const crPartyEl = document.getElementById('crParty'); const crAmountEl = document.getElementById('crAmount'); if (crPartyEl) crPartyEl.value = party; if (crAmountEl) crAmountEl.value = Number(amount).toFixed(2); crAmountEl?.focus(); return; }
+                } catch (e) { /* ignore handler errors */ }
+            });
+
+            // Submit delegation for the ledger entry form (modal)
+            container.addEventListener('submit', async (ev) => {
+                try {
+                    if (!ev.target || ev.target.id !== 'ledgerEntryForm') return;
+                    ev.preventDefault();
+                    const submitBtn = document.getElementById('ledgerEntrySubmitBtn');
+                    const addBtns = [document.getElementById('addCashDebitBtn'), document.getElementById('addCashCreditBtn'), document.getElementById('addBankDebitBtn'), document.getElementById('addBankCreditBtn')];
+                    const originalText = submitBtn ? submitBtn.textContent : '';
+                    try {
+                        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving...'; }
+                        addBtns.forEach(b => { try { if (b) b.disabled = true; } catch(_){} });
+
+                        const target = (document.getElementById('ledgerEntryTarget')?.value || 'cash');
+                        const type = (document.getElementById('ledgerEntryType')?.value || 'debit');
+                        const raw = (document.getElementById('ledgerEntryAmount')?.value || '').toString();
+                        const amount = parseFloat(raw.replace(/,/g, '')) || 0;
+                        if (amount <= 0) { showMessage('Please enter a positive amount.'); return; }
+                        const notes = (document.getElementById('ledgerEntryNotes')?.value || '').trim();
+                        const dateVal = (document.getElementById('ledgerEntryDate')?.value || '');
+                        const date = dateVal ? new Date(dateVal) : new Date();
+                        if (target === 'cash') {
+                            await addDoc(collection(db, cashLedgerColPath), { date, refType: 'Manual', refId: '', notes, debit: type === 'debit' ? amount : 0, credit: type === 'credit' ? amount : 0, isDeleted: false, createdAt: serverTimestamp() });
+                        } else {
+                            const bankAccount = (document.getElementById('ledgerEntryBankAccount')?.value || (state.bankAccountFilter || 'Main Bank'));
+                            await addDoc(collection(db, bankLedgerColPath), { date, refType: 'Manual', refId: '', bankAccount, notes, debit: type === 'debit' ? amount : 0, credit: type === 'credit' ? amount : 0, isDeleted: false, createdAt: serverTimestamp() });
+                        }
+                        showToast('Ledger entry saved', [`${type === 'debit' ? 'Debit' : 'Credit'} ₹${amount.toFixed(2)} recorded`], { ttl: 4000 });
+                        closeLedgerEntryModal();
+                        renderAdminLedgersPage();
+                    } catch (err) {
+                        console.error('Ledger entry save failed', err);
+                        showMessage('Failed to save ledger entry.');
+                    } finally {
+                        try { if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalText || 'Save'; } addBtns.forEach(b => { try { if (b) b.disabled = false; } catch(_){} }); } catch(_){}
+                    }
+                } catch (err) { console.error('Delegated submit handler error', err); }
+            });
+
+            container.dataset.delegationAttached = '1';
+        }
+    } catch (err) { console.error('Failed to attach delegated admin listeners', err); }
+
+    // Ledger handlers are attached after the admin ledgers page is rendered (see renderAdminLedgersPage)
 
     const filterButtonsHTML = `
         <div class="flex space-x-2 mb-4">
@@ -1364,7 +3005,7 @@ function renderAdminBillingPage() {
     const registerHTML = `
         <div id="registerReportContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
              <div class="flex justify-between items-center mb-6">
-                <h3 class="text-2xl font-bold">Purchase & Sales Register</h3>
+                <h3 class="text-2xl font-bold">Purchase & Sales Register ${tooltipHTML('Register view summarising purchases and sales for the selected period.')}</h3>
                 <div class="flex space-x-2">
                     <button id="printRegisterBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition text-sm flex items-center gap-2"><i class="fa-solid fa-print"></i> Print</button>
                     <button id="exportRegisterBtn" class="bg-green-100 text-green-700 font-semibold py-2 px-4 rounded-md hover:bg-green-200 transition text-sm flex items-center gap-2"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
@@ -1393,9 +3034,9 @@ function renderAdminBillingPage() {
                     <tfoot>
                         <tr class="bg-gray-50 font-semibold">
                             <td class="p-3" colspan="5">Totals</td>
-                            <td class="p-3 text-right text-red-700">${totalDebit.toFixed(2)}</td>
-                            <td class="p-3 text-right text-green-700">${totalCredit.toFixed(2)}</td>
-                            <td class="p-3 text-right">${finalBalanceTotal.toFixed(2)}</td>
+                            <td class="p-3 text-right text-red-700">${formatMoney(totalDebit)}</td>
+                            <td class="p-3 text-right text-green-700">${formatMoney(totalCredit)}</td>
+                            <td class="p-3 text-right">${formatMoney(finalBalanceTotal)}</td>
                         </tr>
                     </tfoot>
                 </table>
@@ -1407,21 +3048,31 @@ function renderAdminBillingPage() {
     // --- GST Summary (aligned to the same date range as the register) ---
     const src = getReportArrays();
     const ordersInRange = (src.orders || []).filter(o => {
-        const d = _toDate(o.orderDate) || new Date(o.orderDate.seconds * 1000);
+        const d = _toDate(o.orderDate) || null;
+        if (!d) return false;
         return d >= startDate && d <= endDate;
     });
     const localSalesInRange = (src.localSales || []).filter(s => {
-        const d = _toDate(s.saleDate) || new Date(s.saleDate.seconds * 1000);
+        const d = _toDate(s.saleDate) || null;
+        if (!d) return false;
         return d >= startDate && d <= endDate;
     });
     const purchasesInRange = (src.purchases || []).filter(p => {
         if (p.isDeleted) return false;
-        const d = _toDate(p.purchaseDate) || new Date(p.purchaseDate.seconds * 1000);
+        const d = _toDate(p.purchaseDate) || null;
+        if (!d) return false;
         return d >= startDate && d <= endDate;
     });
 
-    const salesGstCollected = ordersInRange.reduce((sum, o) => sum + (o.gstBreakdown?.total || 0), 0)
-        + localSalesInRange.reduce((sum, s) => sum + (s.gstBreakdown?.total || 0), 0);
+    // If GST calculations are disabled globally, show zero GST collected/paid
+    const gstEnabled = !!state.siteSettings.isGstEnabled;
+    // Sales GST should only be reported when GST calculations are enabled.
+    const salesGstCollected = gstEnabled
+        ? ordersInRange.reduce((sum, o) => sum + (o.gstBreakdown?.total || 0), 0)
+            + localSalesInRange.reduce((sum, s) => sum + (s.gstBreakdown?.total || 0), 0)
+        : 0;
+    // Purchase GST paid should be shown even when GST calculations are turned off
+    // (treated as part of cost but visible to admins for reconciliation).
     const purchaseGstPaid = purchasesInRange.reduce((sum, p) => sum + (p.gstBreakdown?.total || 0), 0);
     const merchantReg = !!state.siteSettings.merchantGstRegistered;
     const netGst = merchantReg ? (salesGstCollected - purchaseGstPaid) : 0;
@@ -1429,7 +3080,7 @@ function renderAdminBillingPage() {
     const gstReportHTML = `
         <div id="gstReportContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-2xl font-bold">GST Summary</h3>
+                <h3 class="text-2xl font-bold">GST Summary ${tooltipHTML('Summary of GST collected and paid, grouped by rate and type.')}</h3>
                 <span class="inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${merchantReg ? 'bg-green-100 text-green-700 border border-green-200' : 'bg-yellow-100 text-yellow-800 border border-yellow-200'}">
                     ${merchantReg ? 'Merchant GST Registered' : 'Not GST Registered'}
                 </span>
@@ -1437,15 +3088,15 @@ function renderAdminBillingPage() {
             ${merchantReg ? '' : '<p class="text-xs text-gray-500 mb-4">Sales GST is not charged; purchase GST is treated as part of item cost. Net GST not applicable.</p>'}
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
                 <div class="bg-gray-50 p-4 rounded-md">
-                    <p class="text-2xl font-bold text-green-700">₹${salesGstCollected.toFixed(2)}</p>
+                    <p class="text-2xl font-bold text-green-700">₹${formatMoney(salesGstCollected)}</p>
                     <p class="text-sm text-gray-500">Sales GST Collected</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-md">
-                    <p class="text-2xl font-bold text-red-700">₹${purchaseGstPaid.toFixed(2)}</p>
+                    <p class="text-2xl font-bold text-red-700">₹${formatMoney(purchaseGstPaid)}</p>
                     <p class="text-sm text-gray-500">Purchase GST Paid</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-md ${merchantReg ? '' : 'opacity-60'}">
-                    <p class="text-2xl font-bold ${netGst >= 0 ? 'text-indigo-700' : 'text-orange-700'}">₹${merchantReg ? netGst.toFixed(2) : '—'}</p>
+                    <p class="text-2xl font-bold ${netGst >= 0 ? 'text-indigo-700' : 'text-orange-700'}">₹${merchantReg ? formatMoney(netGst) : '—'}</p>
                     <p class="text-sm text-gray-500">Net GST ${merchantReg ? '(Payable/Refundable)' : '(N/A)'}</p>
                 </div>
             </div>
@@ -1456,12 +3107,17 @@ function renderAdminBillingPage() {
     const source = getReportArrays();
 
     // Totals and profits with returns and local sales
-    const ordersRevenue = source.orders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
+    // Only include orders that have been shipped in sales aggregates
+    const shippedOrders = (source.orders || []).filter(o => {
+        const s = (o.status || '').toString().toLowerCase();
+        return s === 'shipped';
+    });
+    const ordersRevenue = shippedOrders.reduce((sum, o) => sum + (o.totalAmount || 0), 0);
     const localSalesRevenue = source.localSales.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
     const salesReturnsTotal = source.salesReturns.reduce((sum, r) => sum + (r.totalAmount || 0), 0);
 
     let ordersCost = 0;
-    source.orders.forEach(order => {
+    shippedOrders.forEach(order => {
         (order.items || []).forEach(item => {
             const unitCost = (typeof item.costAtOrder === 'number') ? item.costAtOrder : ((state.products.find(p => p.id === item.id)?.purchasePrice) || 0);
             ordersCost += unitCost * (item.quantity || 0);
@@ -1483,41 +3139,172 @@ function renderAdminBillingPage() {
     const salesReportHTML = `
         <div id="salesReportContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-2xl font-bold">Sales Report</h3>
+                <h3 class="text-2xl font-bold">Sales Report ${tooltipHTML('Daily/period sales summary with totals and filters.')}</h3>
                 <div>
                     <button id="printSalesReportBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition text-sm flex items-center gap-2"><i class="fa-solid fa-print"></i> Print</button>
                 </div>
             </div>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-6">
                 <div class="bg-gray-50 p-4 rounded-md">
-                    <p class="text-2xl font-bold text-green-600">₹${grossRevenue.toFixed(2)}</p>
+                    <p class="text-2xl font-bold text-green-600">₹${formatMoney(grossRevenue)}</p>
                     <p class="text-sm text-gray-500">Gross Revenue (Orders + Local)</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-md">
-                    <p class="text-2xl font-bold">${source.orders.length}</p>
-                    <p class="text-sm text-gray-500">Orders</p>
+                    <p class="text-2xl font-bold">${shippedOrders.length}</p>
+                    <p class="text-sm text-gray-500">Orders (Shipped)</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-md">
-                    <p class="text-2xl font-bold text-indigo-600">₹${netRevenue.toFixed(2)}</p>
+                    <p class="text-2xl font-bold text-indigo-600">₹${formatMoney(netRevenue)}</p>
                     <p class="text-sm text-gray-500">Net Revenue (less Returns)</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-md">
-                    <p class="text-2xl font-bold text-blue-600">₹${totalProfit.toFixed(2)}</p>
+                    <p class="text-2xl font-bold text-blue-600">₹${formatMoney(totalProfit)}</p>
                     <p class="text-sm text-gray-500">Estimated Profit</p>
                 </div>
             </div>
            </div>
     `;
+    // --- Party-wise Purchase & Sales Ledger ---
+    const partyType = 'supplier';
+    const partyLedgerPartyOptionsSuppliers = (state.allSuppliers || []).map(s => {
+        const name = (s.name || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const gst = s.gstin ? (' • ' + s.gstin) : '';
+        return `<option value="${name}" data-id="${s.id || ''}">${name}${gst}</option>`;
+    }).join('');
+    const partyLedgerPartyOptionsCustomers = (state.allCustomers || []).map(c => {
+        const name = (c.name || '').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return `<option value="${name}" data-id="${c.id || ''}">${name}</option>`;
+    }).join('');
+    const partyLedgerHTML = `
+        <div id="partyLedgerContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
+            <div class="flex justify-between items-center mb-6">
+                <h3 class="text-2xl font-bold">Party-wise Purchase & Sales Ledger ${tooltipHTML('Generate ledger entries (purchases, sales, payments) for a selected party and date range.')}</h3>
+                <div>
+                    <button id="printPartyLedgerBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition text-sm flex items-center gap-2"><i class="fa-solid fa-print"></i> Print</button>
+                    <button id="exportPartyLedgerBtn" class="bg-green-100 text-green-700 font-semibold py-2 px-4 rounded-md hover:bg-green-200 transition text-sm flex items-center gap-2"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+                </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4">
+                <div class="md:col-span-1">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Party Type</label>
+                    <select id="partyLedgerType" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                        <option value="supplier">Supplier</option>
+                        <option value="customer">Customer</option>
+                    </select>
+                </div>
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Party</label>
+                    <select id="partyLedgerSelect" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                        <option value="">-- Select Party --</option>
+                        ${partyLedgerPartyOptionsSuppliers}
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Rows</label>
+                    <select id="partyLedgerRows" class="w-full px-3 py-2 border border-gray-300 rounded-md">
+                        <option value="100">100</option>
+                        <option value="500">500</option>
+                        <option value="1000">1000</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex items-end space-x-4 mb-4">
+                <div>
+                    <label for="partyLedgerStartDate" class="block text-sm font-medium text-gray-700">Start Date</label>
+                    <input type="date" id="partyLedgerStartDate" value="${state.registerStartDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                </div>
+                <div>
+                    <label for="partyLedgerEndDate" class="block text-sm font-medium text-gray-700">End Date</label>
+                    <input type="date" id="partyLedgerEndDate" value="${state.registerEndDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                </div>
+                <div class="flex items-center">
+                    <button id="generatePartyLedgerBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition">Generate</button>
+                </div>
+            </div>
+            <div id="partyLedgerResultContainer" class="overflow-x-auto"></div>
+        </div>
+    `;
     
-    const inventoryReportHTML = `
+        // Inventory pagination: compute paged product rows (default page size = 10)
+        const inventoryAll = (state.products || []).slice().sort((a,b) => (String(a.name || '')).localeCompare(String(b.name || '')));
+        const ipSize = Math.max(1, parseInt(state.inventoryPageSize || 10));
+        const ip = Math.max(1, parseInt(state.inventoryPage || 1));
+        const inventoryTotalPages = Math.max(1, Math.ceil(inventoryAll.length / ipSize));
+        const inventoryPage = Math.min(ip, inventoryTotalPages);
+        if (inventoryPage !== state.inventoryPage) state.inventoryPage = inventoryPage;
+        const inventoryStartIdx = (inventoryPage - 1) * ipSize;
+        const inventoryPageItems = inventoryAll.slice(inventoryStartIdx, inventoryStartIdx + ipSize);
+        const inventoryRowsHTML = inventoryPageItems.map(p => {
+            const stock = p.stock || 0;
+            const purchasePrice = p.purchasePrice || 0;
+            const salePrice = p.salePrice || 0;
+            const potentialProfit = (salePrice - purchasePrice) * stock;
+            // Compute last purchase price and weighted average purchase price from purchase history
+            let lastPrice = null;
+            let avgPrice = null;
+            try {
+                const itemPurchases = (state.allPurchases || []).filter(pp => !pp.isDeleted && Array.isArray(pp.items) && pp.items.some(i => i.productId === p.id));
+                if (itemPurchases.length > 0) {
+                    // Collect all matching item entries
+                    const entries = [];
+                    for (const pur of itemPurchases) {
+                        const pd = pur.purchaseDate ? new Date(pur.purchaseDate.seconds ? pur.purchaseDate.seconds * 1000 : pur.purchaseDate) : new Date(0);
+                        for (const it of pur.items || []) {
+                            if (it.productId === p.id) entries.push({ price: (typeof it.purchasePrice === 'number' ? it.purchasePrice : (typeof it.price === 'number' ? it.price : 0)), qty: (it.quantity || 0), date: pd });
+                        }
+                    }
+                    // Last price = price from most recent entry
+                    entries.sort((a,b) => b.date - a.date);
+                    if (entries.length > 0) {
+                        lastPrice = entries[0].price || 0;
+                        // Weighted average
+                        const totalQty = entries.reduce((s, e) => s + (e.qty || 0), 0) || entries.length;
+                        const weightedSum = entries.reduce((s, e) => s + ((e.price || 0) * ((e.qty || 0) || 1)), 0);
+                        avgPrice = totalQty > 0 ? (weightedSum / totalQty) : (weightedSum / entries.length || 0);
+                    }
+                }
+            } catch (err) { /* ignore */ }
+            let statusBadge = `<span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">In Stock</span>`;
+            if(stock <= 0) {
+                statusBadge = `<span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Out of Stock</span>`;
+            } else if (stock < 5) {
+                statusBadge = `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Low Stock</span>`;
+            }
+            return `
+                <tr class="border-b">
+                     <td class="p-3 font-semibold">${p.name}</td>
+                     <td class="p-3">${formatMoney(purchasePrice)}${(lastPrice !== null || avgPrice !== null) ? `<div class="text-xs text-gray-500 mt-1">(${lastPrice !== null ? formatMoney(lastPrice) : '-'} / ${avgPrice !== null ? formatMoney(avgPrice) : '-'})</div>` : ''}</td>
+                     <td class="p-3">${formatMoney(salePrice)}</td>
+                     <td class="p-3 font-bold">${stock}</td>
+                     <td class="p-3 text-green-600 font-semibold">${formatMoney(potentialProfit)}</td>
+                     <td class="p-3">${statusBadge}</td>
+                </tr>
+            `; }).join('');
+
+        const inventoryReportHTML = `
         <div id="inventoryReportContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
             <div class="flex justify-between items-center mb-6">
-                <h3 class="text-2xl font-bold">Inventory Report</h3>
+                <h3 class="text-2xl font-bold">Inventory Report ${tooltipHTML('Current stock levels and valuation for listed products.')}</h3>
                 <div class="flex space-x-2">
                      <button id="printInventoryBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition text-sm flex items-center gap-2"><i class="fa-solid fa-print"></i> Print</button>
                      <button id="exportInventoryBtn" class="bg-green-100 text-green-700 font-semibold py-2 px-4 rounded-md hover:bg-green-200 transition text-sm flex items-center gap-2"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
                 </div>
             </div>
+                <div class="flex items-center justify-between mb-4">
+                    <div class="flex items-center gap-2">
+                        <label class="text-sm">Rows:</label>
+                        <select id="inventoryPageSize" class="border rounded p-1">
+                            <option value="10" ${ipSize===10?'selected':''}>10</option>
+                            <option value="25" ${ipSize===25?'selected':''}>25</option>
+                            <option value="50" ${ipSize===50?'selected':''}>50</option>
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button id="inventoryPrev" class="px-2 py-1 border rounded ${inventoryPage<=1?'opacity-50 cursor-not-allowed':''}">Prev</button>
+                        <span class="text-sm">Page ${inventoryPage} / ${inventoryTotalPages}</span>
+                        <button id="inventoryNext" class="px-2 py-1 border rounded ${inventoryPage>=inventoryTotalPages?'opacity-50 cursor-not-allowed':''}">Next</button>
+                    </div>
+                </div>
               <div class="overflow-x-auto">
                    <table id="inventoryTable" class="w-full text-sm text-left">
                     <thead class="bg-gray-100">
@@ -1531,27 +3318,7 @@ function renderAdminBillingPage() {
                         </tr>
                     </thead>
                     <tbody>
-                       ${state.products.map(p => {
-                            const stock = p.stock || 0;
-                            const purchasePrice = p.purchasePrice || 0;
-                            const salePrice = p.salePrice || 0;
-                            const potentialProfit = (salePrice - purchasePrice) * stock;
-                            let statusBadge = `<span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">In Stock</span>`;
-                            if(stock <= 0) {
-                                statusBadge = `<span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Out of Stock</span>`;
-                            } else if (stock < 5) {
-                                statusBadge = `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Low Stock</span>`;
-                            }
-                            return `
-                                    <tr class="border-b">
-                                         <td class="p-3 font-semibold">${p.name}</td>
-                                         <td class="p-3">${purchasePrice.toFixed(2)}</td>
-                                         <td class="p-3">${salePrice.toFixed(2)}</td>
-                                         <td class="p-3 font-bold">${stock}</td>
-                                         <td class="p-3 text-green-600 font-semibold">${potentialProfit.toFixed(2)}</td>
-                                         <td class="p-3">${statusBadge}</td>
-                                    </tr>
-                                   `}).join('')}
+                       ${inventoryRowsHTML}
                     </tbody>
                 </table>
             </div>
@@ -1562,9 +3329,10 @@ function renderAdminBillingPage() {
     const bStart = new Date(state.billingStartDate); bStart.setHours(0,0,0,0);
     const bEnd = new Date(state.billingEndDate); bEnd.setHours(23,59,59,999);
     const search = (state.billingSearchText || '').toLowerCase();
-    const billingOrdersAll = state.allOrders
+    const billingOrdersAll = (state.allOrders || [])
         .filter(o => {
-            const d = _toDate(o.orderDate) || new Date(o.orderDate.seconds * 1000);
+            const d = _toDate(o.orderDate) || null;
+            if (!d) return false;
             return d >= bStart && d <= bEnd;
         })
         .filter(o => {
@@ -1572,7 +3340,11 @@ function renderAdminBillingPage() {
             const texts = [o.invoiceNumber || '', o.id || '', o.shippingInfo?.fullName || '', o.customerEmail || ''].map(s => String(s).toLowerCase());
             return texts.some(t => t.includes(search));
         })
-        .sort((a,b) => (b.orderDate?.seconds || 0) - (a.orderDate?.seconds || 0));
+        .sort((a,b) => {
+            const da = _toDate(a.orderDate) || new Date(0);
+            const db = _toDate(b.orderDate) || new Date(0);
+            return db - da;
+        });
     const bpSize = Math.max(5, parseInt(state.billingPageSize || 25));
     const bp = Math.max(1, parseInt(state.billingPage || 1));
     const billingTotalPages = Math.max(1, Math.ceil(billingOrdersAll.length / bpSize));
@@ -1627,7 +3399,7 @@ function renderAdminBillingPage() {
 
     const billingHTML = `
         <div id="billingContainer" class="bg-white p-8 rounded-lg shadow-lg">
-            <h3 class="text-2xl font-bold mb-6">Billing & Invoicing</h3>
+            <h3 class="text-2xl font-bold mb-6">Billing & Invoicing ${tooltipHTML('Settings and reports related to billing, invoices, returns, and receipts.')}</h3>
             ${billingControlsHTML}
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-4">
                 <div class="bg-gray-50 p-4 rounded-md">
@@ -1635,7 +3407,7 @@ function renderAdminBillingPage() {
                     <p class="text-sm text-gray-500">Invoices</p>
                 </div>
                 <div class="bg-gray-50 p-4 rounded-md">
-                    <p class="text-2xl font-bold text-green-600">₹${billingTotal.toFixed(2)}</p>
+                    <p class="text-2xl font-bold text-green-600">₹${formatMoney(billingTotal)}</p>
                     <p class="text-sm text-gray-500">Total (filtered)</p>
                 </div>
             </div>
@@ -1658,7 +3430,7 @@ function renderAdminBillingPage() {
                                          <td class="p-3">${formatDate(o.orderDate)}</td>
                                          <td class="p-3">${o.shippingInfo.fullName}</td>
                                          <td class="p-3">${o.customerEmail || ''}</td>
-                                         <td class="p-3 font-semibold">${o.totalAmount.toFixed(2)}</td>
+                                         <td class="p-3 font-semibold">${formatMoney(o.totalAmount)}</td>
                                          <td class="p-3">
                                              <button data-page="invoice" data-id="${o.id}" class="nav-btn bg-blue-500 text-white text-xs font-semibold py-1 px-3 rounded-md hover:bg-blue-600">Generate</button>
                                          </td>
@@ -1671,8 +3443,14 @@ function renderAdminBillingPage() {
         </div>
     `;
 
-    container.innerHTML = registerHTML + gstReportHTML + salesReportHTML + inventoryReportHTML + billingHTML;
-    attachReportListeners();
+    container.innerHTML = registerHTML + gstReportHTML + salesReportHTML + partyLedgerHTML + inventoryReportHTML + billingHTML;
+    try { attachReportListeners(); } catch (err) { console.error('attachReportListeners failed', err); }
+    } catch (err) {
+        console.error('renderAdminBillingPage failed', err);
+        try {
+            container.innerHTML = `<div class="bg-red-50 border border-red-200 p-6 rounded"> <h3 class="text-lg font-bold text-red-700">Failed to load Billing & Reports</h3><p class="text-sm text-gray-700 mt-2">An error occurred while rendering the reports. Check the console for details.</p><pre class="mt-3 text-xs text-red-600">${escapeHtml(String(err?.message || err))}</pre></div>`;
+        } catch (_) { /* ignore */ }
+    }
 }
 
 function renderAdminProductList() {
@@ -1708,11 +3486,24 @@ function renderAdminProductGroupsPage() {
         </div>
     `;
 
+    // Build a deduped list of groups for admin display
+    const _uniqAdminGroups = (() => {
+        try {
+            const groups = (state.productGroups || []).filter(Boolean).map(g => ({ id: g.id, name: (g.name || g).toString() }));
+            const map = new Map();
+            groups.forEach(g => {
+                const key = (g.name || '').toString().trim().toLowerCase();
+                if (!map.has(key)) map.set(key, g);
+            });
+            return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        } catch (e) { return []; }
+    })();
+
     const groupListHTML = `
         <div class="bg-white p-8 rounded-lg shadow-lg">
             <h3 class="text-2xl font-bold mb-6">Manage Product Groups</h3>
             <div id="adminGroupList" class="space-y-4">
-                ${state.productGroups.length > 0 ? state.productGroups.map(group => `
+                ${_uniqAdminGroups.length > 0 ? _uniqAdminGroups.map(group => `
                     <div class="bg-gray-50 p-4 rounded-md flex items-center justify-between">
                         <p class="font-semibold">${group.name}</p>
                         <div class="flex space-x-2">
@@ -1727,11 +3518,82 @@ function renderAdminProductGroupsPage() {
 
     container.innerHTML = groupFormHTML + groupListHTML;
 
-    document.getElementById('groupForm').addEventListener('submit', handleGroupFormSubmit);
-    document.getElementById('groupFormCancelBtn').addEventListener('click', resetGroupForm);
-    document.querySelectorAll('.edit-group-btn').forEach(btn => btn.addEventListener('click', handleEditGroupClick));
-    document.querySelectorAll('.delete-group-btn').forEach(btn => btn.addEventListener('click', handleDeleteGroupClick));
+    // Attach handlers (use window-scoped handlers to avoid redeclaration errors)
+    try { document.getElementById('groupForm')?.addEventListener('submit', window.handleGroupFormSubmit || function(ev){ try { (window.handleGroupFormSubmit || (()=>{}))(ev); } catch(_){} }); } catch (_) {}
+    try { document.getElementById('groupFormCancelBtn')?.addEventListener('click', window.resetGroupForm || function(){ try { (window.resetGroupForm || (()=>{}))(); } catch(_){} }); } catch (_) {}
+    try { document.querySelectorAll('.edit-group-btn').forEach(btn => btn.addEventListener('click', (ev) => { try { (window.handleEditGroupClick || (()=>{}))(ev); } catch(_){} } )); } catch (_) {}
+    try { document.querySelectorAll('.delete-group-btn').forEach(btn => btn.addEventListener('click', (ev) => { try { (window.handleDeleteGroupClick || (()=>{}))(ev); } catch(_){} } )); } catch (_) {}
 }
+// Handlers for admin product groups (attach to window to avoid duplicate declaration errors)
+try {
+    window.handleGroupFormSubmit = window.handleGroupFormSubmit || (async function(ev) {
+        try {
+            ev.preventDefault();
+            const idEl = document.getElementById('groupId');
+            const nameEl = document.getElementById('groupName');
+            if (!nameEl) return;
+            const name = (nameEl.value || '').trim();
+            if (!name) { showMessage('Enter a group name.'); return; }
+            if (idEl && idEl.value) {
+                const gid = idEl.value;
+                await setDoc(doc(db, productGroupsColPath, gid), { name, updatedAt: serverTimestamp() }, { merge: true });
+                showMessage('Product group updated.');
+            } else {
+                await addDoc(collection(db, productGroupsColPath), { name, createdAt: serverTimestamp() });
+                showMessage('Product group added.');
+            }
+            (window.resetGroupForm || (()=>{}))();
+        } catch (err) { console.error('handleGroupFormSubmit', err); showMessage('Failed to save product group.'); }
+    });
+} catch (_) {}
+
+try {
+    window.resetGroupForm = window.resetGroupForm || (function() {
+        try {
+            const idEl = document.getElementById('groupId');
+            const nameEl = document.getElementById('groupName');
+            const cancelBtn = document.getElementById('groupFormCancelBtn');
+            const submitBtn = document.getElementById('groupFormSubmitBtn');
+            if (idEl) idEl.value = '';
+            if (nameEl) nameEl.value = '';
+            if (cancelBtn) cancelBtn.classList.add('hidden');
+            if (submitBtn) submitBtn.textContent = 'Add Group';
+        } catch (_) {}
+    });
+} catch (_) {}
+
+try {
+    window.handleEditGroupClick = window.handleEditGroupClick || (function(ev) {
+        try {
+            const btn = ev.currentTarget || ev.target;
+            const id = btn.dataset && btn.dataset.id;
+            const name = btn.dataset && btn.dataset.name;
+            if (!id) return;
+            const idEl = document.getElementById('groupId');
+            const nameEl = document.getElementById('groupName');
+            const cancelBtn = document.getElementById('groupFormCancelBtn');
+            const submitBtn = document.getElementById('groupFormSubmitBtn');
+            if (idEl) idEl.value = id;
+            if (nameEl) nameEl.value = name || '';
+            if (cancelBtn) cancelBtn.classList.remove('hidden');
+            if (submitBtn) submitBtn.textContent = 'Update Group';
+            nameEl && nameEl.focus();
+        } catch (err) { console.error('handleEditGroupClick', err); }
+    });
+} catch (_) {}
+
+try {
+    window.handleDeleteGroupClick = window.handleDeleteGroupClick || (async function(ev) {
+        try {
+            const btn = ev.currentTarget || ev.target;
+            const id = btn.dataset && btn.dataset.id;
+            if (!id) return;
+            if (!confirm('Delete this product group? This cannot be undone.')) return;
+            await deleteDoc(doc(db, productGroupsColPath, id));
+            showMessage('Product group deleted.');
+        } catch (err) { console.error('handleDeleteGroupClick', err); showMessage('Failed to delete product group.'); }
+    });
+} catch (_) {}
 
 function renderAdminMediaPage() {
     // Populate both media sections
@@ -1748,94 +3610,6 @@ function renderAdminSlideList() {
         item.className = 'bg-white p-4 rounded-lg shadow-sm flex items-center justify-between';
         item.innerHTML = `<div class="flex items-center space-x-4"><img src="${slide.imageUrl}" alt="${slide.headline}" class="w-24 h-12 object-cover rounded-md"><div><p class="font-bold">${slide.headline}</p><p class="text-sm text-gray-500">${slide.subtitle}</p></div></div><div class="flex space-x-2"><button data-id="${slide.id}" class="edit-slide-btn bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-pencil"></i></button><button data-id="${slide.id}" class="delete-slide-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-trash"></i></button></div>`;
         listEl.appendChild(item);
-    });
-}
-
-function renderAdminOrderList() {
-    const listEl = document.getElementById('adminOrderList');
-    if (!listEl) return;
-    
-    // --- 1. Filter Logic ---
-    let filteredOrders = [...state.allOrders].sort((a, b) => b.orderDate.seconds - a.orderDate.seconds);
-
-    if (state.adminOrderFilter !== 'All') {
-        filteredOrders = filteredOrders.filter(order => order.status === state.adminOrderFilter);
-    }
-    
-    // --- 2. Filter Controls HTML ---
-    const filterControlsHTML = `
-        <div class="flex justify-end items-center mb-6">
-            <label for="orderStatusFilter" class="text-sm font-medium text-gray-700 mr-3">Filter by Status:</label>
-            <select id="orderStatusFilter" class="w-40 rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border">
-                <option value="All" ${state.adminOrderFilter === 'All' ? 'selected' : ''}>All Orders</option>
-                <option value="Pending" ${state.adminOrderFilter === 'Pending' ? 'selected' : ''}>Pending</option>
-                <option value="Shipped" ${state.adminOrderFilter === 'Shipped' ? 'selected' : ''}>Shipped</option>
-                <option value="Delivered" ${state.adminOrderFilter === 'Delivered' ? 'selected' : ''}>Delivered</option>
-                <option value="Cancelled" ${state.adminOrderFilter === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
-            </select>
-        </div>
-    `;
-
-    // --- 3. List Content Rendering ---
-    let orderListHTML = '';
-    if (filteredOrders.length === 0) {
-        orderListHTML = `<p class="text-gray-500 text-center py-4">No ${state.adminOrderFilter !== 'All' ? state.adminOrderFilter : ''} orders found.</p>`;
-    } else {
-        orderListHTML = filteredOrders.map(order => 
-            `<div class="bg-white p-4 rounded-lg shadow-sm">
-                <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-center text-xs">
-                    <div>
-                        <p class="font-bold text-sm mb-1">Invoice #</p>
-                        <p class="font-mono">${order.invoiceNumber || order.id}</p>
-                        <p>${formatDate(order.orderDate)}</p>
-                    </div>
-                    <div>
-                        <p class="font-bold text-sm mb-1">Customer</p>
-                        <p>${order.shippingInfo.fullName}</p>
-                        <p class="text-xs text-gray-600"><span class="font-semibold">Email:</span> ${order.customerEmail || 'Not available'}</p>
-                        ${order.shippingInfo.address ? `<p class="text-gray-600">${order.shippingInfo.address}</p>` : ''}
-                        <p class="text-gray-600">${order.shippingInfo.city}, ${order.shippingInfo.state} ${order.shippingInfo.zip || ''}</p>
-                        ${order.shippingInfo.phone ? `<p class="text-gray-600"><span class=\"font-semibold\">Mobile:</span> ${order.shippingInfo.phone}</p>` : ''}
-                    </div>
-                    <div>
-                        <p class="font-bold text-sm mb-1">Total</p>
-                        <p class="font-semibold text-base">₹${order.totalAmount.toFixed(2)}</p>
-                        ${order.gstInfo?.applied ? '<span class="text-green-600 text-xs">(GST)</span>' : ''}
-                    </div>
-                    <div>
-                        <p class="font-bold text-sm mb-1">Items</p>
-                        <p>${order.items.reduce((acc, item) => acc + item.quantity, 0)}</p>
-                    </div>
-                    <div>
-                        <p class="font-bold text-sm mb-1">Status</p>
-                        <select data-order-id="${order.id}" data-user-id="${order.userId}" class="admin-order-status-selector w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border">
-                            <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
-                            <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
-                            <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
-                            <option value="Cancelled" ${order.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
-                        </select>
-                    </div>
-                </div>
-            </div>`).join('');
-    }
-    
-    // --- 4. Render Final HTML and Attach Listener ---
-    listEl.innerHTML = filterControlsHTML + orderListHTML;
-
-    // Must re-attach status change listener every time the list is re-rendered
-    document.querySelectorAll('.admin-order-status-selector').forEach(selector => {
-        selector.addEventListener('change', (e) => {
-            const orderId = e.target.dataset.orderId;
-            const userId = e.target.dataset.userId;
-            const newStatus = e.target.value;
-            updateOrderStatus(orderId, userId, newStatus);
-        });
-    });
-
-    // Attach filter change listener for the new filter dropdown
-    document.getElementById('orderStatusFilter').addEventListener('change', (e) => {
-        state.adminOrderFilter = e.target.value;
-        renderAdminOrderList(); // Re-render with the new filter
     });
 }
 
@@ -1991,7 +3765,7 @@ function renderAdminPurchasesPage() {
 
     const purchaseFormHTML = `
         <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
-            <h3 class="text-2xl font-bold mb-6">Add New Purchase Entry</h3>
+            <h3 class="text-2xl font-bold mb-6">Add New Purchase Entry ${tooltipHTML('Create a new purchase record: select supplier, add items and taxes, then save.')}</h3>
             <form id="purchaseForm" class="space-y-6">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <input type="hidden" id="editingPurchaseId" value="" />
@@ -2028,6 +3802,22 @@ function renderAdminPurchasesPage() {
                                         ${GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('')}
                                     </select>
                                 </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600">PIN / Pincode</label>
+                                    <input type="tel" id="newSupplierPin" data-testid="newSupplierPin" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="PIN / Pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" minlength="6">
+                                </div>
+                                <div>
+                                    <label class="block text-xs text-gray-600">Mobile</label>
+                                    <div class="flex">
+                                        <span class="inline-flex items-center px-3 rounded-l border border-r-0 bg-gray-100 text-gray-700">${state.siteSettings?.countryCode || '+91'}</span>
+                                        <input type="tel" id="newSupplierMobile" data-testid="newSupplierMobile" class="w-full px-3 py-2 border rounded-r-md border-gray-300" placeholder="Mobile number">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs text-gray-600">Email (optional)</label>
+                                        <input type="email" id="newSupplierEmail" data-testid="newSupplierEmail" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="supplier@example.com">
+                                        <div id="newSupplierEmailFeedback" class="text-xs text-red-600 mt-1 hidden" role="status" aria-live="polite"></div>
+                                    </div>
+                                </div>
                             </div>
                             <div class="mt-3 flex gap-3">
                                 <button type="button" id="addSupplierInlineBtn" data-testid="addSupplierInlineBtn" class="bg-green-600 text-white px-3 py-2 rounded">Add Supplier</button>
@@ -2038,6 +3828,18 @@ function renderAdminPurchasesPage() {
                     <div>
                         <label for="purchaseDate" class="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
                         <input type="date" id="purchaseDate" class="w-full px-4 py-2 border border-gray-300 rounded-md" required value="${new Date().toISOString().split('T')[0]}">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="purchaseInvoiceNumber" class="w-1/3 px-3 py-2 border border-gray-300 rounded-md bg-gray-50" readonly placeholder="Will be generated on save">
+                            <input type="text" id="supplierInvoiceNumber" class="w-1/3 px-3 py-2 border border-gray-300 rounded-md" placeholder="Supplier invoice # (optional)">
+                            <input type="hidden" id="purchaseReusedInvoice" value="">
+                            <select id="deletedInvoiceSelect" class="w-2/3 px-3 py-2 border border-gray-300 rounded-md">
+                                <option value="">Use deleted invoice (optional)</option>
+                                ${((state.allPurchases||[]).filter(p=>p.isDeleted && p.invoiceNumber).map(p => `<option value="${(p.invoiceNumber||'').replace(/\"/g,'&quot;')}">${(p.invoiceNumber||'').replace(/</g,'&lt;')} — ${formatDate(p.deletedAt || p.updatedAt || p.purchaseDate || p.createdAt || new Date())}</option>`).join(''))}
+                            </select>
+                        </div>
                     </div>
                 </div>
                 <div class="flex items-center justify-between bg-gray-50 border rounded-md p-3">
@@ -2123,7 +3925,7 @@ function renderAdminPurchasesPage() {
                 <input type="hidden" id="confirmedUnregPurchase" value="" />
             </form>
             <!-- Confirmation modal for unregistered suppliers -->
-            <div id="unregSupplierConfirmModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden">
+            <div id="unregSupplierConfirmModal" role="dialog" aria-modal="true" aria-hidden="true" tabindex="-1" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden">
                 <div class="bg-white rounded-md p-6 max-w-lg w-full">
                     <h3 class="text-lg font-semibold mb-2">Confirm purchase with unregistered supplier</h3>
                     <p class="text-sm text-gray-700 mb-4">The selected supplier is not GST-registered. Any GST will be treated as part of item cost and will not be recorded separately. Do you want to continue?</p>
@@ -2133,18 +3935,33 @@ function renderAdminPurchasesPage() {
                     </div>
                 </div>
             </div>
+            <!-- Confirm reuse deleted invoice modal -->
+            <div id="reuseInvoiceConfirmModal" role="dialog" aria-modal="true" aria-hidden="true" aria-labelledby="reuseInvoiceTitle" aria-describedby="reuseInvoiceMsg" tabindex="-1" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden">
+                <div class="bg-white rounded-md p-6 max-w-lg w-full">
+                    <h3 id="reuseInvoiceTitle" class="text-lg font-semibold mb-2">Reuse deleted invoice?</h3>
+                    <p id="reuseInvoiceMsg" class="text-sm text-gray-700 mb-4">This will assign the deleted invoice number to the new purchase. Do you want to continue?</p>
+                    <div class="flex justify-end gap-3">
+                        <button id="reuseInvoiceCancelBtn" class="px-4 py-2 rounded bg-gray-200">Cancel</button>
+                        <button id="reuseInvoiceConfirmBtn" class="px-4 py-2 rounded bg-green-600 text-white">Yes, reuse invoice</button>
+                    </div>
+                </div>
+            </div>
         </div>
     `;
     // Render form and a separate purchase-history pane below it
     const purchaseHistoryHTML = `
         <div class="bg-white p-8 rounded-lg shadow-lg">
-            <h3 class="text-2xl font-bold mb-4">Purchase History</h3>
+            <h3 class="text-2xl font-bold mb-4">Purchase History ${tooltipHTML('View past purchases; use filters to narrow by supplier or date range.')}</h3>
             <div id="purchaseHistoryContainer" class="space-y-4"></div>
         </div>
     `;
 
     // Render form first, then the history pane below it
     container.innerHTML = purchaseFormHTML + purchaseHistoryHTML;
+    // Ensure hidden required inputs are disabled to avoid browser blocking form submission
+    try { updateHiddenRequiredInputs(); } catch(_) {}
+    // Populate purchase history immediately so the Add Purchase screen shows recent entries
+    try { renderPurchaseHistory(); } catch(_) {}
 
     // Attach listeners specific to this page
     document.getElementById('addPurchaseItemBtn').addEventListener('click', addPurchaseItemRow);
@@ -2165,27 +3982,44 @@ function renderAdminPurchasesPage() {
         }
     } catch (_) {}
 
+    // Ensure required attributes on inline new-supplier inputs reflect initial visibility
+    try {
+        if (newSupplierRow && newSupplierRow.classList.contains('hidden')) {
+            if (newSupplierAddress) newSupplierAddress.required = false;
+            if (newSupplierStateSel) newSupplierStateSel.required = false;
+        }
+    } catch (_) {}
+
     // When GSTIN is entered for a new supplier, use the shared GSTIN validation which shows red/green
     // border feedback and (when valid) auto-applies the two-digit state code to the State select.
     try {
-        if (newSupplierGstin && newSupplierStateSel) {
+            if (newSupplierGstin && newSupplierStateSel) {
             const feedbackEl = document.getElementById('newSupplierGstinFeedback');
             enforceUppercaseInput(newSupplierGstin);
             attachGstinValidation(newSupplierGstin, feedbackEl);
+            try { const newSupplierMobileEl = document.getElementById('newSupplierMobile'); if (newSupplierMobileEl) attachMobileValidation(newSupplierMobileEl, null); } catch(_) {}
+            try { const newSupplierPinEl = document.getElementById('newSupplierPin'); if (newSupplierPinEl) attachPinBehavior(newSupplierPinEl, null); } catch(_) {}
+            try { const newSupplierEmailEl = document.getElementById('newSupplierEmail'); const newSupplierEmailFb = document.getElementById('newSupplierEmailFeedback'); if (newSupplierEmailEl) { attachEmailValidation(newSupplierEmailEl, newSupplierEmailFb); try { enforceLowercaseInput(newSupplierEmailEl); } catch(_) {} } } catch(_) {}
+            try { const newSupplierNameEl = document.getElementById('newSupplierName'); if (newSupplierNameEl) attachNameCapitalization(newSupplierNameEl); } catch(_) {}
+            try { if (newSupplierAddress) attachNameCapitalization(newSupplierAddress); } catch(_) {}
 
             // If the "Not GST-registered" checkbox exists, wire it to disable/enable the GSTIN input
             try {
                 if (newSupplierNotRegistered) {
                     const toggleGstinForNotReg = () => {
                         try {
-                            if (newSupplierNotRegistered.checked) {
-                                newSupplierGstin.disabled = true;
-                                // Hide feedback and clear value so we don't accidentally submit it
-                                if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
-                            } else {
-                                newSupplierGstin.disabled = false;
-                            }
-                        } catch (_) {}
+                                    if (newSupplierNotRegistered.checked) {
+                                    // clear and disable GSTIN when supplier is marked not-registered
+                                    try { newSupplierGstin.value = ''; } catch(_) {}
+                                    try { newSupplierGstin.classList.remove('tiaras-valid'); newSupplierGstin.classList.remove('tiaras-invalid'); newSupplierGstin.removeAttribute && newSupplierGstin.removeAttribute('aria-invalid'); } catch(_) {}
+                                    newSupplierGstin.disabled = true;
+                                    // Hide feedback so it doesn't show stale validation state
+                                    if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
+                                } else {
+                                    // re-enable GSTIN input for editing
+                                    newSupplierGstin.disabled = false;
+                                }
+                            } catch (_) {}
                     };
                     newSupplierNotRegistered.addEventListener('change', toggleGstinForNotReg);
                     // initialize
@@ -2210,6 +4044,7 @@ function renderAdminPurchasesPage() {
                         }
                     }
                 } catch (_) {}
+                // (intentionally synchronous) end of GSTIN-derived auto state logic
                 _debApply = null;
             };
             const scheduleApply = () => { if (_debApply) clearTimeout(_debApply); _debApply = setTimeout(applyStateIfValid, 360); };
@@ -2219,21 +4054,48 @@ function renderAdminPurchasesPage() {
             scheduleApply();
         }
     } catch (_) {}
-    if (showNewSupplierBtn && newSupplierRow) {
+    if (showNewSupplierBtn) {
+        // Open the shared party add/edit modal instead of showing the inline row.
         showNewSupplierBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            newSupplierRow.classList.toggle('hidden');
-            if (!newSupplierRow.classList.contains('hidden')) setTimeout(() => {
-                // focus gstin input and ensure state select defaults to merchant home state
-                try { if (newSupplierGstin) newSupplierGstin.focus(); } catch(_){}
+            const supplierInputEl = document.getElementById('supplierName');
+            const currentName = (supplierInputEl?.value || '').trim();
+            // When the modal saves a supplier, reselect the typed name in the purchase form.
+            pendingPurchaseRetryFn = () => {
                 try {
-                    if (newSupplierStateSel) newSupplierStateSel.value = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '') || '';
-                } catch(_){}
-            }, 50);
+                    setTimeout(() => {
+                        try {
+                            const supplierInput = document.getElementById('supplierName');
+                            if (supplierInput) {
+                                supplierInput.value = currentName || '';
+                                const dl = document.getElementById('suppliersDatalistPurchase');
+                                if (dl && currentName) {
+                                    const already = Array.from(dl.options).some(o => (o.value||'') === currentName);
+                                    if (!already) { const opt = document.createElement('option'); opt.value = currentName; dl.appendChild(opt); }
+                                }
+                                try { updateSupplierRegistrationUI(); } catch(_) {}
+                            }
+                        } catch(_) {}
+                        pendingPurchaseRetryFn = null;
+                    }, 120);
+                } catch(_) { pendingPurchaseRetryFn = null; }
+            };
+            try {
+                showPartyEditModal({ type: 'supplier', name: currentName });
+            } catch (err) {
+                pendingPurchaseRetryFn = null;
+                showMessage('Unable to open supplier add modal.');
+            }
         });
     }
     if (cancelNewSupplierBtn && newSupplierRow) {
-        cancelNewSupplierBtn.addEventListener('click', (e) => { e.preventDefault(); newSupplierRow.classList.add('hidden'); if (newSupplierGstin) newSupplierGstin.value = ''; if (newSupplierAddress) newSupplierAddress.value = ''; });
+        cancelNewSupplierBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            newSupplierRow.classList.add('hidden');
+            try { if (newSupplierAddress) { newSupplierAddress.value = ''; newSupplierAddress.required = false; } } catch(_){}
+            try { if (newSupplierStateSel) newSupplierStateSel.required = false; } catch(_){}
+            if (newSupplierGstin) newSupplierGstin.value = ''; 
+        });
     }
     if (addSupplierInlineBtn) {
         addSupplierInlineBtn.addEventListener('click', async (e) => {
@@ -2250,10 +4112,25 @@ function renderAdminPurchasesPage() {
             }
             const address = (newSupplierAddress?.value || '').trim();
             const stateCode = (document.getElementById('newSupplierStateCode')?.value || '').trim();
+            const pin = (document.getElementById('newSupplierPin')?.value || '').trim();
+            const mobile = (document.getElementById('newSupplierMobile')?.value || '').trim();
+            const email = (document.getElementById('newSupplierEmail')?.value || '').trim().toLowerCase();
             if (!name) { showMessage('Enter supplier name first.'); return; }
             // Address and state are mandatory when adding supplier from purchase entry
             if (!address) { showMessage('Enter supplier address. Address is required when adding from purchase entry.'); return; }
             if (!stateCode) { showMessage('Select supplier state. State is required when adding from purchase entry.'); return; }
+            // Enforce 6-digit PIN when adding supplier inline from purchase
+            try {
+                const pinDigits = (pin || '').replace(/\D/g, '');
+                if (!pin || pinDigits.length !== 6) { showMessage('Enter valid 6-digit PIN. PIN is required when adding from purchase entry.'); return; }
+            } catch (_) {}
+            // Mobile is mandatory when adding supplier inline from purchase entry
+            if (!mobile) { showMessage('Enter supplier mobile. Mobile is required when adding from purchase entry.'); return; }
+            // Enforce exact 10 digits for mobile
+            try {
+                const mobileDigits = (mobile || '').replace(/\D/g, '');
+                if (mobileDigits.length !== 10) { showMessage('Enter valid 10-digit mobile number.'); return; }
+            } catch (_) {}
             // Check for existing supplier (case-insensitive)
             const exists = (state.allSuppliers || []).some(s => (s.name || '').trim().toLowerCase() === name.toLowerCase());
             if (exists) { showMessage('Supplier already exists. Choose from the list.'); return; }
@@ -2265,6 +4142,9 @@ function renderAdminPurchasesPage() {
                 payload.isGstRegistered = !notRegistered;
                 if (address) payload.address = address;
                 if (stateCode) payload.stateCode = stateCode;
+                if (pin) payload.pin = pin;
+                if (mobile) payload.mobile = mobile;
+                if (email) payload.email = email;
                 const ref = await addDoc(collection(db, suppliersColPath), payload);
                 // Update local state and datalist (avoid inserting undefined fields)
                 try {
@@ -2273,10 +4153,13 @@ function renderAdminPurchasesPage() {
                     supEntry.isGstRegistered = !notRegistered;
                     if (address) supEntry.address = address;
                     if (stateCode) supEntry.stateCode = stateCode;
+                    if (pin) supEntry.pin = pin;
+                    if (mobile) supEntry.mobile = mobile;
+                    if (email) supEntry.email = email;
                     state.allSuppliers = [supEntry, ...(state.allSuppliers || [])];
                 } catch (_) {}
                 // Use optimistic upsert to trigger UI refreshes
-                try { upsertPartyInState('supplier', Object.assign({ name }, gstin ? { gstin } : {}, address ? { address } : {}, stateCode ? { stateCode } : {}, { isGstRegistered: !notRegistered })); } catch(_){ }
+                try { upsertPartyInState('supplier', Object.assign({ name }, gstin ? { gstin } : {}, address ? { address } : {}, stateCode ? { stateCode } : {}, pin ? { pin } : {}, mobile ? { mobile } : {}, email ? { email } : {}, { isGstRegistered: !notRegistered })); } catch(_){ }
                 const dl = document.getElementById('suppliersDatalistPurchase');
                 if (dl) { const opt = document.createElement('option'); opt.value = name; dl.appendChild(opt); }
                 // Select the supplier in input
@@ -2284,7 +4167,10 @@ function renderAdminPurchasesPage() {
                 // Update GST UI after adding supplier
                 try { updateSupplierRegistrationUI(); } catch (_) {}
                 showMessage('Supplier added.');
-                if (newSupplierGstin) newSupplierGstin.value = ''; if (newSupplierAddress) newSupplierAddress.value = ''; if (newSupplierRow) newSupplierRow.classList.add('hidden');
+                if (newSupplierGstin) newSupplierGstin.value = '';
+                try { if (newSupplierAddress) { newSupplierAddress.value = ''; newSupplierAddress.required = false; } } catch(_){}
+                try { if (newSupplierStateSel) newSupplierStateSel.required = false; } catch(_){}
+                if (newSupplierRow) newSupplierRow.classList.add('hidden');
             } catch (err) {
                 console.error('Failed to add supplier inline:', err);
                 showMessage('Failed to add supplier.');
@@ -2320,8 +4206,17 @@ function renderAdminPurchasesPage() {
             const rowEl = e.target.closest('.purchase-item-row');
             if (prod && rowEl) {
                 const gstSel = rowEl.querySelector('.purchase-gst');
+                const customInput = rowEl.querySelector('.purchase-gst-custom');
                 if (gstSel && typeof prod.gstPercentage === 'number') {
-                    gstSel.value = String(prod.gstPercentage);
+                    const v = String(prod.gstPercentage);
+                    const presetValues = ['0','5','12','18','28'];
+                    if (presetValues.includes(v)) {
+                        gstSel.value = v;
+                        if (customInput) customInput.classList.add('hidden');
+                    } else {
+                        gstSel.value = 'custom';
+                        if (customInput) { customInput.classList.remove('hidden'); customInput.value = v; }
+                    }
                 }
                 // Prefill price with average and update hints
                 const priceInput = rowEl.querySelector('.purchase-price');
@@ -2363,8 +4258,7 @@ function renderAdminPurchasesPage() {
             ev.preventDefault();
             const confirmedEl = document.getElementById('confirmedUnregPurchase');
             if (confirmedEl) confirmedEl.value = '1';
-            const modal = document.getElementById('unregSupplierConfirmModal');
-            if (modal) modal.classList.add('hidden');
+            try { closeModalById && typeof closeModalById === 'function' ? closeModalById('unregSupplierConfirmModal') : (document.getElementById('unregSupplierConfirmModal')?.classList.add('hidden')); } catch(_) {}
             // Resubmit the form programmatically
             const form = document.getElementById('purchaseForm');
             if (form) form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
@@ -2373,8 +4267,7 @@ function renderAdminPurchasesPage() {
     if (unregCancelBtn) {
         unregCancelBtn.addEventListener('click', (ev) => {
             ev.preventDefault();
-            const modal = document.getElementById('unregSupplierConfirmModal');
-            if (modal) modal.classList.add('hidden');
+            try { closeModalById && typeof closeModalById === 'function' ? closeModalById('unregSupplierConfirmModal') : (document.getElementById('unregSupplierConfirmModal')?.classList.add('hidden')); } catch(_) {}
         });
     }
 
@@ -2413,7 +4306,7 @@ function renderAdminPurchasesPage() {
         if (warn) {
             try { warn.setAttribute('role','status'); warn.setAttribute('aria-live','polite'); } catch(_){}
             // If supplier exists but missing address/state, show a helpful action to edit details
-            if (supplierObj && (!supplierObj.address || !supplierObj.stateCode)) {
+                if (supplierObj && (!supplierObj.address || !supplierObj.stateCode)) {
                 warn.classList.remove('hidden');
                 warn.innerHTML = `Supplier record is missing address or state. <button id="editSupplierDetailsBtn" class="underline text-sm text-blue-600">Edit supplier details</button>`;
                 // Attach handler to open party edit modal
@@ -2423,7 +4316,7 @@ function renderAdminPurchasesPage() {
                         btn.addEventListener('click', (ev) => {
                             ev.preventDefault();
                             try {
-                                showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id, isGstRegistered: (typeof supplierObj.isGstRegistered !== 'undefined') ? !!supplierObj.isGstRegistered : undefined });
+                                showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id, isGstRegistered: (typeof supplierObj.isGstRegistered !== 'undefined') ? !!supplierObj.isGstRegistered : undefined, stateCode: supplierObj.stateCode || '', pin: supplierObj.pin || '', mobile: supplierObj.mobile || '' });
                             } catch (_) {}
                         });
                     }
@@ -2472,9 +4365,103 @@ function renderAdminPurchasesPage() {
     if (supplierNameInput) {
         supplierNameInput.addEventListener('input', () => updateSupplierRegistrationUI());
         supplierNameInput.addEventListener('blur', () => updateSupplierRegistrationUI());
+        try { attachNameCapitalization(supplierNameInput); } catch(_) {}
     }
     // Run once on render to set initial state
     try { updateSupplierRegistrationUI(); } catch(_) {}
+
+    // Populate invoice preview and wire deleted-invoice selection
+    try {
+        const invInput = document.getElementById('purchaseInvoiceNumber');
+        const deletedSel = document.getElementById('deletedInvoiceSelect');
+        const editingId = (document.getElementById('editingPurchaseId')?.value || '').trim();
+        const setPreview = async () => {
+            try {
+                if (!invInput) return;
+                const editingIdNow = (document.getElementById('editingPurchaseId')?.value || '').trim();
+                if (editingIdNow) {
+                    const orig = (state.allPurchases||[]).find(p => p.id === editingIdNow) || {};
+                    invInput.value = orig.invoiceNumber || '';
+                    return;
+                }
+                if (deletedSel && (deletedSel.value || '').trim()) {
+                    invInput.value = deletedSel.value;
+                    return;
+                }
+                // Peek next counter for display (non-destructive)
+                try {
+                    const nextRaw = await peekNextCounter('purchases');
+                    if (nextRaw) invInput.value = formatInvoiceFromCounter(nextRaw, 'purchases');
+                } catch (e) { /* ignore preview errors */ }
+            } catch (_) {}
+        };
+        if (deletedSel) {
+            // Modal-based confirmation flow for reusing deleted invoices
+            let _pendingDeletedValue = null;
+            const reuseModal = document.getElementById('reuseInvoiceConfirmModal');
+            const reuseMsg = document.getElementById('reuseInvoiceMsg');
+            const reuseConfirmBtn = document.getElementById('reuseInvoiceConfirmBtn');
+            const reuseCancelBtn = document.getElementById('reuseInvoiceCancelBtn');
+
+            const openReuseModal = (val) => {
+                try {
+                    _pendingDeletedValue = val;
+                    if (reuseMsg) reuseMsg.textContent = `This will assign invoice number ${val} to the new purchase. Do you want to continue?`;
+                    if (typeof openModalById === 'function') openModalById('reuseInvoiceConfirmModal'); else if (reuseModal) reuseModal.classList.remove('hidden');
+                } catch (_) {}
+            };
+            const closeReuseModal = () => {
+                try { if (typeof closeModalById === 'function') closeModalById('reuseInvoiceConfirmModal'); else if (reuseModal) reuseModal.classList.add('hidden'); } catch(_){}
+            };
+
+            deletedSel.addEventListener('change', (ev) => {
+                try {
+                    const val = (deletedSel.value || '').trim();
+                    if (!val) { setPreview(); return; }
+                    openReuseModal(val);
+                } catch (_) { setPreview(); }
+            });
+
+            if (reuseConfirmBtn) {
+                reuseConfirmBtn.addEventListener('click', (ev) => {
+                    try {
+                        ev.preventDefault();
+                        // Persist the chosen reused invoice into a hidden input so it survives removing the option
+                        const hid = document.getElementById('purchaseReusedInvoice');
+                        if (_pendingDeletedValue) {
+                            if (hid) hid.value = _pendingDeletedValue;
+                            // Remove the option from dropdown so it's no longer available
+                            try {
+                                for (let i = deletedSel.options.length - 1; i >= 0; i--) {
+                                    const o = deletedSel.options[i];
+                                    if ((o.value || '').trim() === _pendingDeletedValue) {
+                                        deletedSel.remove(i);
+                                    }
+                                }
+                            } catch (_) {}
+                            // Ensure the select shows no option (we keep the value in hidden input)
+                            try { deletedSel.value = ''; } catch(_) {}
+                            // Update invoice preview to the chosen value
+                            if (invInput) invInput.value = _pendingDeletedValue;
+                        }
+                    } catch (_) {}
+                    try { closeReuseModal(); } catch(_) {}
+                });
+            }
+            if (reuseCancelBtn) {
+                reuseCancelBtn.addEventListener('click', (ev) => {
+                    try {
+                        ev.preventDefault();
+                        // Clear selection and restore preview
+                        if (deletedSel) deletedSel.value = '';
+                        setPreview();
+                    } catch (_) {}
+                    try { closeReuseModal(); } catch(_) {}
+                });
+            }
+        }
+        setPreview();
+    } catch (_) {}
 }
 
 function renderLocalSalePage() {
@@ -2503,7 +4490,27 @@ function renderLocalSalePage() {
                         <span class="ml-2 text-sm text-gray-700">Credit Sale (on account)</span>
                     </label>
                 </div>
-                                <div id="localSaleReceiveNowRow" class="pt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <div class="pt-4 ${state.siteSettings.isGstEnabled ? '' : 'hidden'}">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="localSaleGstInvoice" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black">
+                        <span class="ml-2 text-sm text-gray-700">Customer needs a GST invoice</span>
+                    </label>
+                  </div>
+                <div id="localSaleGstNumberContainer" class="hidden">
+                    <label for="localSaleGstNumber" class="block text-sm font-medium text-gray-700">Customer GST Number</label>
+                    <input type="text" id="localSaleGstNumber" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" placeholder="e.g., 29ABCDE1234F1Z5">
+                </div>
+                <div>
+                    <h4 class="text-lg font-semibold mb-2">Items</h4>
+                    <div class="grid grid-cols-12 gap-4 text-xs font-bold text-gray-500 mb-2 px-2">
+                        <div class="col-span-6">Product</div>
+                        <div class="col-span-2">Quantity</div>
+                        <div class="col-span-3 text-right">Total (₹)</div>
+                    </div>
+                    <div id="localSaleItemsContainer" class="space-y-2"></div>
+                    <button type="button" id="addLocalSaleItemBtn" class="mt-4 bg-blue-100 text-blue-700 font-semibold text-sm py-2 px-4 rounded-md hover:bg-blue-200 transition">+ Add Item</button>
+                </div>
+                <div id="localSaleReceiveNowRow" class="pt-2 grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                                         <div>
                                             <label class="block text-sm font-medium text-gray-700 mb-1">Receive Now (₹)</label>
                                             <input type="number" id="localSaleReceiveNow" class="w-full px-3 py-2 border border-gray-300 rounded-md" step="0.01" min="0" placeholder="0.00">
@@ -2628,6 +4635,8 @@ function renderLocalSalePage() {
     // Initialize totals and badge immediately
     updateLocalSaleTotals();
 
+    try { const customerNameInput = document.getElementById('customerName'); if (customerNameInput) attachNameCapitalization(customerNameInput); } catch(_) {}
+
     // Helper to populate form from an existing local sale
     function populateLocalSaleFormFromRecord(s) {
         if (!s) return;
@@ -2688,97 +4697,59 @@ function renderLocalSalePage() {
 }
 
 function renderPurchaseInvoicePage() {
-    const purchase = state.allPurchases.find(p => p.id === state.currentOrderId);
+    // Minimal, robust purchase invoice renderer to avoid template parsing issues.
+    // Locates the current purchase by `state.currentOrderId` (set when navigating) and
+    // renders a compact invoice with Print and Back controls.
+    const purchase = (state.allPurchases || []).find(p => p.id === state.currentOrderId) || null;
+    const page = document.getElementById('pageContent') || document.body;
     if (!purchase) {
-        pageContent.innerHTML = `<div class="container mx-auto p-8 text-center"><p>Purchase record not found.</p></div>`;
+        page.innerHTML = `<div class="container mx-auto p-8 text-center"><p>No purchase found for invoice.</p><div class="mt-4"><button id="backFromPurchaseInvoiceBtn" class="ml-4 bg-gray-200 text-gray-700 font-semibold py-2 px-6 rounded-md hover:bg-gray-300 transition">Back</button></div></div>`;
+        document.getElementById('backFromPurchaseInvoiceBtn')?.addEventListener('click', (e) => { e.preventDefault(); navigateTo('admin'); });
         return;
     }
 
-    // Compute display-friendly totals (always show Subtotal as Excl. GST)
-    const gstTotal = (purchase.gstBreakdown?.total || 0);
-    const subtotalEx = (typeof purchase.subtotal === 'number') ? purchase.subtotal : Math.max(0, (purchase.totalAmount || 0) - gstTotal);
-    const subtotalDisplay = subtotalEx;
-    const subtotalLabel = 'Subtotal (Excl. GST)';
-    const paidNowAmt = (purchase.payNow?.amount || 0);
-    const paidNowMode = purchase.payNow?.mode || null;
-    const paidNowBank = purchase.payNow?.bankAccount || null;
-    const remainingDue = Math.max(0, (purchase.totalAmount || 0) - paidNowAmt);
+    const purchaseDate = purchase.purchaseDate && purchase.purchaseDate.seconds ? new Date(purchase.purchaseDate.seconds * 1000) : (purchase.purchaseDate || new Date());
+    const subtotal = (purchase.items || []).reduce((s,it) => s + ((parseFloat(it.purchasePrice) || 0) * (parseFloat(it.quantity) || 0)), 0);
+    const gstTotal = purchase.gstBreakdown?.total || 0;
+    const total = purchase.totalAmount || (subtotal + gstTotal);
 
-    pageContent.innerHTML = `
-    <div class="bg-gray-100 p-8">
-        <div id="invoice-container" class="max-w-4xl mx-auto bg-white p-12 shadow-lg">
-            <div class="flex justify-between items-start mb-12">
-                <div>
-                    <h1 class="text-4xl font-playfair font-bold">Purchase Invoice</h1>
-                    <p class="text-sm text-gray-500">Record for TIARAS</p>
+    page.innerHTML = `
+        <div class="container mx-auto p-8">
+            <div class="bg-white p-8 rounded shadow">
+                <div class="flex justify-between items-start mb-6">
+                    <div>
+                        <h1 class="text-2xl font-bold">Purchase Record</h1>
+                        <p class="text-sm text-gray-600">Supplier: ${escapeHtml(purchase.supplierName || '')}</p>
+                        <p class="text-xs text-gray-500">Invoice: ${escapeHtml(purchase.invoiceNumber || purchase.id)}</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm">Date: ${formatDate(purchaseDate)}</p>
+                        <p class="text-sm">Total: ₹${Number(total).toFixed(2)}</p>
+                    </div>
                 </div>
-                <div class="text-right">
-                    <h2 class="text-2xl font-semibold uppercase text-gray-400">RECEIPT</h2>
-                    <p class="text-sm"><strong>Invoice #:</strong> ${purchase.invoiceNumber || purchase.id}</p>
-                    <p class="text-sm"><strong>Date:</strong> ${formatDate(purchase.purchaseDate)}</p>
+                <table class="w-full text-left mb-4">
+                    <thead class="bg-gray-50"><tr><th class="p-2 text-sm">Item</th><th class="p-2 text-sm text-center">Qty</th><th class="p-2 text-sm text-right">Unit</th><th class="p-2 text-sm text-right">Line</th></tr></thead>
+                    <tbody>
+                        ${(purchase.items || []).map(it => `<tr class="border-b"><td class="p-2 text-sm">${escapeHtml(it.productName||'')}</td><td class="p-2 text-center text-sm">${escapeHtml(String(it.quantity||0))}</td><td class="p-2 text-right text-sm">${Number(it.purchasePrice||0).toFixed(2)}</td><td class="p-2 text-right text-sm">${(Number(it.purchasePrice||0)*Number(it.quantity||0)).toFixed(2)}</td></tr>`).join('')}
+                    </tbody>
+                </table>
+                <div class="flex justify-end gap-4">
+                    <div class="text-right">
+                        <div class="text-sm text-gray-600">Subtotal: ₹${Number(subtotal).toFixed(2)}</div>
+                        <div class="text-sm text-gray-600">GST: ₹${Number(gstTotal).toFixed(2)}</div>
+                        <div class="font-bold text-lg">Grand Total: ₹${Number(total).toFixed(2)}</div>
+                    </div>
                 </div>
-            </div>
-            <div class="grid grid-cols-2 gap-8 mb-12">
-                <div>
-                    <h4 class="font-semibold mb-2">Supplier:</h4>
-                   <p>${purchase.supplierName}</p>
-                </div>
-            </div>
-            <table class="w-full text-left mb-12">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="p-3 text-sm font-semibold">Item</th>
-                        <th class="p-3 text-sm font-semibold text-center">Quantity</th>
-                        <th class="p-3 text-sm font-semibold text-right">Unit Cost (₹)</th>
-                        <th class="p-3 text-sm font-semibold text-right">Total (₹)</th>
-                    </tr>
-                </thead>
-                <tbody>
-                   ${purchase.items.map(item => `
-                            <tr class="border-b">
-                                 <td class="p-3">${item.productName}</td>
-                                 <td class="p-3 text-center">${item.quantity}</td>
-                                 <td class="p-3 text-right">${item.purchasePrice.toFixed(2)}</td>
-                                 <td class="p-3 text-right">${(item.purchasePrice * item.quantity).toFixed(2)}</td>
-                            </tr>
-                        `).join('')}
-                </tbody>
-            </table>
-            <div class="flex justify-end">
-                <div class="w-full max-w-xs space-y-2">
-                    <div class="flex justify-between border-t pt-2 mt-2"><span>${subtotalLabel}:</span><span>${subtotalDisplay.toFixed(2)}</span></div>
-                    <div class="flex justify-between"><span>GST (₹):</span><span>${gstTotal.toFixed(2)}</span></div>
-                    <div class="flex justify-between font-bold text-lg"><span>Grand Total (₹):</span><span>${(purchase.totalAmount || 0).toFixed(2)}</span></div>
-                    ${paidNowAmt > 0 ? `<div class=\"flex justify-between text-sm text-gray-700\"><span>Paid Now:</span><span>${paidNowAmt.toFixed(2)}${paidNowMode ? ` (${paidNowMode}${paidNowBank ? ` - ${paidNowBank}` : ''})` : ''}</span></div>` : ''}
-                    ${paidNowAmt > 0 ? `<div class=\"flex justify-between text-sm\"><span>Balance to Creditors:</span><span>${remainingDue.toFixed(2)}</span></div>` : ''}
+                <div class="mt-6 text-right">
+                    <button id="printInvoiceBtn" class="bg-black text-white px-4 py-2 rounded">Print</button>
+                    <button id="backFromPurchaseInvoiceBtn" class="ml-2 bg-gray-200 px-4 py-2 rounded">Back</button>
                 </div>
             </div>
-               <div class="mt-16 text-center text-xs text-gray-500">
-                       <p>This is a record of a purchase entry.</p>
-               </div>
-     </div>
-     <div class="text-center mt-8">
-         <button id="printInvoiceBtn" class="bg-black text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-gray-800 transition">Print Record</button>
-         <button id="backFromPurchaseInvoiceBtn" class="ml-4 bg-gray-200 text-gray-700 font-semibold py-2 px-6 rounded-md hover:bg-gray-300 transition">Back</button>
-     </div>
-    </div>
+        </div>
     `;
-   document.getElementById('printInvoiceBtn').addEventListener('click', () => window.print());
-   document.getElementById('backFromPurchaseInvoiceBtn').addEventListener('click', (e) => {
-        e.preventDefault();
-        const prev = state.previousRoute;
-        if (prev && prev.page) {
-            if (prev.page === 'admin') {
-                state.adminCurrentTab = prev.adminTab || 'purchases';
-            }
-            state.previousRoute = null;
-            navigateTo(prev.page);
-        } else {
-            // Fallback: go to Admin > Purchases
-            state.adminCurrentTab = 'purchases';
-            navigateTo('admin');
-        }
-    });
+
+    document.getElementById('printInvoiceBtn')?.addEventListener('click', () => window.print());
+    document.getElementById('backFromPurchaseInvoiceBtn')?.addEventListener('click', (e) => { e.preventDefault(); navigateTo('admin'); });
 }
 
 function renderLocalSaleInvoicePage() {
@@ -2887,6 +4858,7 @@ const ordersColPath = `artifacts/${appId}/public/data/orders`;
 const galleryImagesColPath = `artifacts/${appId}/public/data/galleryImages`;
 const testimonialsColPath = `artifacts/${appId}/public/data/testimonials`;
 const purchasesColPath = `artifacts/${appId}/public/data/purchases`;
+const invoiceReusesColPath = `artifacts/${appId}/public/data/audit/invoiceReuses`;
 const localSalesColPath = `artifacts/${appId}/public/data/localSales`;
 const salesReturnsColPath = `artifacts/${appId}/public/data/salesReturns`;
 const purchaseReturnsColPath = `artifacts/${appId}/public/data/purchaseReturns`;
@@ -2897,6 +4869,8 @@ const creditorsLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/cred
 const debtorsLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/debtors`;
 const cashLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/cash`;
 const bankLedgerColPath = `artifacts/${appId}/public/data/ledgers/main/bank`;
+// Transfers (contra) collection so transfers are single documents referenced by ledger rows
+const transfersColPath = `artifacts/${appId}/public/data/ledgers/main/transfers`;
 // Party masters (collections)
 const suppliersColPath = `artifacts/${appId}/public/data/masters/main/suppliers`;
 const customersColPath = `artifacts/${appId}/public/data/masters/main/customers`;
@@ -2904,6 +4878,75 @@ const banksColPath = `artifacts/${appId}/public/data/masters/main/banks`;
 // Legacy collection paths (pre-fix) for backward-compatible reads
 const suppliersLegacyColPath = `artifacts/${appId}/public/data/masters/suppliers`;
 const customersLegacyColPath = `artifacts/${appId}/public/data/masters/customers`;
+
+// Validate collection path: Firestore collection paths must have an odd number of segments
+function isValidCollectionPath(p) {
+    try {
+        const n = (p || '').split('/').filter(Boolean).length;
+        return n % 2 === 1;
+    } catch (_) { return false; }
+}
+
+// Disable `required` on inputs that are inside hidden containers, and re-enable when visible.
+function updateHiddenRequiredInputs() {
+    try {
+        document.querySelectorAll('[required]').forEach(el => {
+            let node = el;
+            let hidden = false;
+            while (node && node !== document.documentElement) {
+                try {
+                    // Hidden via Tailwind/class
+                    if (node.classList && node.classList.contains && node.classList.contains('hidden')) { hidden = true; break; }
+                    // Hidden via boolean hidden attribute (<div hidden>)
+                    if (node.hidden === true) { hidden = true; break; }
+                    // Hidden via inline style or CSS (display:none / visibility:hidden)
+                    const cs = window.getComputedStyle ? window.getComputedStyle(node) : null;
+                    if (cs) {
+                        if (cs.display === 'none' || cs.visibility === 'hidden' || cs.opacity === '0') { hidden = true; break; }
+                    }
+                    // aria-hidden
+                    if (node.getAttribute && node.getAttribute('aria-hidden') === 'true') { hidden = true; break; }
+                } catch (_) {
+                    // ignore computed style failures
+                }
+                node = node.parentElement;
+            }
+            if (hidden) {
+                if (!el.dataset._origRequired) el.dataset._origRequired = '1';
+                try { el.required = false; } catch(_) {}
+            } else {
+                if (el.dataset._origRequired) { try { el.required = true; } catch(_) {}; delete el.dataset._origRequired; }
+            }
+        });
+    } catch (_) {}
+}
+
+// Format money safely (always returns string with two decimals)
+function formatMoney(v) {
+    try {
+        const n = (typeof v === 'number') ? v : (parseFloat(v) || 0);
+        return n.toFixed(2);
+    } catch (_) { return '0.00'; }
+}
+
+// Lightweight runtime hook: ensure hidden-required inputs are updated after initial render
+// and when the DOM mutates (visibility toggles). This avoids inserting calls inside
+// large template strings and fixes native form blocking when hidden inputs remain required.
+try {
+    // Run at DOMContentLoaded and shortly after as a fallback
+    document.addEventListener('DOMContentLoaded', () => { try { updateHiddenRequiredInputs(); } catch(_) {} });
+    setTimeout(() => { try { updateHiddenRequiredInputs(); } catch(_) {} }, 120);
+
+    // Observe DOM mutations (class changes, subtree changes) and update when needed
+    try {
+        const observer = new MutationObserver(() => { try { updateHiddenRequiredInputs(); } catch(_) {} });
+        const root = document.documentElement || document.body;
+        if (root && observer.observe) observer.observe(root, { attributes: true, childList: true, subtree: true, attributeFilter: ['class', 'style', 'hidden'] });
+    } catch (_) {}
+
+    // Also run a quick update after any click (most toggles are click-driven)
+    document.addEventListener('click', () => { try { setTimeout(updateHiddenRequiredInputs, 20); } catch(_) {} }, true);
+} catch (_) {}
 
 
 async function getAndIncrementCounter(counterType) {
@@ -2929,6 +4972,75 @@ async function getAndIncrementCounter(counterType) {
         // Fallback to a timestamp-based ID if counter fails
         return `ERR-${Date.now()}`;
     }
+}
+
+// Peek the next counter value for display without incrementing the stored counter.
+async function peekNextCounter(counterType) {
+    try {
+        const counterRef = doc(db, countersDocPath);
+        const year = new Date().getFullYear();
+        const fieldName = `${counterType}_${year}`;
+        const snap = await getDoc(counterRef);
+        if (!snap.exists()) {
+            return `1/${year}`;
+        }
+        const current = snap.data()[fieldName] || 0;
+        const next = current + 1;
+        return `${next}/${year}`;
+    } catch (e) {
+        console.error('peekNextCounter failed', e);
+        return null;
+    }
+}
+
+// Format invoice numbers based on a format string stored in site settings.
+// Supported tokens: {COUNTER}, {COUNTER_PAD} (4 digits), {YYYY}, {YY}, {MM}, {DD}, {PREFIX}
+function zeroPad(num, width) {
+    try { const s = String(num || '0'); return s.padStart(width, '0'); } catch(_) { return String(num); }
+}
+
+function formatInvoiceFromCounter(counterStr, type) {
+    try {
+        const formats = (state.siteSettings && state.siteSettings.invoiceFormats) || {};
+        const fmt = (formats[type] || '').toString().trim() || null;
+        const now = new Date();
+        // Parse counterStr like '123/2025' or '123' -> number and maybe year
+        let counter = null; let yearFromCounter = null;
+        if (counterStr && counterStr.toString().includes('/')) {
+            const parts = counterStr.toString().split('/').map(p => p.trim());
+            counter = parseInt(parts[0]) || null;
+            yearFromCounter = parts[1] || null;
+        } else if (counterStr) {
+            const n = parseInt(counterStr.toString());
+            if (!isNaN(n)) counter = n;
+        }
+        const YYYY = yearFromCounter || String(now.getFullYear());
+        const YY = YYYY.toString().slice(-2);
+        const MM = String(now.getMonth() + 1).padStart(2, '0');
+        const DD = String(now.getDate()).padStart(2, '0');
+        const COUNTER = (counter !== null && counter !== undefined) ? String(counter) : (counterStr || '');
+        const COUNTER_PAD = (counter !== null && counter !== undefined) ? zeroPad(counter, 4) : COUNTER;
+        const PREFIX = (state.siteSettings && state.siteSettings.invoicePrefix) ? String(state.siteSettings.invoicePrefix) : '';
+        if (!fmt) {
+            // Default format per type
+            const defaults = {
+                sales: `INV-${YYYY}-${COUNTER_PAD}`,
+                purchases: `PUR-${YYYY}-${COUNTER_PAD}`,
+                salesReturns: `CR-${YYYY}-${COUNTER_PAD}`,
+                purchaseReturns: `DR-${YYYY}-${COUNTER_PAD}`,
+                localSales: `LS-${YYYY}-${COUNTER_PAD}`
+            };
+            return (defaults[type] || `${PREFIX}${COUNTER_PAD}`);
+        }
+        // Replace tokens
+        return fmt.replace(/\{COUNTER_PAD\}/g, COUNTER_PAD)
+                  .replace(/\{COUNTER\}/g, COUNTER)
+                  .replace(/\{YYYY\}/g, YYYY)
+                  .replace(/\{YY\}/g, YY)
+                  .replace(/\{MM\}/g, MM)
+                  .replace(/\{DD\}/g, DD)
+                  .replace(/\{PREFIX\}/g, PREFIX);
+    } catch (err) { console.error('formatInvoiceFromCounter error', err); return counterStr; }
 }
 
 
@@ -2966,7 +5078,15 @@ function listenToProductGroups() {
                 return ts >= epoch;
             })
             .sort((a, b) => a.name.localeCompare(b.name));
-        if (state.currentPage === 'admin' || state.currentPage === 'home' || state.currentPage === 'products') {
+        // Re-render selects from canonical snapshot (deduped)
+        try { renderProductGroupSelects(); } catch (_) {}
+        // Avoid re-rendering the Admin Purchases tab so we don't lose the
+        // purchase voucher form state when product-groups update.
+        if (state.currentPage === 'admin') {
+            if (state.adminCurrentTab && state.adminCurrentTab !== 'purchases') {
+                renderApp();
+            }
+        } else if (['home', 'products', 'product_detail', 'cart', 'checkout'].includes(state.currentPage)) {
             renderApp();
         }
     }, error => { console.error("Product groups listener error:", error); });
@@ -3105,9 +5225,14 @@ function listenToAllPurchases() {
         state.allPurchases = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(p => {
-                if (p.isDeleted) return false;
-                const ts = p.purchaseDate?.seconds ? p.purchaseDate.seconds * 1000 : 0;
-                return ts >= epoch;
+                // Include deleted purchases so dropdowns and reuse logic can access their invoice numbers.
+                if (p.isDeleted) return true;
+                // Visibility should consider documents created after the epoch as well as
+                // those whose invoice/purchaseDate is recent. This lets newly-created
+                // purchases (even with an older invoice date) show up in admin UI.
+                const tsPurchaseDate = p.purchaseDate?.seconds ? p.purchaseDate.seconds * 1000 : 0;
+                const tsCreatedAt = p.createdAt?.seconds ? p.createdAt.seconds * 1000 : 0;
+                return (tsPurchaseDate >= epoch) || (tsCreatedAt >= epoch);
             });
         if (state.currentPage === 'admin' && (state.adminCurrentTab === 'purchases' || state.adminCurrentTab === 'reports')) {
             renderApp();
@@ -3211,19 +5336,21 @@ function listenToSuppliers() {
 
     // Legacy optional listener: guard invalid/old paths to avoid console errors
     let unsubLegacy = () => {};
-    try {
-        const legacyCol = collection(db, suppliersLegacyColPath);
-        unsubLegacy = onSnapshot(query(legacyCol), snapshot => {
-            state.__legacySuppliers = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
-            const evt = new Event('legacySuppliersLoaded');
-            document.dispatchEvent(evt);
-            if (state.currentPage === 'admin') {
-                if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
-                if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
-            }
-        }, err => console.warn('Suppliers legacy listener error:', err?.message || err));
-    } catch (err) {
-        console.warn('Suppliers legacy path disabled:', err?.message || err);
+    if (isValidCollectionPath(suppliersLegacyColPath)) {
+        try {
+            const legacyCol = collection(db, suppliersLegacyColPath);
+            unsubLegacy = onSnapshot(query(legacyCol), snapshot => {
+                state.__legacySuppliers = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+                const evt = new Event('legacySuppliersLoaded');
+                document.dispatchEvent(evt);
+                if (state.currentPage === 'admin') {
+                    if (state.adminCurrentTab === 'transactions') renderAdminLedgersPage();
+                    if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
+                }
+            }, err => console.warn('Suppliers legacy listener error:', err?.message || err));
+        } catch (err) {
+            console.warn('Suppliers legacy listener error:', err?.message || err);
+        }
     }
 
     // Compose unsubscriber
@@ -3248,18 +5375,20 @@ function listenToCustomers() {
     }, err => console.error('Customers listener error:', err));
 
     let unsubLegacy = () => {};
-    try {
-        const legacyCol = collection(db, customersLegacyColPath);
-        unsubLegacy = onSnapshot(query(legacyCol), snapshot => {
-            state.__legacyCustomers = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
-            const evt = new Event('legacyCustomersLoaded');
-            document.dispatchEvent(evt);
-            if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
-                renderAdminLedgersPage();
-            }
-        }, err => console.warn('Customers legacy listener error:', err?.message || err));
-    } catch (err) {
-        console.warn('Customers legacy path disabled:', err?.message || err);
+    if (isValidCollectionPath(customersLegacyColPath)) {
+        try {
+            const legacyCol = collection(db, customersLegacyColPath);
+            unsubLegacy = onSnapshot(query(legacyCol), snapshot => {
+                state.__legacyCustomers = snapshot.docs.map(d => ({ id: d.id, ...d.data() })).filter(x => !x.isDeleted);
+                const evt = new Event('legacyCustomersLoaded');
+                document.dispatchEvent(evt);
+                if (state.currentPage === 'admin' && state.adminCurrentTab === 'transactions') {
+                    renderAdminLedgersPage();
+                }
+            }, err => console.warn('Customers legacy listener error:', err?.message || err));
+        } catch (err) {
+            console.warn('Customers legacy listener error:', err?.message || err);
+        }
     }
 
     state.listeners.allCustomers = () => { try { unsubPrimary(); } catch {} try { unsubLegacy(); } catch {} };
@@ -3340,7 +5469,11 @@ function listenToUserProfile(userId) {
 }
 
 function listenToUserOrders(userId) {
-    if (state.listeners.orders) return;
+    // If an orders listener already exists, unsubscribe it first to avoid stale listeners
+    if (state.listeners.orders) {
+        try { state.listeners.orders(); } catch (_) {}
+        state.listeners.orders = null;
+    }
     const userOrdersPath = `artifacts/${appId}/users/${userId}/orders`;
     state.listeners.orders = onSnapshot(query(collection(db, userOrdersPath)), snapshot => {
         const epoch = getEpochMs('orders');
@@ -3438,93 +5571,10 @@ async function addToCart(productId, quantity = 1) {
     showMessage("Item added to cart!");
 }
 
-// --- ADMIN PRODUCT GROUP HANDLERS ---
-function resetGroupForm() {
-    const form = document.getElementById('groupForm');
-    if (!form) return;
-    form.reset();
-    document.getElementById('groupId').value = '';
-    const submitBtn = document.getElementById('groupFormSubmitBtn');
-    document.getElementById('groupFormTitle').textContent = 'Add New Product Group';
-    submitBtn.textContent = 'Add Group';
-    submitBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
-    submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
-    document.getElementById('groupFormCancelBtn').classList.add('hidden');
-}
-
-async function handleGroupFormSubmit(e) {
-    e.preventDefault();
-    const groupId = document.getElementById('groupId').value;
-    const groupName = document.getElementById('groupName').value;
-    if (!groupName) return;
-
-    const groupData = { name: groupName };
-
-    try {
-        if (groupId) {
-            const oldGroup = state.productGroups.find(g => g.id === groupId);
-            if (oldGroup && oldGroup.name !== groupName) {
-                const batch = writeBatch(db);
-                const q = query(collection(db, productsColPath), where("productGroup", "==", oldGroup.name));
-                const querySnapshot = await getDocs(q);
-                querySnapshot.forEach((doc) => {
-                    batch.update(doc.ref, { productGroup: groupName });
-                });
-                await batch.commit();
-            }
-            await setDoc(doc(db, productGroupsColPath, groupId), groupData);
-            showMessage('Product group updated successfully!');
-        } else {
-            await addDoc(collection(db, productGroupsColPath), { ...groupData, createdAt: serverTimestamp() });
-            showMessage('Product group added successfully!');
-        }
-        resetGroupForm();
-    } catch (error) {
-        console.error("Error saving product group:", error);
-        showMessage("Failed to save product group.");
-    }
-}
-
-function handleEditGroupClick(e) {
-    const btn = e.currentTarget;
-    const groupId = btn.dataset.id;
-    const groupName = btn.dataset.name;
-    
-    document.getElementById('groupId').value = groupId;
-    document.getElementById('groupName').value = groupName;
-
-    const submitBtn = document.getElementById('groupFormSubmitBtn');
-    document.getElementById('groupFormTitle').textContent = 'Edit Product Group';
-    submitBtn.textContent = 'Update Group';
-    submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
-    submitBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
-    document.getElementById('groupFormCancelBtn').classList.remove('hidden');
-    document.getElementById('groupFormTitle').scrollIntoView({ behavior: 'smooth' });
-}
-
-async function handleDeleteGroupClick(e) {
-    const btn = e.currentTarget;
-    const groupId = btn.dataset.id;
-    
-    try {
-        const groupToDelete = state.productGroups.find(g => g.id === groupId);
-        if (groupToDelete) {
-             const batch = writeBatch(db);
-             const q = query(collection(db, productsColPath), where("productGroup", "==", groupToDelete.name));
-             const querySnapshot = await getDocs(q);
-             querySnapshot.forEach((doc) => {
-                  batch.update(doc.ref, { productGroup: "" }); // Set to empty string
-             });
-             await batch.commit();
-        }
-
-        await deleteDoc(doc(db, productGroupsColPath, groupId));
-        showMessage('Product group deleted and products updated.');
-    } catch (error) {
-        console.error("Error deleting group:", error);
-        showMessage('Failed to delete product group.');
-    }
-}
+// Admin product-group handlers are attached to `window.*` earlier to avoid duplicate
+// declarations when the same functions exist in other script bundles or inline HTML.
+// See `window.handleGroupFormSubmit`, `window.resetGroupForm`, `window.handleEditGroupClick`,
+// and `window.handleDeleteGroupClick` for implementations.
 
 
 function attachAdminListeners() {
@@ -3633,10 +5683,8 @@ function attachAdminListeners() {
                 const ref = await addDoc(collection(db, productGroupsColPath), { name, createdAt: serverTimestamp() });
                 // Optimistically update state & select
                 state.productGroups = [{ id: ref.id, name }, ...(state.productGroups || [])];
-                const sel = document.getElementById('productGroup');
-                if (sel) {
-                    const opt = document.createElement('option'); opt.value = name; opt.text = name; sel.appendChild(opt); sel.value = name;
-                }
+                // Re-render product-group selects from canonical state (deduplicated)
+                try { renderProductGroupSelects(name); } catch (_) {}
                 showMessage('Product group added.');
                 if (newGroupNameInput) newGroupNameInput.value = '';
                 if (newGroupRow) newGroupRow.classList.add('hidden');
@@ -3653,6 +5701,93 @@ function attachAdminListeners() {
             }
         });
     }
+
+    // Inline Add Product Group (from New Product modal)
+    const showModalNewGroupBtn = document.getElementById('showModalNewProductGroupBtn');
+    const modalNewGroupRow = document.getElementById('modalNewProductGroupRow');
+    const modalNewGroupNameInput = document.getElementById('modalNewProductGroupName');
+    const modalAddGroupBtn = document.getElementById('modalAddProductGroupInlineBtn');
+    const modalCancelNewGroupBtn = document.getElementById('modalCancelNewProductGroupBtn');
+    const modalProductGroupSel = document.getElementById('modalProductGroup');
+    if (showModalNewGroupBtn && modalNewGroupRow) {
+        showModalNewGroupBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            modalNewGroupRow.classList.toggle('hidden');
+            if (!modalNewGroupRow.classList.contains('hidden')) {
+                setTimeout(() => modalNewGroupNameInput && modalNewGroupNameInput.focus(), 50);
+            }
+        });
+    }
+    if (modalCancelNewGroupBtn && modalNewGroupRow) {
+        modalCancelNewGroupBtn.addEventListener('click', (e) => { e.preventDefault(); modalNewGroupRow.classList.add('hidden'); if (modalNewGroupNameInput) modalNewGroupNameInput.value = ''; });
+        try { modalCancelNewGroupBtn.onclick = function(e) { try{ e && e.preventDefault(); }catch(_){}; modalNewGroupRow.classList.add('hidden'); if (modalNewGroupNameInput) modalNewGroupNameInput.value = ''; }; modalCancelNewGroupBtn.onpointerdown = modalCancelNewGroupBtn.onclick; } catch(_){}
+    }
+    if (modalAddGroupBtn) {
+        // primary listener
+        modalAddGroupBtn.addEventListener('click', async (e) => {
+            try { e.preventDefault(); } catch(_){}
+            console.log('MODAL_INLINE_ADD_CLICK (handler)');
+            const name = (modalNewGroupNameInput?.value || '').trim();
+            try { await addProductGroupHelper(name, 'modalProductGroup', modalNewGroupNameInput, 'modalNewProductGroupRow'); } catch (err) { console.error('addProductGroupHelper error (modal handler):', err); }
+        });
+        // also set direct onclick and pointer handlers as a robust fallback
+        try {
+            modalAddGroupBtn.onclick = async function (e) {
+                try { e && e.preventDefault(); } catch(_){}
+                console.log('MODAL_INLINE_ADD_CLICK (onclick)');
+                const name = (modalNewGroupNameInput?.value || '').trim();
+                try { await addProductGroupHelper(name, 'modalProductGroup', modalNewGroupNameInput, 'modalNewProductGroupRow'); } catch (err) { console.error('addProductGroupHelper error (onclick):', err); }
+            };
+            modalAddGroupBtn.onpointerdown = modalAddGroupBtn.onclick;
+        } catch(_){}
+    }
+
+    // Delegated fallback: if the button is replaced/overlayed by other markup
+    // some consumers may not get the direct listener. Catch clicks on document
+    // and forward to the helper as a robust fallback. This avoids silent
+    // non-responsiveness when the element is swapped by other scripts.
+    document.addEventListener('click', async (e) => {
+        try {
+            const btn = e.target.closest && e.target.closest('#modalAddProductGroupInlineBtn');
+            if (!btn) return;
+            // Avoid double-handling if direct listener already ran; we mark events we handle.
+            if (e.__handledByModalAdd) return;
+            e.__handledByModalAdd = true;
+            e.preventDefault();
+            console.log('MODAL_INLINE_ADD_CLICK (delegated fallback)');
+            const name = (document.getElementById('modalNewProductGroupName')?.value || '').trim();
+            try { await addProductGroupHelper(name, 'modalProductGroup', document.getElementById('modalNewProductGroupName'), 'modalNewProductGroupRow'); } catch (err) { console.error('addProductGroupHelper error (modal delegated):', err); }
+        } catch (_) {}
+    });
+
+    // Capturing delegated listener to handle Add/Cancel even if other capture
+    // handlers call stopPropagation in the bubble phase. This runs early.
+    document.addEventListener('click', (e) => {
+        try {
+            const addBtn = e.target.closest && e.target.closest('#modalAddProductGroupInlineBtn');
+            const cancelBtn = e.target.closest && e.target.closest('#modalCancelNewProductGroupBtn');
+            if (!addBtn && !cancelBtn) return;
+            // mark handled to avoid duplicates
+            if (e.__handledByModalAddCapture) return;
+            e.__handledByModalAddCapture = true;
+            // If Add pressed
+            if (addBtn) {
+                try { e.preventDefault(); console.log('MODAL_INLINE_ADD_CLICK (capturing delegated)'); } catch(_){}
+                const name = (document.getElementById('modalNewProductGroupName')?.value || '').trim();
+                addProductGroupHelper(name, 'modalProductGroup', document.getElementById('modalNewProductGroupName'), 'modalNewProductGroupRow').catch(err => console.error('addProductGroupHelper error (capture):', err));
+                return;
+            }
+            // If Cancel pressed
+            if (cancelBtn) {
+                try { e.preventDefault(); console.log('MODAL_INLINE_CANCEL_CLICK (capturing delegated)'); } catch(_){}
+                const row = document.getElementById('modalNewProductGroupRow');
+                const input = document.getElementById('modalNewProductGroupName');
+                if (row) row.classList.add('hidden');
+                if (input) input.value = '';
+                return;
+            }
+        } catch (_) {}
+    }, true);
 
     // Slide form submission
     const slideForm = document.getElementById('slideForm');
@@ -3738,11 +5873,74 @@ function attachAdminListeners() {
             try {
                 // Enforce sales GST based on registration (no separate toggle)
                 const payload = { ...newSettings, isGstEnabled: !!newSettings.merchantGstRegistered };
+                // Collect invoice format settings from injected UI (if present)
+                try {
+                    const fmt_sales = document.getElementById('fmt_sales')?.value || '';
+                    const fmt_purchases = document.getElementById('fmt_purchases')?.value || '';
+                    const fmt_salesReturns = document.getElementById('fmt_salesReturns')?.value || '';
+                    const fmt_purchaseReturns = document.getElementById('fmt_purchaseReturns')?.value || '';
+                    const fmt_localSales = document.getElementById('fmt_localSales')?.value || '';
+                    const invoicePrefixEl = document.getElementById('invoicePrefix');
+                    const invoicePrefixVal = invoicePrefixEl ? (invoicePrefixEl.value || '') : '';
+                    payload.invoiceFormats = {
+                        sales: fmt_sales,
+                        purchases: fmt_purchases,
+                        salesReturns: fmt_salesReturns,
+                        purchaseReturns: fmt_purchaseReturns,
+                        localSales: fmt_localSales
+                    };
+                    if (invoicePrefixVal) payload.invoicePrefix = invoicePrefixVal;
+                } catch (_) {}
+                // If master password fields present and a new password was provided, compute and save its SHA-256 hash
+                try {
+                    const mpEl = document.getElementById('masterPassword');
+                    const mpConfirmEl = document.getElementById('masterPasswordConfirm');
+                    if (mpEl && (mpEl.value || '').toString().trim().length > 0) {
+                        const pwd = mpEl.value.toString();
+                        const conf = mpConfirmEl ? (mpConfirmEl.value || '').toString() : '';
+                        if (pwd !== conf) { showMessage('Master password and confirmation do not match.'); return; }
+                        try {
+                            // Require recent phone verification (2FA) before saving a new master password
+                            const verified = state.masterPasswordPhoneVerified && (Date.now() - (state.masterPasswordPhoneVerifiedAt || 0) < (5 * 60 * 1000));
+                            if (!verified) { showMessage('Please verify your admin phone via the "Send OTP" button before setting a new master password.'); return; }
+                            const hash = await sha256Hex(pwd);
+                            payload.masterResetPasswordHash = hash;
+                        } catch (err) {
+                            console.error('Failed to hash master password', err);
+                            showMessage('Failed to process master password.');
+                            return;
+                        }
+                    }
+                } catch (_) {}
+                // If user password fields present and a new password was provided, require master password and save its SHA-256 hash
+                try {
+                    const upEl = document.getElementById('userPassword');
+                    const upConfirmEl = document.getElementById('userPasswordConfirm');
+                    if (upEl && (upEl.value || '').toString().trim().length > 0) {
+                        const pwd = upEl.value.toString();
+                        const conf = upConfirmEl ? (upConfirmEl.value || '').toString() : '';
+                        if (pwd !== conf) { showMessage('User password and confirmation do not match.'); return; }
+                        try {
+                            // Require master password verification before setting user password
+                            const verified = await verifyMasterPassword('set user password');
+                            if (!verified) { showMessage('Master password verification required to set user password.'); return; }
+                            const hash = await sha256Hex(pwd);
+                            payload.userPasswordHash = hash;
+                        } catch (err) {
+                            console.error('Failed to hash user password', err);
+                            showMessage('Failed to process user password.');
+                            return;
+                        }
+                    }
+                } catch (_) {}
                 await setDoc(doc(db, siteSettingsDocPath), payload, { merge: true });
                 showMessage("Settings saved successfully!");
                 console.log('Settings saved:', payload);
                 // Keep local state in sync immediately
                 state.siteSettings = { ...state.siteSettings, ...payload };
+                // Clear any master password inputs from the form for security
+                try { const mp = document.getElementById('masterPassword'); const mpc = document.getElementById('masterPasswordConfirm'); if (mp) mp.value = ''; if (mpc) mpc.value = ''; } catch(_) {}
+                try { const up = document.getElementById('userPassword'); const upc = document.getElementById('userPasswordConfirm'); if (up) up.value = ''; if (upc) upc.value = ''; } catch(_) {}
                 refreshAdminState();
                 // Reflect GSTIN input disabled state by registration
                 const gstinEl = document.getElementById('merchantGstin');
@@ -3814,6 +6012,107 @@ function attachAdminListeners() {
             }
         } catch (e) { /* non-fatal */ }
 
+        // Inject master password inputs into Settings form (if not present).
+        // Only add to the Settings tab/form to avoid appearing in other admin tabs (e.g., Orders).
+        try {
+                    if (!document.getElementById('masterPassword')) {
+                const settingsFormEl = document.getElementById('settingsForm');
+                if (settingsFormEl) {
+                    const adminUidsEl = settingsFormEl.querySelector('#adminUids');
+                    const wrapper = document.createElement('div');
+                    wrapper.innerHTML = `
+                        <div style="margin-top:8px;">
+                            <label for="masterPassword" class="block text-sm font-medium text-gray-700 mb-1">Master Password (set/change)</label>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                <div class="relative">
+                                    <input id="masterPassword" type="password" placeholder="New master password (leave blank to keep)" class="w-full px-4 py-2 border border-gray-300 rounded-md">
+                                    <button type="button" id="toggleMasterPasswordBtn" class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600">Show</button>
+                                </div>
+                                <div class="relative">
+                                    <input id="masterPasswordConfirm" type="password" placeholder="Confirm new password" class="w-full px-4 py-2 border border-gray-300 rounded-md">
+                                    <button type="button" id="toggleMasterPasswordConfirmBtn" class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600">Show</button>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-1">If set, this password will be required for destructive admin actions (deletes, master reset). Leaving it blank keeps the current value.</p>
+                            <div class="mt-3">
+                                <div class="text-xs text-gray-600 mb-1">2FA for master password change will send an OTP to the admin mobile number:</div>
+                                <div class="flex items-center gap-2 mb-2">
+                                    <input id="adminPhoneDisplay" type="text" value="+919745009119" readonly class="px-3 py-2 border rounded bg-gray-50 text-sm" />
+                                    <button id="sendMasterPasswordOtpBtn" type="button" class="px-3 py-2 bg-blue-600 text-white rounded text-sm">Send OTP</button>
+                                    <span id="masterPasswordOtpStatus" class="text-xs text-gray-500 ml-2">Not verified</span>
+                                </div>
+                                <div id="recaptcha-container-masterpw" class="mt-2"></div>
+                            <div id="recaptchaDiagnostic" class="text-xs text-gray-500 mt-2">reCAPTCHA: unknown · auth.settings: unknown</div>
+                            </div>
+                        </div>
+                    `;
+                    if (adminUidsEl && adminUidsEl.parentNode) adminUidsEl.parentNode.insertBefore(wrapper, adminUidsEl.nextSibling);
+                    else settingsFormEl.appendChild(wrapper);
+                }
+            }
+        } catch (e) { /* non-fatal */ }
+
+            // Inject user password inputs into Settings form (if not present).
+            try {
+                if (!document.getElementById('userPassword')) {
+                    const settingsFormEl = document.getElementById('settingsForm');
+                    if (settingsFormEl) {
+                        const adminUidsEl = settingsFormEl.querySelector('#adminUids');
+                        const wrapper = document.createElement('div');
+                        wrapper.innerHTML = `
+                            <div style="margin-top:8px;">
+                                <label for="userPassword" class="block text-sm font-medium text-gray-700 mb-1">User Password (for authorising edits/deletes)</label>
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    <div class="relative">
+                                        <input id="userPassword" type="password" placeholder="New user password (leave blank to keep)" class="w-full px-4 py-2 border border-gray-300 rounded-md">
+                                        <button type="button" id="toggleUserPasswordBtn" class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600">Show</button>
+                                    </div>
+                                    <div class="relative">
+                                        <input id="userPasswordConfirm" type="password" placeholder="Confirm new user password" class="w-full px-4 py-2 border border-gray-300 rounded-md">
+                                        <button type="button" id="toggleUserPasswordConfirmBtn" class="absolute right-2 top-1/2 -translate-y-1/2 text-sm text-gray-600">Show</button>
+                                    </div>
+                                </div>
+                                <p class="text-xs text-gray-500 mt-1">This password is used to authorize edits/deletes of older entries. Admin (master) password will be requested to change it.</p>
+                            </div>
+                        `;
+                        if (adminUidsEl && adminUidsEl.parentNode) adminUidsEl.parentNode.insertBefore(wrapper, adminUidsEl.nextSibling);
+                        else settingsFormEl.appendChild(wrapper);
+                    }
+                }
+            } catch (e) { /* non-fatal */ }
+
+        
+
+    // Wire Send OTP button (if present) for master password 2FA
+    try {
+        const sendBtn = document.getElementById('sendMasterPasswordOtpBtn');
+        if (sendBtn) sendBtn.addEventListener('click', (ev) => { ev.preventDefault(); sendMasterPasswordOtp(); });
+        // Reflect any existing verification state
+        const statusEl = document.getElementById('masterPasswordOtpStatus');
+        if (statusEl && state.masterPasswordPhoneVerified && (Date.now() - (state.masterPasswordPhoneVerifiedAt || 0) < (5 * 60 * 1000))) {
+            statusEl.textContent = 'Verified ✓';
+        }
+
+        // Wire show/hide toggles for master password fields
+        try {
+            const toggleMain = document.getElementById('toggleMasterPasswordBtn');
+            const toggleConfirm = document.getElementById('toggleMasterPasswordConfirmBtn');
+            const mp = document.getElementById('masterPassword');
+            const mpc = document.getElementById('masterPasswordConfirm');
+            if (toggleMain && mp) toggleMain.addEventListener('click', () => { mp.type = mp.type === 'password' ? 'text' : 'password'; toggleMain.textContent = mp.type === 'password' ? 'Show' : 'Hide'; });
+            if (toggleConfirm && mpc) toggleConfirm.addEventListener('click', () => { mpc.type = mpc.type === 'password' ? 'text' : 'password'; toggleConfirm.textContent = mpc.type === 'password' ? 'Show' : 'Hide'; });
+            // Wire show/hide toggles for user password fields (if present)
+            try {
+                const toggleUser = document.getElementById('toggleUserPasswordBtn');
+                const toggleUserConfirm = document.getElementById('toggleUserPasswordConfirmBtn');
+                const up = document.getElementById('userPassword');
+                const upc = document.getElementById('userPasswordConfirm');
+                if (toggleUser && up) toggleUser.addEventListener('click', () => { up.type = up.type === 'password' ? 'text' : 'password'; toggleUser.textContent = up.type === 'password' ? 'Show' : 'Hide'; });
+                if (toggleUserConfirm && upc) toggleUserConfirm.addEventListener('click', () => { upc.type = upc.type === 'password' ? 'text' : 'password'; toggleUserConfirm.textContent = upc.type === 'password' ? 'Show' : 'Hide'; });
+            } catch(_){}
+        } catch(_){}
+    } catch (_) {}
+
     const scrollingBarToggle = document.getElementById('scrollingBarVisible');
     if (scrollingBarToggle) {
        scrollingBarToggle.addEventListener('change', async (e) => {
@@ -3852,48 +6151,400 @@ function attachAdminListeners() {
         });
     }
     
+    // Attach listeners for App Reset controls (admin only)
+    const resetSelectedBtn = document.getElementById('resetSelectedBtn');
+    const masterResetBtn = document.getElementById('masterResetBtn');
+    function collectResetFlags() {
+        return {
+            products: !!document.getElementById('reset_products')?.checked,
+            productGroups: !!document.getElementById('reset_productGroups')?.checked,
+            slides: !!document.getElementById('reset_slides')?.checked,
+            gallery: !!document.getElementById('reset_gallery')?.checked,
+            testimonials: !!document.getElementById('reset_testimonials')?.checked,
+            purchases: !!document.getElementById('reset_purchases')?.checked,
+            suppliers: !!document.getElementById('reset_suppliers')?.checked,
+            customers: !!document.getElementById('reset_customers')?.checked,
+            banks: !!document.getElementById('reset_banks')?.checked,
+            creditors: !!document.getElementById('reset_creditors')?.checked,
+            debtors: !!document.getElementById('reset_debtors')?.checked,
+            cash: !!document.getElementById('reset_cash')?.checked,
+            bank: !!document.getElementById('reset_bank')?.checked,
+            localSales: !!document.getElementById('reset_localSales')?.checked,
+            orders: !!document.getElementById('reset_orders')?.checked,
+            carts: !!document.getElementById('reset_carts')?.checked,
+            siteSettings: !!document.getElementById('reset_siteSettings')?.checked,
+            counters: !!document.getElementById('reset_counters')?.checked,
+        };
+    }
+
+    if (resetSelectedBtn) {
+        resetSelectedBtn.addEventListener('click', async () => {
+            try {
+                const flags = collectResetFlags();
+                if (!Object.values(flags).some(Boolean)) {
+                    showMessage('Select at least one data bucket to reset.');
+                    return;
+                }
+                if (!confirm('Are you sure? This will permanently modify or delete the selected data.')) return;
+                const ok = await verifyMasterPassword('perform the selected reset');
+                if (!ok) return;
+                resetSelectedBtn.disabled = true;
+                showMessage('Resetting selected data — please wait...');
+                const result = await resetSelectedData(flags);
+                resetSelectedBtn.disabled = false;
+                if (result) {
+                    // Build a compact summary toast from per-bucket results when available
+                    const lines = (result.results||[]).map(r => `${r.label}: ${r.status}${r.error ? ' ('+r.error+')' : ''}`);
+                    if (result.ok) {
+                        showToast('Selected reset — summary', lines.length ? lines : ['Completed successfully']);
+                    } else {
+                        showToast('Selected reset — partial/failed', lines.length ? lines : ['Completed with errors — check console']);
+                        console.warn('Selected reset completed with errors:', result.errors || result);
+                    }
+                } else {
+                    showMessage('Selected reset completed.');
+                }
+            } catch (e) {
+                console.error('resetSelectedBtn handler error', e);
+                showMessage('Selected reset failed. See console for details.');
+                resetSelectedBtn.disabled = false;
+            }
+        });
+    }
+
+    if (masterResetBtn) {
+        masterResetBtn.addEventListener('click', async () => {
+            try {
+                if (!confirm('MASTER RESET will attempt to clear all primary app data (products, orders, purchases, etc.). This is irreversible. Continue?')) return;
+                const ok = await verifyMasterPassword('perform a master reset');
+                if (!ok) return;
+                masterResetBtn.disabled = true;
+                showMessage('Performing master reset — this may take several minutes...');
+                const result = await resetAllData();
+                masterResetBtn.disabled = false;
+                if (result) {
+                    const lines = (result.results||[]).map(r => `${r.label}: ${r.status}${r.error ? ' ('+r.error+')' : ''}`);
+                    if (result.ok) {
+                        showToast('Master reset — summary', lines.length ? lines : ['Completed successfully'], { ttl: 8000 });
+                        // Also show a modal confirmation so the admin sees the completion explicitly
+                        try {
+                            const msg = lines && lines.length ? ('Master reset completed successfully.\n' + lines.join('\n')) : 'Master reset completed successfully.';
+                            showMessage(msg);
+                        } catch (_) { /* ignore */ }
+                    } else {
+                        showToast('Master reset — partial/failed', lines.length ? lines : ['Completed with errors — check console'], { ttl: 10000 });
+                        console.warn('Master reset completed with errors:', result.errors || result);
+                    }
+                } else {
+                    showMessage('Master reset completed.');
+                }
+            } catch (e) {
+                console.error('masterResetBtn handler error', e);
+                showMessage('Master reset failed. See console for details.');
+                masterResetBtn.disabled = false;
+            }
+        });
+    }
+
     // Master reset UI and runtime cleanup removed. The admin template no
     // longer contains dangerous controls and there is no runtime cleanup.
     
-    // Opening balance handlers (moved to Billing Settings tab)
-    const cashObForm = document.getElementById('cashOpeningForm');
-    if (cashObForm) {
-        cashObForm.addEventListener('submit', async (e) => {
+    
+
+    // Bank master add/delete handlers (Billing Settings)
+    const bankMasterForm = document.getElementById('bankMasterForm');
+    if (bankMasterForm) {
+        bankMasterForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const date = new Date(document.getElementById('cashObDate').value);
-            const amount = parseFloat(document.getElementById('cashObAmount').value) || 0;
-            const notes = document.getElementById('cashObNotes').value.trim();
-            if (amount <= 0) { showMessage('Enter a positive amount.'); return; }
+            const name = (document.getElementById('bankName')?.value || '').trim();
+            const accountNumber = (document.getElementById('bankAccountNumber')?.value || '').trim();
+            const ifsc = (document.getElementById('bankIfsc')?.value || '').trim();
+            const address = (document.getElementById('bankAddress')?.value || '').trim();
+            const notes = (document.getElementById('bankNotes')?.value || '').trim();
+            if (!name) { showMessage('Please enter a bank name.'); return; }
+            const submitBtn = document.getElementById('bankMasterSubmitBtn') || bankMasterForm.querySelector('button[type="submit"]');
+            const originalText = submitBtn ? submitBtn.textContent : '';
             try {
-                await addDoc(collection(db, cashLedgerColPath), {
-                    date, refType: 'Opening Balance', refId: '', notes: notes || 'Opening balance',
-                    debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
-                });
-                showMessage('Cash opening balance added.');
-                renderAdminLedgersPage();
-            } catch (err) { console.error(err); showMessage('Failed to add opening balance.'); }
+                if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving...'; }
+                // If editing an existing bank, update it instead of creating
+                if (state.bankEditingId) {
+                    const id = state.bankEditingId;
+                    await updateDoc(doc(db, banksColPath, id), { name, accountNumber, ifsc, address, notes });
+                    // update local state immediately
+                    state.allBanks = (state.allBanks || []).map(b => b.id === id ? ({ ...b, name, accountNumber, ifsc, address, notes }) : b);
+                    showMessage('Bank account updated.');
+                    state.bankEditingId = null;
+                    // reset submit button label and cancel visibility
+                    try { document.getElementById('bankMasterCancelBtn').style.display = 'none'; } catch(_){}
+                    try { submitBtn.textContent = 'Add Bank Account'; } catch(_){}
+                    bankMasterForm.reset();
+                    // Re-render the admin page so the Billing Settings tab (and bank table) refreshes immediately
+                    renderAdminPage();
+                } else {
+                    const ref = await addDoc(collection(db, banksColPath), { name, accountNumber, ifsc, address, notes, isDeleted: false, createdAt: serverTimestamp() });
+                    // optimistic UI update: add immediately to state and re-render
+                    const newBank = { id: ref.id, name, accountNumber, ifsc, address, notes, isDeleted: false };
+                    // Merge into state.allBanks but avoid duplicates if a snapshot update also arrives
+                    try {
+                        const existing = Array.isArray(state.allBanks) ? state.allBanks : [];
+                        const merged = existing.filter(b => b.id !== newBank.id).concat([newBank]);
+                        state.allBanks = merged.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+                    } catch (_) {
+                        state.allBanks = (state.allBanks || []).concat([newBank]).sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+                    }
+                    showMessage('Bank account added.');
+                    bankMasterForm.reset();
+                    // Re-render the admin page so the Billing Settings tab (and bank table) refreshes immediately
+                    renderAdminPage();
+                }
+            } catch (err) {
+                console.error('Failed to add bank account', err);
+                showMessage('Failed to add bank account.');
+            } finally {
+                if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalText || 'Add Bank Account'; }
+            }
         });
+        // Wire the popular banks dropdown to autofill the bank name
+        try {
+            const existingBanksDropdown = document.getElementById('existingBanksDropdown');
+            if (existingBanksDropdown) {
+                existingBanksDropdown.addEventListener('change', (ev) => {
+                    const val = (ev.target.value || '').trim();
+                    try {
+                        const nameEl = document.getElementById('bankName');
+                        const ifscEl = document.getElementById('bankIfsc');
+                        if (val && val !== 'Other') {
+                            if (nameEl) nameEl.value = val;
+                            // Clear IFSC to let user fill the exact code for their branch
+                            if (ifscEl) ifscEl.value = '';
+                            // Focus account number for quicker entry
+                            const accEl = document.getElementById('bankAccountNumber');
+                            if (accEl) accEl.focus();
+                        } else if (val === 'Other' || !val) {
+                            if (nameEl) nameEl.value = '';
+                            if (ifscEl) ifscEl.value = '';
+                            const nameFocus = document.getElementById('bankName');
+                            if (nameFocus) nameFocus.focus();
+                        }
+                    } catch (_) {}
+                });
+            }
+        } catch (_) {}
     }
-    const bankObForm = document.getElementById('bankOpeningForm');
-    if (bankObForm) {
-        bankObForm.addEventListener('submit', async (e) => {
-            e.preventDefault();
-            const date = new Date(document.getElementById('bankObDate').value);
-            const amount = parseFloat(document.getElementById('bankObAmount').value) || 0;
-            const bankAccount = document.getElementById('bankObAccount')?.value || 'Main Bank';
-            const notes = document.getElementById('bankObNotes').value.trim();
-            if (amount <= 0) { showMessage('Enter a positive amount.'); return; }
+
+    
+
+    // Ledger modal helpers: open a modal for quick manual ledger entries instead of using prompt().
+    function openLedgerEntryModal(target, mode) {
+        try {
+            let modal = document.getElementById('ledgerEntryModal');
+            // If modal does not exist (removed from re-render areas), create it and append to body
+            if (!modal) {
+                const tpl = `
+                <div id="ledgerEntryModal" role="dialog" aria-modal="true" aria-hidden="true" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden">
+                    <div class="bg-white p-6 rounded-md w-full max-w-md" role="document">
+                        <h3 id="ledgerEntryModalTitle" class="text-lg font-semibold mb-2">Add Ledger Entry</h3>
+                        <form id="ledgerEntryForm" class="space-y-3" aria-labelledby="ledgerEntryModalTitle">
+                            <input type="hidden" id="ledgerEntryTarget" />
+                            <div class="grid grid-cols-1 gap-2">
+                                <label class="text-sm">Type</label>
+                                <select id="ledgerEntryType" class="border rounded p-2">
+                                    <option value="debit">Debit</option>
+                                    <option value="credit">Credit</option>
+                                </select>
+                                <label class="text-sm">Amount (₹)</label>
+                                <input id="ledgerEntryAmount" type="number" step="0.01" min="0" class="border rounded p-2" aria-label="Amount" />
+                                <label class="text-sm">Date</label>
+                                <input id="ledgerEntryDate" type="date" class="border rounded p-2" value="${new Date().toISOString().split('T')[0]}" />
+                                <label class="text-sm mt-1">Posting time</label>
+                                <div id="ledgerEntryTimeDisplay" class="text-sm text-gray-700 mt-1">Posting time: ${getLocalTimeHHMMSS()}</div>
+                                <div id="ledgerEntryBankRow" class="hidden">
+                                    <label class="text-sm">Bank Account</label>
+                                    <select id="ledgerEntryBankAccount" class="border rounded p-2">
+                                        <option value="">Main Bank</option>
+                                    </select>
+                                </div>
+                                <label class="text-sm">Notes</label>
+                                <input id="ledgerEntryNotes" type="text" class="border rounded p-2" placeholder="Optional notes" />
+                            </div>
+                            <div class="flex justify-end gap-2">
+                                <button type="button" id="ledgerEntryCancelBtn" class="px-4 py-2 bg-gray-200 rounded">Cancel</button>
+                                <button type="submit" id="ledgerEntrySubmitBtn" class="px-4 py-2 bg-blue-600 text-white rounded">Save</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>`;
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = tpl.trim();
+                document.body.appendChild(wrapper.firstElementChild);
+                modal = document.getElementById('ledgerEntryModal');
+
+                // Wire cancel button
+                document.getElementById('ledgerEntryCancelBtn')?.addEventListener('click', () => { closeLedgerEntryModal(); });
+
+                // Wire form submit handler (same logic as previous inline handler)
+                document.getElementById('ledgerEntryForm')?.addEventListener('submit', async (ev) => {
+                    ev.preventDefault();
+                    const submitBtn = document.getElementById('ledgerEntrySubmitBtn');
+                    const addBtns = [document.getElementById('addCashDebitBtn'), document.getElementById('addCashCreditBtn'), document.getElementById('addBankDebitBtn'), document.getElementById('addBankCreditBtn')];
+                    const originalText = submitBtn ? submitBtn.textContent : '';
+                    try {
+                        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = 'Saving...'; }
+                        addBtns.forEach(b => { try { if (b) b.disabled = true; } catch(_){} });
+
+                        const target = (document.getElementById('ledgerEntryTarget')?.value || 'cash');
+                        const type = (document.getElementById('ledgerEntryType')?.value || 'debit');
+                        const raw = (document.getElementById('ledgerEntryAmount')?.value || '').toString();
+                        const amount = parseFloat(raw.replace(/,/g, '')) || 0;
+                        if (amount <= 0) { showMessage('Please enter a positive amount.'); return; }
+                        const notes = (document.getElementById('ledgerEntryNotes')?.value || '').trim();
+                        // Combine selected date with current local system time (including seconds)
+                        const date = parseDateWithNow('ledgerEntryDate');
+                        if (target === 'cash') {
+                            await addDoc(collection(db, cashLedgerColPath), { date, refType: 'Manual', refId: '', notes, debit: type === 'debit' ? amount : 0, credit: type === 'credit' ? amount : 0, isDeleted: false, createdAt: serverTimestamp() });
+                        } else {
+                            const bankAccount = (document.getElementById('ledgerEntryBankAccount')?.value || (state.bankAccountFilter || 'Main Bank'));
+                            await addDoc(collection(db, bankLedgerColPath), { date, refType: 'Manual', refId: '', bankAccount, notes, debit: type === 'debit' ? amount : 0, credit: type === 'credit' ? amount : 0, isDeleted: false, createdAt: serverTimestamp() });
+                        }
+                        showToast('Ledger entry saved', [`${type === 'debit' ? 'Debit' : 'Credit'} ₹${amount.toFixed(2)} recorded`], { ttl: 4000 });
+                        closeLedgerEntryModal();
+                        renderAdminLedgersPage();
+                    } catch (err) {
+                        console.error('Ledger entry save failed', err);
+                        showMessage('Failed to add ledger entry.');
+                    } finally {
+                        try { if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = originalText || 'Save'; } } catch(_){ }
+                        try { addBtns.forEach(b => { if (b) b.disabled = false; }); } catch(_){ }
+                    }
+                });
+            }
+
+            // populate and show
+            document.getElementById('ledgerEntryTarget').value = target;
+            document.getElementById('ledgerEntryType').value = mode === 'debit' ? 'debit' : 'credit';
+            document.getElementById('ledgerEntryAmount').value = '';
+            document.getElementById('ledgerEntryNotes').value = (mode === 'debit') ? (target === 'cash' ? 'Manual cash receipt' : 'Manual bank receipt') : (target === 'cash' ? 'Manual cash payment' : 'Manual bank payment');
+            document.getElementById('ledgerEntryDate').value = new Date().toISOString().split('T')[0];
             try {
-                await addDoc(collection(db, bankLedgerColPath), {
-                    date, refType: 'Opening Balance', refId: '', bankAccount,
-                    notes: notes || `Opening balance (${bankAccount})`,
-                    debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
-                });
-                showMessage('Bank opening balance added.');
-                renderAdminLedgersPage();
-            } catch (err) { console.error(err); showMessage('Failed to add opening balance.'); }
-        });
+                const tDisp = document.getElementById('ledgerEntryTimeDisplay');
+                if (tDisp) {
+                    tDisp.textContent = `Posting time: ${getLocalTimeHHMMSS()}`;
+                }
+            } catch(_) {}
+            const bankRow = document.getElementById('ledgerEntryBankRow');
+            if (bankRow) bankRow.classList.toggle('hidden', target !== 'bank');
+            // Populate bank accounts into the select from state.allBanks
+            try {
+                const bankSel = document.getElementById('ledgerEntryBankAccount');
+                if (bankSel) {
+                    bankSel.innerHTML = '<option value="">Main Bank</option>' + ((state.allBanks||[]).map(b=>`<option value="${(b.name||'').replace(/"/g,'&quot;')}">${(b.name||'').replace(/</g,'&lt;')}</option>`).join(''));
+                    if (state.bankAccountFilter && state.bankAccountFilter !== 'All' && target === 'bank') bankSel.value = state.bankAccountFilter;
+                }
+            } catch (_) {}
+
+            // Accessibility & focus management
+            try {
+                modal.setAttribute('aria-hidden', 'false');
+                modal._previousActive = document.activeElement;
+                document.getElementById('ledgerEntryAmount')?.focus();
+                const trap = (e) => {
+                    if (e.key === 'Tab') {
+                        const focusable = modal.querySelectorAll('a[href], button, textarea, input, select');
+                        if (!focusable.length) return;
+                        const first = focusable[0];
+                        const last = focusable[focusable.length - 1];
+                        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+                    } else if (e.key === 'Escape') { closeLedgerEntryModal(); }
+                };
+                modal._trapHandler = trap;
+                document.addEventListener('keydown', trap);
+            } catch (_) {}
+            modal.classList.remove('hidden');
+        } catch (err) { console.error('openLedgerEntryModal error', err); }
     }
+
+// Expose for test/debug fallbacks and other callers
+try { window.openLedgerEntryModal = openLedgerEntryModal; } catch (_) {}
+
+// Global fallback: if delegated handlers didn't attach for any reason, ensure quick-add buttons still open the modal.
+try {
+    document.body.addEventListener('click', (ev) => {
+        const btn = ev.target && ev.target.closest ? ev.target.closest('button') : ev.target;
+        if (!btn || !btn.id) return;
+        const id = btn.id;
+        if (id === 'addCashDebitBtn') { ev.preventDefault(); try { openLedgerEntryModal('cash','debit'); } catch(_){} }
+        if (id === 'addCashCreditBtn') { ev.preventDefault(); try { openLedgerEntryModal('cash','credit'); } catch(_){} }
+        if (id === 'addBankDebitBtn') { ev.preventDefault(); try { openLedgerEntryModal('bank','debit'); } catch(_){} }
+        if (id === 'addBankCreditBtn') { ev.preventDefault(); try { openLedgerEntryModal('bank','credit'); } catch(_){} }
+    });
+} catch (_) {}
+
+// Global delegated handler for bank edit/delete (works even if admin-specific listeners failed to attach)
+try {
+    document.body.addEventListener('click', async (ev) => {
+        try {
+            const editBtn = ev.target && ev.target.closest ? ev.target.closest('.edit-bank-btn') : null;
+            if (editBtn) {
+                ev.preventDefault();
+                if (!(state.currentUser && !state.currentUser.isAnonymous && state.isAdmin)) { showMessage('Not authorized to edit bank accounts.'); return; }
+                const id = editBtn.dataset && editBtn.dataset.id;
+                if (!id) return;
+                const bank = (state.allBanks || []).find(b => b.id === id);
+                if (!bank) return;
+                document.getElementById('bankName').value = bank.name || '';
+                document.getElementById('bankAccountNumber').value = bank.accountNumber || '';
+                document.getElementById('bankIfsc').value = bank.ifsc || '';
+                try { document.getElementById('bankAddress').value = bank.address || ''; } catch(_){}
+                try { document.getElementById('bankNotes').value = bank.notes || ''; } catch(_){}
+                state.bankEditingId = id;
+                const submitBtn = document.getElementById('bankMasterSubmitBtn'); if (submitBtn) submitBtn.textContent = 'Save Changes';
+                try { document.getElementById('bankMasterCancelBtn').style.display = 'inline-block'; } catch(_){}
+                try { document.getElementById('bankAccountNumber').focus(); } catch(_){}
+                return;
+            }
+
+            const delBtn = ev.target && ev.target.closest ? ev.target.closest('.delete-bank-btn') : null;
+            if (delBtn) {
+                ev.preventDefault();
+                if (!(state.currentUser && !state.currentUser.isAnonymous && state.isAdmin)) { showMessage('Not authorized to delete bank accounts.'); return; }
+                const id = delBtn.dataset && delBtn.dataset.id;
+                if (!id) return;
+                if (!confirm('Delete this bank account? This cannot be undone.')) return;
+                try {
+                    // Require master password before allowing a destructive delete
+                    const allowed = await verifyMasterPassword('delete this bank account');
+                    if (!allowed) return;
+                    delBtn.disabled = true;
+                    await deleteDoc(doc(db, banksColPath, id));
+                    state.allBanks = (state.allBanks || []).filter(b => b.id !== id);
+                    // Re-render admin area so the Billing Settings table reflects deletion immediately
+                    renderAdminPage();
+                    showMessage('Bank account deleted.');
+                } catch (err) {
+                    console.error('Failed to delete bank account', err);
+                    showMessage('Failed to delete bank account.');
+                } finally { try { delBtn.disabled = false; } catch(_){} }
+                return;
+            }
+        } catch (_) {}
+    });
+} catch (_) {}
+
+    function closeLedgerEntryModal() {
+        try {
+            const modal = document.getElementById('ledgerEntryModal');
+            if (!modal) return;
+            modal.classList.add('hidden');
+            modal.setAttribute('aria-hidden', 'true');
+            // remove trap handler
+            try { if (modal._trapHandler) document.removeEventListener('keydown', modal._trapHandler); } catch(_) {}
+            // restore focus if possible
+            try { if (modal._previousActive && typeof modal._previousActive.focus === 'function') modal._previousActive.focus(); } catch(_) {}
+        } catch(_) {}
+    }
+
+    // NOTE: modal wiring (cancel + submit) happens when the modal is created inside openLedgerEntryModal.
 
     // NOTE: The event listeners for .admin-order-status-selector are now handled inside renderAdminOrderList to ensure they are re-attached after filtering/rendering.
 
@@ -3943,12 +6594,17 @@ function attachAdminListeners() {
             const persist = (k, v) => { try { localStorage.setItem(`tiaras.ledger.${k}PageSize_${appId}`, String(v)); } catch (e) {} };
             if (id === 'cashPageSizeSel') { const v = parseInt(el.value) || 10; state.cashPageSize = v; state.cashPage = 1; persist('cash', v); renderAdminLedgersPage(); return; }
             if (id === 'bankPageSizeSel') { const v = parseInt(el.value) || 10; state.bankPageSize = v; state.bankPage = 1; persist('bank', v); renderAdminLedgersPage(); return; }
+            // Sorting selects for ledgers
+            if (id === 'cashSortSel') { try { const [k,d] = (el.value||'date:desc').split(':'); state.cashSort = { key: k||'date', dir: d||'desc' }; state.cashPage = 1; renderAdminLedgersPage(); } catch(_){}; return; }
+            if (id === 'bankSortSel') { try { const [k,d] = (el.value||'date:desc').split(':'); state.bankSort = { key: k||'date', dir: d||'desc' }; state.bankPage = 1; renderAdminLedgersPage(); } catch(_){}; return; }
             if (id === 'creditorsPageSizeSel') { const v = parseInt(el.value) || 10; state.creditorsPageSize = v; state.creditorsPage = 1; persist('creditors', v); renderAdminLedgersPage(); return; }
             if (id === 'debtorsPageSizeSel') { const v = parseInt(el.value) || 10; state.debtorsPageSize = v; state.debtorsPage = 1; persist('debtors', v); renderAdminLedgersPage(); return; }
         });
 
         state.adminPaginationEventsAttached = true;
     }
+
+    // Time entry toggle handler removed - time pickers are always enabled
 
 }
         
@@ -4029,7 +6685,8 @@ async function verifyMasterPassword(actionLabel = 'proceed') {
             showMessage('Master password not configured. Contact developer.');
             return false;
         }
-        const pwd = prompt(`Enter master password to ${actionLabel}:`);
+        // Use inline modal prompt for better UX
+        const pwd = await showMasterPasswordModal(actionLabel);
         if (!pwd) return false;
         const pwdHash = await sha256Hex(pwd);
         if (pwdHash !== hash) {
@@ -4040,6 +6697,622 @@ async function verifyMasterPassword(actionLabel = 'proceed') {
     } catch (err) {
         console.error('verifyMasterPassword error:', err);
         showMessage('Unable to verify master password.');
+        return false;
+    }
+}
+
+// Show an inline modal to collect the master password from the user.
+// Returns the entered password string, or null if cancelled.
+function showMasterPasswordModal(actionLabel = 'proceed') {
+    return new Promise((resolve) => {
+        try {
+            let modal = document.getElementById('masterPasswordModal');
+            if (!modal) {
+                const tpl = `
+                <div id="masterPasswordModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden" role="dialog" aria-modal="true">
+                    <div class="bg-white p-6 rounded-md w-full max-w-md">
+                        <h3 id="masterPasswordModalTitle" class="text-lg font-semibold mb-2">Confirm action</h3>
+                        <p id="masterPasswordModalMsg" class="text-sm text-gray-700 mb-4">Enter master password to ${actionLabel}.</p>
+                        <div class="space-y-3">
+                            <input id="masterPasswordModalInput" type="password" class="w-full px-3 py-2 border rounded" placeholder="Master password" />
+                            <div class="flex justify-end gap-2">
+                                <button id="masterPasswordModalCancel" class="px-3 py-2 bg-gray-200 rounded">Cancel</button>
+                                <button id="masterPasswordModalOk" class="px-3 py-2 bg-red-600 text-white rounded">Confirm</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.trim();
+                document.body.appendChild(wrap.firstElementChild);
+                modal = document.getElementById('masterPasswordModal');
+            }
+            // Update message
+            try { document.getElementById('masterPasswordModalMsg').textContent = `Enter master password to ${actionLabel}.`; } catch(_){}
+            const input = document.getElementById('masterPasswordModalInput');
+            const ok = document.getElementById('masterPasswordModalOk');
+            const cancel = document.getElementById('masterPasswordModalCancel');
+            // Add show/hide toggle for modal password input
+            try {
+                const existingToggle = document.getElementById('toggleMasterPasswordModalBtn');
+                if (!existingToggle) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.id = 'toggleMasterPasswordModalBtn';
+                    btn.className = 'ml-2 text-sm text-gray-600';
+                    btn.textContent = 'Show';
+                    if (input && input.parentNode) {
+                        const wrap = document.createElement('div'); wrap.className = 'flex items-center';
+                        input.parentNode.insertBefore(wrap, input);
+                        wrap.appendChild(input);
+                        wrap.appendChild(btn);
+                    }
+                    btn.addEventListener('click', () => {
+                        try {
+                            input.type = input.type === 'password' ? 'text' : 'password';
+                            btn.textContent = input.type === 'password' ? 'Show' : 'Hide';
+                        } catch(_){}
+                    });
+                }
+            } catch(_){}
+            const cleanup = () => {
+                try { ok.removeEventListener('click', onOk); } catch(_){}
+                try { cancel.removeEventListener('click', onCancel); } catch(_){}
+                try { document.removeEventListener('keydown', onKey); } catch(_){}
+                try { modal.classList.add('hidden'); } catch(_){}
+            };
+            const onOk = () => {
+                const v = (input && input.value) ? input.value : null;
+                cleanup();
+                if (input) input.value = '';
+                resolve(v);
+            };
+            const onCancel = () => { cleanup(); if (input) input.value = ''; resolve(null); };
+            const onKey = (e) => { if (e.key === 'Escape') onCancel(); if (e.key === 'Enter') onOk(); };
+            ok.addEventListener('click', onOk);
+            cancel.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKey);
+            modal.classList.remove('hidden');
+            try { input.focus(); } catch(_){}
+        } catch (err) {
+            console.error('showMasterPasswordModal error', err);
+            resolve(null);
+        }
+    });
+}
+// --- User password verification helpers ---
+async function verifyUserPassword(actionLabel = 'proceed') {
+    try {
+        let hash = state?.siteSettings?.userPasswordHash;
+        if (!hash || typeof hash !== 'string') {
+            try {
+                const snap = await getDoc(doc(db, siteSettingsDocPath));
+                if (snap && snap.exists()) {
+                    const d = snap.data();
+                    if (d && typeof d.userPasswordHash === 'string') {
+                        state.siteSettings = { ...state.siteSettings, ...d };
+                        hash = d.userPasswordHash;
+                    }
+                }
+            } catch (e) {
+                console.warn('verifyUserPassword: fallback getDoc failed', e);
+            }
+        }
+        if (!hash || typeof hash !== 'string') {
+            showMessage('User password not configured. Contact admin.');
+            return false;
+        }
+        const pwd = await showUserPasswordModal(actionLabel);
+        if (!pwd) return false;
+        const pwdHash = await sha256Hex(pwd);
+        if (pwdHash !== hash) {
+            showMessage('Incorrect user password.');
+            return false;
+        }
+        return true;
+    } catch (err) {
+        console.error('verifyUserPassword error:', err);
+        showMessage('Unable to verify user password.');
+        return false;
+    }
+}
+
+function showUserPasswordModal(actionLabel = 'proceed') {
+    return new Promise((resolve) => {
+        try {
+            let modal = document.getElementById('userPasswordModal');
+            if (!modal) {
+                const tpl = `
+                <div id="userPasswordModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden" role="dialog" aria-modal="true">
+                    <div class="bg-white p-6 rounded-md w-full max-w-md">
+                        <h3 id="userPasswordModalTitle" class="text-lg font-semibold mb-2">Confirm action</h3>
+                        <p id="userPasswordModalMsg" class="text-sm text-gray-700 mb-4">Enter user password to ${actionLabel}.</p>
+                        <div class="space-y-3">
+                            <input id="userPasswordModalInput" type="password" class="w-full px-3 py-2 border rounded" placeholder="User password" />
+                            <div class="flex justify-end gap-2">
+                                <button id="userPasswordModalCancel" class="px-3 py-2 bg-gray-200 rounded">Cancel</button>
+                                <button id="userPasswordModalOk" class="px-3 py-2 bg-blue-600 text-white rounded">Confirm</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                const wrap = document.createElement('div');
+                wrap.innerHTML = tpl.trim();
+                document.body.appendChild(wrap.firstElementChild);
+                modal = document.getElementById('userPasswordModal');
+            }
+            try { document.getElementById('userPasswordModalMsg').textContent = `Enter user password to ${actionLabel}.`; } catch(_){}
+            const input = document.getElementById('userPasswordModalInput');
+            const ok = document.getElementById('userPasswordModalOk');
+            const cancel = document.getElementById('userPasswordModalCancel');
+            const cleanup = () => {
+                try { ok.removeEventListener('click', onOk); } catch(_){ }
+                try { cancel.removeEventListener('click', onCancel); } catch(_){ }
+                try { document.removeEventListener('keydown', onKey); } catch(_){ }
+                try { modal.classList.add('hidden'); } catch(_){ }
+            };
+            const onOk = () => { const v = (input && input.value) ? input.value : null; cleanup(); if (input) input.value = ''; resolve(v); };
+            const onCancel = () => { cleanup(); if (input) input.value = ''; resolve(null); };
+            const onKey = (e) => { if (e.key === 'Escape') onCancel(); if (e.key === 'Enter') onOk(); };
+            ok.addEventListener('click', onOk);
+            cancel.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKey);
+            modal.classList.remove('hidden');
+            try { input.focus(); } catch(_){}
+        } catch (err) { console.error('showUserPasswordModal error', err); resolve(null); }
+    });
+}
+
+// --- OTP (Phone) helpers for master-password change 2FA ---
+async function initRecaptchaForMasterPhone() {
+    try {
+        if (window._tiarasMasterPwRecaptcha) return window._tiarasMasterPwRecaptcha;
+        let containerEl = document.getElementById('recaptcha-container-masterpw');
+        if (!containerEl) {
+            // If settings form is available, append there; otherwise append to body
+            const settingsForm = document.getElementById('settingsForm');
+            containerEl = document.createElement('div');
+            containerEl.id = 'recaptcha-container-masterpw';
+            containerEl.className = 'mt-2';
+            if (settingsForm) settingsForm.appendChild(containerEl);
+            else document.body.appendChild(containerEl);
+        }
+
+        // Ensure grecaptcha script is loaded. Firebase's RecaptchaVerifier requires the
+        // global `grecaptcha` to be present. If it's not, inject the script and wait.
+        const ensureGrecaptcha = async () => {
+            if (window.grecaptcha) return true;
+            // If a recaptcha script is already present but grecaptcha not yet ready, wait.
+            const existing = Array.from(document.getElementsByTagName('script')).find(s => s.src && s.src.includes('recaptcha'));
+            if (!existing) {
+                const s = document.createElement('script');
+                s.src = 'https://www.google.com/recaptcha/api.js?render=explicit';
+                s.async = true; s.defer = true;
+                document.head.appendChild(s);
+            }
+            // Wait for grecaptcha to appear (poll up to ~6s)
+            const deadline = Date.now() + 6000;
+            while (!window.grecaptcha && Date.now() < deadline) {
+                await new Promise(r => setTimeout(r, 200));
+            }
+            return !!window.grecaptcha;
+        };
+
+        const grecaptchaReady = await ensureGrecaptcha();
+        if (!grecaptchaReady) {
+            console.warn('grecaptcha did not load within timeout; RecaptchaVerifier may fail.');
+        }
+        console.info('initRecaptchaForMasterPhone: grecaptchaReady=', !!window.grecaptcha, 'auth.settings present=', !!(auth && auth.settings));
+        try {
+            const diag = document.getElementById('recaptchaDiagnostic');
+            if (diag) diag.textContent = `reCAPTCHA: ${!!window.grecaptcha} · auth.settings: ${!!(auth && auth.settings)}`;
+        } catch(_){}
+
+        // Custom grecaptcha-based ApplicationVerifier wrapper.
+        // This avoids using the SDK's `RecaptchaVerifier` which in some environments
+        // attempts to read deep auth internals and throws. The object returned here
+        // implements the minimal ApplicationVerifier interface expected by
+        // `signInWithPhoneNumber` / `linkWithPhoneNumber`.
+        const createGreCaptchaAppVerifier = (container, opts = {}) => {
+            if (!window.grecaptcha) return null;
+            const siteKey = opts.siteKey || window.__recaptcha_site_key || (state && state.siteSettings && state.siteSettings.recaptchaSiteKey);
+            if (!siteKey) return null;
+            // ensure container is an element we can render into
+            const renderContainer = (typeof container === 'string') ? document.getElementById(container) : container;
+            if (!renderContainer) return null;
+
+            // Clear previous widget if present
+            try { if (renderContainer._grecaptchaWidgetId !== undefined) { try { grecaptcha.reset(renderContainer._grecaptchaWidgetId); } catch(_){} } } catch(_){}
+
+            // Render the widget
+            let widgetId = null;
+            try {
+                widgetId = grecaptcha.render(renderContainer, {
+                    sitekey: siteKey,
+                    size: opts.size === 'normal' ? 'normal' : 'invisible',
+                    badge: opts.badge || 'bottomright',
+                    callback: function(token) {
+                        // store last token and resolve any pending verify
+                        renderContainer._lastGreCaptchaToken = token;
+                        if (renderContainer._pendingVerifyResolve) {
+                            try { renderContainer._pendingVerifyResolve(token); } catch(_){}
+                            renderContainer._pendingVerifyResolve = null;
+                            renderContainer._pendingVerifyReject = null;
+                        }
+                    },
+                    'expired-callback': function() {
+                        renderContainer._lastGreCaptchaToken = null;
+                    }
+                });
+                renderContainer._grecaptchaWidgetId = widgetId;
+            } catch (e) {
+                console.warn('grecaptcha.render failed', e);
+                return null;
+            }
+
+            const appVerifier = {
+                type: 'recaptcha',
+                verify: () => {
+                    return new Promise((resolve, reject) => {
+                        try {
+                            // If we already have a recent token, resolve immediately
+                            if (renderContainer._lastGreCaptchaToken) return resolve(renderContainer._lastGreCaptchaToken);
+                            // set pending resolvers so callback can resolve
+                            renderContainer._pendingVerifyResolve = resolve;
+                            renderContainer._pendingVerifyReject = reject;
+                            // Execute the invisible challenge; for visible widgets the user will trigger it.
+                            try {
+                                grecaptcha.execute(widgetId).catch(err => {
+                                    // some grecaptcha builds don't return a promise; ignore
+                                });
+                            } catch (e) {
+                                // Older grecaptcha may not support promise-returning execute
+                                try { grecaptcha.execute(widgetId); } catch (ee) { reject(ee); }
+                            }
+                            // Timeout after 60s
+                            setTimeout(() => {
+                                if (renderContainer._pendingVerifyResolve) {
+                                    renderContainer._pendingVerifyResolve = null;
+                                    renderContainer._pendingVerifyReject = null;
+                                    reject(new Error('reCAPTCHA verify timeout'));
+                                }
+                            }, 60000);
+                        } catch (e) { reject(e); }
+                    });
+                },
+                clear: () => {
+                    try { if (renderContainer._grecaptchaWidgetId !== undefined) grecaptcha.reset(renderContainer._grecaptchaWidgetId); } catch(_){}
+                }
+            };
+
+            return appVerifier;
+        };
+
+        // Defensive: ensure `auth.settings` exists so RecaptchaVerifier doesn't throw
+        // when reading `appVerificationDisabledForTesting` (some SDK builds expect it).
+        try {
+            if (typeof auth !== 'undefined' && (!auth.settings || typeof auth.settings !== 'object')) {
+                try { auth.settings = auth.settings || {}; } catch (_) {}
+            }
+        } catch (_) {}
+
+        // First attempt: use our custom grecaptcha-based verifier which avoids SDK
+        // internals reading auth internals at construction time.
+        try {
+            const customVerifier = createGreCaptchaAppVerifier(containerEl, { size: 'invisible', siteKey: window.__recaptcha_site_key });
+            if (customVerifier) {
+                window._tiarasMasterPwRecaptcha = customVerifier;
+                return customVerifier;
+            }
+            // If custom verifier couldn't be created (e.g., grecaptcha blocked),
+            // do NOT attempt to construct the SDK RecaptchaVerifier because some
+            // SDK builds read deep auth internals synchronously and throw. Instead
+            // return null and let callers display a clear diagnostic and fallback.
+            console.warn('createGreCaptchaAppVerifier returned null; grecaptcha may be blocked or siteKey missing. Skipping SDK RecaptchaVerifier to avoid runtime errors.');
+            return null;
+        } catch (e) {
+            console.warn('createGreCaptchaAppVerifier failed, skipping SDK RecaptchaVerifier to avoid runtime errors', e);
+            return null;
+        }
+
+        // Try invisible reCAPTCHA first for smoother UX. If rendering fails (often due to
+        // grecaptcha not yet available or local dev domain issues), fall back to a visible
+        // checkbox so the admin can complete verification.
+        // Defensive deep-setting: some Firebase SDK builds expect nested `settings` on
+        // internal delegate objects (auth._delegate, auth._auth). Ensure those exist
+        // so RecaptchaVerifier constructor does not throw when reading
+        // appVerificationDisabledForTesting.
+        try {
+            if (typeof auth !== 'undefined' && auth) {
+                try { if (!auth.settings || typeof auth.settings !== 'object') auth.settings = auth.settings || {}; } catch(_){}
+                try { if (!('appVerificationDisabledForTesting' in auth.settings)) auth.settings.appVerificationDisabledForTesting = false; } catch(_){}
+                try { if (auth._delegate && (!auth._delegate.settings || typeof auth._delegate.settings !== 'object')) auth._delegate.settings = auth._delegate.settings || {}; } catch(_){}
+                try { if (auth._delegate && !('appVerificationDisabledForTesting' in auth._delegate.settings)) auth._delegate.settings.appVerificationDisabledForTesting = false; } catch(_){}
+                try { if (auth._auth && (!auth._auth.settings || typeof auth._auth.settings !== 'object')) auth._auth.settings = auth._auth.settings || {}; } catch(_){}
+                try { if (auth._auth && !('appVerificationDisabledForTesting' in auth._auth.settings)) auth._auth.settings.appVerificationDisabledForTesting = false; } catch(_){}
+            }
+        } catch(_) {}
+        let verifier = null;
+        try {
+            // Create RecaptchaVerifier without passing `auth` here to avoid SDK internals
+            // trying to read nested auth.settings during construction. The verifier can
+            // still be passed to signInWithPhoneNumber/linkWithPhoneNumber later along
+            // with the real `auth` object.
+            verifier = new RecaptchaVerifier(containerEl, { size: 'invisible' });
+            // Attempt to render; some environments may throw synchronously
+            const renderResult = verifier.render();
+            if (renderResult && typeof renderResult.then === 'function') {
+                renderResult.catch((err) => {
+                    console.warn('Invisible reCAPTCHA render failed, falling back to visible:', err);
+                    try {
+                        verifier.clear && verifier.clear();
+                    } catch(_){}
+                    // fallback to visible checkbox
+                    verifier = new RecaptchaVerifier(containerEl, { size: 'normal' });
+                    try { verifier.render().catch(() => {}); } catch(_){}
+                    window._tiarasMasterPwRecaptcha = verifier;
+                });
+            }
+        } catch (err) {
+            console.warn('initRecaptchaForMasterPhone: invisible render error, switching to visible:', err);
+            // If the error indicates auth.settings missing, attempt a defensive set on internal delegate
+            try {
+                if (auth && typeof auth === 'object') {
+                    try { auth.settings = auth.settings || {}; } catch (_) {}
+                    try { if (auth._delegate && !auth._delegate.settings) auth._delegate.settings = auth._delegate.settings || {}; } catch (_) {}
+                }
+            } catch (_) {}
+            try { if (verifier && verifier.clear) verifier.clear(); } catch(_){ }
+            try {
+                verifier = new RecaptchaVerifier(containerEl, { size: 'normal' });
+                try { verifier.render().catch(() => {}); } catch(_){ }
+            } catch (vErr) {
+                console.error('initRecaptchaForMasterPhone: failed to create visible RecaptchaVerifier:', vErr);
+                // Return null so callers can show a helpful message instead of throwing
+                return null;
+            }
+        }
+
+        window._tiarasMasterPwRecaptcha = verifier;
+        return verifier;
+    } catch (err) {
+        console.error('initRecaptchaForMasterPhone error', err);
+        return null;
+    }
+}
+
+function showOtpModal(title = 'Enter OTP') {
+    return new Promise((resolve) => {
+        try {
+            let modal = document.getElementById('masterPasswordOtpModal');
+            if (!modal) {
+                const tpl = `
+                <div id="masterPasswordOtpModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 hidden" role="dialog" aria-modal="true">
+                    <div class="bg-white p-6 rounded-md w-full max-w-sm">
+                        <h3 id="masterPasswordOtpModalTitle" class="text-lg font-semibold mb-2">${title}</h3>
+                        <p class="text-sm text-gray-700 mb-3">Enter the 6-digit OTP sent to your admin mobile.</p>
+                        <div class="space-y-3">
+                            <input id="masterPasswordOtpInput" type="text" inputmode="numeric" maxlength="10" class="w-full px-3 py-2 border rounded" placeholder="OTP" />
+                            <div class="flex justify-end gap-2">
+                                <button id="masterPasswordOtpCancel" class="px-3 py-2 bg-gray-200 rounded">Cancel</button>
+                                <button id="masterPasswordOtpOk" class="px-3 py-2 bg-blue-600 text-white rounded">Verify</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+                const wrap = document.createElement('div'); wrap.innerHTML = tpl.trim(); document.body.appendChild(wrap.firstElementChild);
+                modal = document.getElementById('masterPasswordOtpModal');
+            }
+            const input = document.getElementById('masterPasswordOtpInput');
+            const ok = document.getElementById('masterPasswordOtpOk');
+            const cancel = document.getElementById('masterPasswordOtpCancel');
+            const cleanup = () => { try { ok.removeEventListener('click', onOk); } catch(_){} try { cancel.removeEventListener('click', onCancel); } catch(_){} try { document.removeEventListener('keydown', onKey); } catch(_){} try { modal.classList.add('hidden'); } catch(_){} };
+            const onOk = () => { const v = input && input.value ? input.value.trim() : null; cleanup(); if (input) input.value = ''; resolve(v); };
+            const onCancel = () => { cleanup(); if (input) input.value = ''; resolve(null); };
+            const onKey = (e) => { if (e.key === 'Escape') onCancel(); if (e.key === 'Enter') onOk(); };
+            ok.addEventListener('click', onOk);
+            cancel.addEventListener('click', onCancel);
+            document.addEventListener('keydown', onKey);
+            modal.classList.remove('hidden');
+            try { input.focus(); } catch(_){}
+        } catch (err) { console.error('showOtpModal error', err); resolve(null); }
+    });
+}
+
+async function sendMasterPasswordOtp() {
+    try {
+        const phoneEl = document.getElementById('adminPhoneDisplay');
+        const statusEl = document.getElementById('masterPasswordOtpStatus');
+        if (statusEl) statusEl.textContent = 'Sending...';
+        if (!phoneEl) { showMessage('Admin phone element missing.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+        const phone = (phoneEl.value || '').toString().trim();
+        if (!phone) { showMessage('Invalid admin phone number configured.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+
+        // Require that the current user is signed in (we will link the phone to their account)
+        if (!auth.currentUser || auth.currentUser.isAnonymous) {
+            showMessage('Please sign in as an admin user before verifying the admin phone.'); if (statusEl) statusEl.textContent = 'Not verified'; return;
+        }
+
+        // Developer local/emulator shortcut: when running on localhost or when the
+        // Auth emulator is in use (appVerificationDisabledForTesting), skip grecaptcha
+        // and use a dev OTP printed to the console. This avoids RecaptchaVerifier issues
+        // during local development.
+        const hostname = (window && window.location && window.location.hostname) || '';
+        const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+        const emulatorBypass = !!(auth && (auth.appVerificationDisabledForTesting || (auth.settings && auth.settings.appVerificationDisabledForTesting)));
+        if (isLocal || emulatorBypass) {
+            // Generate a 6-digit OTP, store temporarily in state with TTL, and prompt user.
+            const otp = String(Math.floor(100000 + Math.random() * 900000));
+            state._masterPwdDevOtp = otp;
+            state._masterPwdDevOtpExpiry = Date.now() + (5 * 60 * 1000);
+            console.info('DEV MODE: Master password OTP (valid 5m):', otp);
+            if (statusEl) statusEl.textContent = 'OTP sent (dev mode)';
+            showMessage('DEV OTP generated and printed to console for local testing.');
+            const code = await showOtpModal('Verify admin phone (dev)');
+            if (!code) { showMessage('OTP verification cancelled.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+            if (Date.now() > (state._masterPwdDevOtpExpiry || 0)) { showMessage('OTP expired. Please try again.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+            if (code.trim() === state._masterPwdDevOtp) {
+                state.masterPasswordPhoneVerified = true;
+                state.masterPasswordPhoneVerifiedAt = Date.now();
+                if (statusEl) statusEl.textContent = 'Verified ✓ (dev)';
+                showMessage('Phone verified (dev). You may now save the new master password.');
+                return true;
+            } else {
+                showMessage('OTP incorrect.');
+                if (statusEl) statusEl.textContent = 'Not verified';
+                return false;
+            }
+        }
+
+        const verifier = await initRecaptchaForMasterPhone();
+        if (!verifier) {
+            console.error('sendMasterPasswordOtp: RecaptchaVerifier not available. grecaptcha=', !!window.grecaptcha, 'auth=', auth);
+            const help = 'Failed to initialize reCAPTCHA. Common causes: adblocker blocking grecaptcha, reCAPTCHA not configured for this domain, or Firebase Phone Auth not enabled. Check browser console for details.';
+            showMessage(help);
+            if (statusEl) {
+                statusEl.textContent = 'reCAPTCHA init failed - check console';
+                statusEl.title = 'Check console for recaptcha and auth details';
+            }
+            // Offer a temporary dev-mode fallback (insecure) to continue testing: generate OTP printed to console.
+            try {
+                const allow = window.confirm('reCAPTCHA initialization failed. Do you want to use a temporary in-browser OTP (shown in console) for testing? This is insecure and should only be used for local/dev testing.');
+                if (!allow) return;
+                const otp = String(Math.floor(100000 + Math.random() * 900000));
+                state._masterPwdDevOtp = otp;
+                state._masterPwdDevOtpExpiry = Date.now() + (5 * 60 * 1000);
+                console.info('FALLBACK DEV OTP (use only for testing):', otp);
+                if (statusEl) statusEl.textContent = 'OTP sent (fallback dev)';
+                const code = await showOtpModal('Verify admin phone (fallback dev)');
+                if (!code) { showMessage('OTP verification cancelled.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+                if (Date.now() > (state._masterPwdDevOtpExpiry || 0)) { showMessage('OTP expired. Please try again.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+                if (code.trim() === state._masterPwdDevOtp) {
+                    state.masterPasswordPhoneVerified = true;
+                    state.masterPasswordPhoneVerifiedAt = Date.now();
+                    if (statusEl) statusEl.textContent = 'Verified ✓ (fallback)';
+                    showMessage('Phone verified (fallback). You may now save the new master password.');
+                    return true;
+                } else {
+                    showMessage('OTP incorrect.');
+                    if (statusEl) statusEl.textContent = 'Not verified';
+                    return false;
+                }
+            } catch (e) {
+                console.error('fallback dev OTP flow failed', e);
+                return;
+            }
+        }
+
+        // Attempt to proactively get a verification token with a short timeout.
+        let gotToken = false;
+        try {
+            console.debug('sendMasterPasswordOtp: attempting verifier.verify() with 10s timeout');
+            const token = await Promise.race([
+                verifier.verify(),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('verify timeout')), 10000))
+            ]);
+            console.debug('sendMasterPasswordOtp: verifier.verify returned token length=', token ? token.length : 0);
+            gotToken = !!token;
+        } catch (verErr) {
+            console.warn('sendMasterPasswordOtp: verifier.verify failed or timed out', verErr);
+            // If verify failed (possibly invisible recaptcha blocked), try a visible widget so the user can click.
+            try {
+                console.debug('sendMasterPasswordOtp: attempting to recreate visible grecaptcha widget');
+                const visible = createGreCaptchaAppVerifier(document.getElementById('recaptcha-container-masterpw'), { size: 'normal', siteKey: window.__recaptcha_site_key });
+                if (visible) {
+                    window._tiarasMasterPwRecaptcha = visible;
+                    // Wait for user to click and complete the visible widget (verify will resolve when token arrives)
+                    try {
+                        const token2 = await Promise.race([
+                            visible.verify(),
+                            new Promise((_, reject) => setTimeout(() => reject(new Error('visible verify timeout')), 120000))
+                        ]);
+                        console.debug('sendMasterPasswordOtp: visible.verify returned token length=', token2 ? token2.length : 0);
+                        gotToken = !!token2;
+                    } catch (vErr) {
+                        console.warn('sendMasterPasswordOtp: visible verifier failed', vErr);
+                    }
+                } else {
+                    console.warn('sendMasterPasswordOtp: visible grecaptcha verifier could not be created');
+                }
+            } catch (vv) {
+                console.error('sendMasterPasswordOtp: error attempting visible grecaptcha verifier', vv);
+            }
+        }
+
+        if (!gotToken) {
+            console.error('sendMasterPasswordOtp: could not obtain grecaptcha token; offering fallback. grecaptcha=', !!window.grecaptcha);
+            try {
+                const allow = window.confirm('reCAPTCHA initialization failed. Do you want to use a temporary in-browser OTP (shown in console) for testing? This is insecure and should only be used for local/dev testing.');
+                if (!allow) return;
+                const otp = String(Math.floor(100000 + Math.random() * 900000));
+                state._masterPwdDevOtp = otp;
+                state._masterPwdDevOtpExpiry = Date.now() + (5 * 60 * 1000);
+                console.info('FALLBACK DEV OTP (use only for testing):', otp);
+                if (statusEl) statusEl.textContent = 'OTP sent (fallback dev)';
+                const code = await showOtpModal('Verify admin phone (fallback dev)');
+                if (!code) { showMessage('OTP verification cancelled.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+                if (Date.now() > (state._masterPwdDevOtpExpiry || 0)) { showMessage('OTP expired. Please try again.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+                if (code.trim() === state._masterPwdDevOtp) {
+                    state.masterPasswordPhoneVerified = true;
+                    state.masterPasswordPhoneVerifiedAt = Date.now();
+                    if (statusEl) statusEl.textContent = 'Verified ✓ (fallback)';
+                    showMessage('Phone verified (fallback). You may now save the new master password.');
+                    return true;
+                } else {
+                    showMessage('OTP incorrect.');
+                    if (statusEl) statusEl.textContent = 'Not verified';
+                    return false;
+                }
+            } catch (e) {
+                console.error('fallback dev OTP flow failed', e);
+                return;
+            }
+        }
+
+        let confirmationResult;
+        try {
+            // Prefer linking the phone to the existing signed-in user to avoid changing auth state
+            confirmationResult = await linkWithPhoneNumber(auth.currentUser, phone, verifier);
+        } catch (linkErr) {
+            // If linking fails (e.g., already linked or not supported), fallback to send SMS via signInWithPhoneNumber
+            try {
+                confirmationResult = await signInWithPhoneNumber(auth, phone, verifier);
+            } catch (signErr) {
+                console.error('Failed to send OTP (link and sign-in attempts failed)', linkErr, signErr);
+                showMessage('Failed to send OTP. Check the Firebase Phone Auth configuration and reCAPTCHA.');
+                if (statusEl) statusEl.textContent = 'Not verified';
+                return;
+            }
+        }
+
+        // Store confirmationResult for later confirmation
+        state._masterPwdConfirmationResult = confirmationResult;
+        showMessage('OTP sent to ' + phone + '. Please enter the code to verify.');
+        if (statusEl) statusEl.textContent = 'OTP sent';
+
+        // Ask user to enter the OTP
+        const code = await showOtpModal('Verify admin phone');
+        if (!code) { showMessage('OTP verification cancelled.'); if (statusEl) statusEl.textContent = 'Not verified'; return; }
+
+        // Confirm the code
+        try {
+            const userCred = await confirmationResult.confirm(code);
+            // Mark verified in local state (short TTL e.g., 5 minutes)
+            state.masterPasswordPhoneVerified = true;
+            state.masterPasswordPhoneVerifiedAt = Date.now();
+            if (statusEl) statusEl.textContent = 'Verified ✓';
+            showMessage('Phone verified successfully. You may now save the new master password.');
+            return true;
+        } catch (confirmErr) {
+            console.error('OTP confirm failed', confirmErr);
+            showMessage('OTP is incorrect or expired. Please try again.');
+            if (statusEl) statusEl.textContent = 'Not verified';
+            return false;
+        }
+    } catch (err) {
+        console.error('sendMasterPasswordOtp error', err);
+        showMessage('Failed to send/verify OTP.');
+        try { const statusEl = document.getElementById('masterPasswordOtpStatus'); if (statusEl) statusEl.textContent = 'Not verified'; } catch(_){}
         return false;
     }
 }
@@ -4263,28 +7536,35 @@ async function resetUserCartsSmart() {
 // Reset only selected data buckets based on flags
 async function resetSelectedData(flags) {
     const errors = [];
+    const results = []; // collect per-bucket outcomes for UI summary
     const safe = async (label, fn, fallback, epochKey) => {
         try {
             await fn();
+            console.info(`${label}: primary delete completed`);
+            results.push({ label, status: 'deleted' });
+            return;
         } catch (e) {
+            // If permission denied, try fallback soft-delete then epoch bump
             if (isPermissionDenied(e)) {
                 if (typeof fallback === 'function') {
                     try {
                         await fallback();
+                        console.info(`${label}: fallback soft-delete completed`);
+                        results.push({ label, status: 'soft-deleted' });
                         return;
                     } catch (e2) {
-                        // If fallback also fails with permission issues, prefer epoch bump route silently
                         if (!isPermissionDenied(e2)) console.info(`Fallback failed: ${label}`, e2);
-                        // Continue to epoch bump attempt
+                        // continue to epoch bump attempt
                     }
                 }
                 if (epochKey) {
                     try {
                         await bumpVisibilityEpoch(epochKey);
-                        console.info(`Visibility epoch bumped for ${epochKey}; treating ${label} as handled.`);
+                        console.info(`${label}: visibility epoch bumped for ${epochKey}`);
+                        results.push({ label, status: 'epoch-bumped' });
                         return;
                     } catch (e3) {
-                        console.error(`Epoch bump failed: ${label}`, e3);
+                        console.error(`Epoch bump failed for ${label}:`, e3);
                         errors.push({ label, error: e3 });
                         return;
                     }
@@ -4292,6 +7572,8 @@ async function resetSelectedData(flags) {
             }
             console.error(`Selected reset step failed: ${label}`, e);
             errors.push({ label, error: e });
+            results.push({ label, status: 'failed', error: String(e && e.message ? e.message : e) });
+            return;
         }
     };
 
@@ -4301,6 +7583,8 @@ async function resetSelectedData(flags) {
         // Always bump visibility epoch to hide any legacy user-subcollection order copies
         try { await bumpVisibilityEpoch('orders'); } catch (e) { console.warn('orders epoch bump (post-delete) failed', e); }
     }
+    if (flags.suppliers) await safe('Suppliers', () => deleteAllDocsInCollection(suppliersColPath), () => markAllDocsInCollection(suppliersColPath), 'suppliers');
+    if (flags.customers) await safe('Customers', () => deleteAllDocsInCollection(customersColPath), () => markAllDocsInCollection(customersColPath), 'customers');
     if (flags.products) await safe('Products', () => deleteAllDocsInCollection(productsColPath), () => markAllDocsInCollection(productsColPath), 'products');
     if (flags.productGroups) await safe('Product Groups', () => deleteAllDocsInCollection(productGroupsColPath), () => markAllDocsInCollection(productGroupsColPath), 'productGroups');
     if (flags.slides) await safe('Hero Slides', () => deleteAllDocsInCollection(slidesColPath), () => markAllDocsInCollection(slidesColPath), 'slides');
@@ -4310,6 +7594,13 @@ async function resetSelectedData(flags) {
     if (flags.localSales) await safe('Local Sales', () => deleteAllDocsInCollection(localSalesColPath), () => markAllDocsInCollection(localSalesColPath), 'localSales');
     if (flags.salesReturns) await safe('Sales Returns', () => deleteAllDocsInCollection(salesReturnsColPath), () => markAllDocsInCollection(salesReturnsColPath), 'salesReturns');
     if (flags.purchaseReturns) await safe('Purchase Returns', () => deleteAllDocsInCollection(purchaseReturnsColPath), () => markAllDocsInCollection(purchaseReturnsColPath), 'purchaseReturns');
+    if (flags.creditors) await safe('Creditors Ledger', () => deleteAllDocsInCollection(creditorsLedgerColPath), () => markAllDocsInCollection(creditorsLedgerColPath), 'creditors');
+    if (flags.debtors) await safe('Debtors Ledger', () => deleteAllDocsInCollection(debtorsLedgerColPath), () => markAllDocsInCollection(debtorsLedgerColPath), 'debtors');
+    // Cash & Bank books
+    if (flags.cash) await safe('Cash Book', () => deleteAllDocsInCollection(cashLedgerColPath), () => markAllDocsInCollection(cashLedgerColPath), 'cash');
+    if (flags.bank) await safe('Bank Book', () => deleteAllDocsInCollection(bankLedgerColPath), () => markAllDocsInCollection(bankLedgerColPath), 'bank');
+    // Party masters
+    if (flags.banks) await safe('Banks', () => deleteAllDocsInCollection(banksColPath), () => markAllDocsInCollection(banksColPath), 'banks');
     // User Carts: prefer admin Cloud Function; fallback to client-side best-effort
     if (flags.carts) await safe('User Carts', () => resetUserCartsSmart());
 
@@ -4336,45 +7627,57 @@ async function resetSelectedData(flags) {
     }
 
     renderApp();
-    return { ok: errors.length === 0, errors };
+    return { ok: errors.length === 0, errors, results };
 }
 
 async function resetAllData() {
     const errors = [];
-    const safe = async (label, fn, fallback, epochKey) => {
-        try { await fn(); }
-        catch (e) {
-            if (isPermissionDenied(e)) {
-                if (typeof fallback === 'function') {
-                    try { await fallback(); return; }
-                    catch (e2) {
-                        // If fallback also permission-denied, attempt epoch bump and treat as handled
-                        if (epochKey) { try { await bumpVisibilityEpoch(epochKey); return; } catch (e3) { errors.push({ label, error: e3 }); return; } }
-                        // Non-permission error: record
-                        errors.push({ label, error: e2 });
-                        return;
+        const results = [];
+        const safe = async (label, fn, fallback, epochKey) => {
+            try { await fn(); results.push({ label, status: 'deleted' }); }
+            catch (e) {
+                if (isPermissionDenied(e)) {
+                    if (typeof fallback === 'function') {
+                        try { await fallback(); results.push({ label, status: 'soft-deleted' }); return; }
+                        catch (e2) {
+                            // If fallback also permission-denied, attempt epoch bump and treat as handled
+                            if (epochKey) { try { await bumpVisibilityEpoch(epochKey); results.push({ label, status: 'epoch-bumped' }); return; } catch (e3) { errors.push({ label, error: e3 }); return; } }
+                            // Non-permission error: record
+                            errors.push({ label, error: e2 });
+                            results.push({ label, status: 'failed', error: String(e2 && e2.message ? e2.message : e2) });
+                            return;
+                        }
                     }
+                    if (epochKey) { try { await bumpVisibilityEpoch(epochKey); results.push({ label, status: 'epoch-bumped' }); return; } catch (e3) { errors.push({ label, error: e3 }); return; } }
                 }
-                if (epochKey) { try { await bumpVisibilityEpoch(epochKey); return; } catch (e3) { errors.push({ label, error: e3 }); return; } }
+                console.error(`Reset step failed: ${label}`, e);
+                errors.push({ label, error: e });
+                results.push({ label, status: 'failed', error: String(e && e.message ? e.message : e) });
             }
-            console.error(`Reset step failed: ${label}`, e);
-            errors.push({ label, error: e });
-        }
-    };
+        };
 
     // Delete or soft-delete high-volume collections first
     await safe('Orders', () => deleteAllPublicOrders(), () => markAllPublicOrdersDeleted(), 'orders');
     // Regardless of delete/soft-delete outcome, bump epoch to hide any historical user order copies
     try { await bumpVisibilityEpoch('orders'); } catch (e) { console.warn('orders epoch bump (post-master-reset) failed', e); }
     await safe('Products', () => deleteAllDocsInCollection(productsColPath), () => markAllDocsInCollection(productsColPath), 'products');
+    await safe('Suppliers', () => deleteAllDocsInCollection(suppliersColPath), () => markAllDocsInCollection(suppliersColPath), 'suppliers');
+    await safe('Customers', () => deleteAllDocsInCollection(customersColPath), () => markAllDocsInCollection(customersColPath), 'customers');
+    // Party masters
+    await safe('Banks', () => deleteAllDocsInCollection(banksColPath), () => markAllDocsInCollection(banksColPath), 'banks');
     await safe('Product Groups', () => deleteAllDocsInCollection(productGroupsColPath), () => markAllDocsInCollection(productGroupsColPath), 'productGroups');
     await safe('Hero Slides', () => deleteAllDocsInCollection(slidesColPath), () => markAllDocsInCollection(slidesColPath), 'slides');
     await safe('Gallery Images', () => deleteAllDocsInCollection(galleryImagesColPath), () => markAllDocsInCollection(galleryImagesColPath), 'galleryImages');
     await safe('Testimonials', () => deleteAllDocsInCollection(testimonialsColPath), () => markAllDocsInCollection(testimonialsColPath), 'testimonials');
     await safe('Purchases', () => deleteAllDocsInCollection(purchasesColPath), () => markAllDocsInCollection(purchasesColPath), 'purchases');
+    await safe('Creditors Ledger', () => deleteAllDocsInCollection(creditorsLedgerColPath), () => markAllDocsInCollection(creditorsLedgerColPath), 'creditors');
+    await safe('Debtors Ledger', () => deleteAllDocsInCollection(debtorsLedgerColPath), () => markAllDocsInCollection(debtorsLedgerColPath), 'debtors');
     await safe('Local Sales', () => deleteAllDocsInCollection(localSalesColPath), () => markAllDocsInCollection(localSalesColPath), 'localSales');
     await safe('Sales Returns', () => deleteAllDocsInCollection(salesReturnsColPath), () => markAllDocsInCollection(salesReturnsColPath), 'salesReturns');
     await safe('Purchase Returns', () => deleteAllDocsInCollection(purchaseReturnsColPath), () => markAllDocsInCollection(purchaseReturnsColPath), 'purchaseReturns');
+    // Cash & Bank books
+    await safe('Cash Book', () => deleteAllDocsInCollection(cashLedgerColPath), () => markAllDocsInCollection(cashLedgerColPath), 'cash');
+    await safe('Bank Book', () => deleteAllDocsInCollection(bankLedgerColPath), () => markAllDocsInCollection(bankLedgerColPath), 'bank');
 
     // Reset site settings to defaults
     const preservedEpochs = { ...(state.siteSettings?.visibilityEpochs || {}) };
@@ -4400,6 +7703,8 @@ async function resetAllData() {
     state.galleryImages = [];
     state.testimonials = [];
     state.allTestimonials = [];
+    state.allSuppliers = [];
+    state.allCustomers = [];
     state.orders = [];
     state.allOrders = [];
     state.allPurchases = [];
@@ -4410,7 +7715,7 @@ async function resetAllData() {
 
     renderApp();
 
-    return { ok: errors.length === 0, errors };
+    return { ok: errors.length === 0, errors, results };
 }
 
 function printReport(reportContainerId, reportTitle) {
@@ -4510,6 +7815,66 @@ function attachReportListeners() {
    document.getElementById('billingPrev')?.addEventListener('click', () => { if (state.billingPage > 1) { state.billingPage--; renderAdminBillingPage(); } });
    document.getElementById('billingNext')?.addEventListener('click', () => { state.billingPage++; renderAdminBillingPage(); });
    document.getElementById('billingPageSize')?.addEventListener('change', (e) => { state.billingPageSize = parseInt(e.target.value) || 25; state.billingPage = 1; renderAdminBillingPage(); });
+
+    // Party-wise ledger controls
+    document.getElementById('partyLedgerType')?.addEventListener('change', (e) => {
+        try {
+            const val = (e.target.value || 'supplier');
+            const sel = document.getElementById('partyLedgerSelect');
+            if (!sel) return;
+            if (val === 'supplier') {
+                sel.innerHTML = `<option value="">-- Select Party --</option>` + (state.allSuppliers || []).map(s => { const name = (s.name||'').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;'); const gst = s.gstin ? (' • ' + s.gstin) : ''; return `<option value="${name}" data-id="${s.id||''}">${name}${gst}</option>`; }).join('');
+            } else {
+                sel.innerHTML = `<option value="">-- Select Party --</option>` + (state.allCustomers || []).map(c => { const name = (c.name||'').toString().replace(/</g,'&lt;').replace(/>/g,'&gt;'); return `<option value="${name}" data-id="${c.id||''}">${name}</option>`; }).join('');
+            }
+        } catch (err) { console.error('partyLedgerType change', err); }
+    });
+
+    document.getElementById('generatePartyLedgerBtn')?.addEventListener('click', (ev) => {
+        try {
+            ev.preventDefault();
+            const type = (document.getElementById('partyLedgerType')?.value || 'supplier');
+            const party = (document.getElementById('partyLedgerSelect')?.value || '').trim();
+            if (!party) { showMessage('Please select a party.'); return; }
+            const startD = new Date(document.getElementById('partyLedgerStartDate')?.value || state.registerStartDate);
+            startD.setHours(0,0,0,0);
+            const endD = new Date(document.getElementById('partyLedgerEndDate')?.value || state.registerEndDate);
+            endD.setHours(23,59,59,999);
+
+            const entries = [];
+            const nameLower = party.toLowerCase();
+            // Purchases (supplier) -> debit
+            if (type === 'supplier') {
+                (state.allPurchases || []).forEach(p => {
+                    if (p.isDeleted) return;
+                    const d = _toDate(p.purchaseDate);
+                    if (!d || d < startD || d > endD) return;
+                    const match = ((p.supplierName||'').toString().trim().toLowerCase() === nameLower) || ((p.supplierGstin||'').toString().trim() === (state.allSuppliers.find(s=> (s.name||'').toString().trim().toLowerCase()===nameLower)?.gstin || ''));
+                    if (match) entries.push({ date: d, id: p.id, ref: p.invoiceNumber || p.id, type: 'Purchase', details: p.supplierName || '', debit: p.totalAmount || 0, credit: 0 });
+                });
+                // Build a simple table from collected entries (escape content safely)
+                const escape = (v) => (v === null || typeof v === 'undefined') ? '' : String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+                // Ensure dates are proper Date objects
+                entries.forEach(e => { if (e && e.date && typeof e.date === 'string') e.date = _toDate(e.date); });
+                entries.sort((a,b) => { const da = a && a.date ? (+a.date) : 0; const db = b && b.date ? (+b.date) : 0; return da - db; });
+                const rowsHtml = (entries || []).map(e => {
+                    return `<tr class="border-t"><td class="p-2">${formatDate(e.date)}</td><td class="p-2">${escape(e.ref)}</td><td class="p-2">${escape(e.type)}</td><td class="p-2">${escape(e.details)}</td><td class="p-2 text-right">${formatMoney(e.debit || 0)}</td><td class="p-2 text-right">${formatMoney(e.credit || 0)}</td></tr>`;
+                }).join('');
+                const table = `<div class="overflow-x-auto"><table id="partyLedgerTable" class="w-full text-sm text-left"><thead class="bg-gray-100"><tr><th class="p-2">Date</th><th class="p-2">Ref</th><th class="p-2">Type</th><th class="p-2">Details</th><th class="p-2 text-right">Debit (₹)</th><th class="p-2 text-right">Credit (₹)</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+                }
+
+            const out = document.getElementById('partyLedgerResultContainer');
+            if (out) out.innerHTML = table;
+        } catch (err) { console.error('generatePartyLedger', err); showMessage('Failed to generate ledger.'); }
+    });
+
+    document.getElementById('printPartyLedgerBtn')?.addEventListener('click', () => printReport('partyLedgerContainer', 'Party-wise Ledger'));
+    document.getElementById('exportPartyLedgerBtn')?.addEventListener('click', () => exportTableToCSV('partyLedgerTable', 'party-ledger.csv'));
+
+    // Inventory pagination
+    document.getElementById('inventoryPrev')?.addEventListener('click', () => { if ((state.inventoryPage || 1) > 1) { state.inventoryPage = (state.inventoryPage || 1) - 1; renderAdminBillingPage(); } });
+    document.getElementById('inventoryNext')?.addEventListener('click', () => { state.inventoryPage = (state.inventoryPage || 1) + 1; renderAdminBillingPage(); });
+    document.getElementById('inventoryPageSize')?.addEventListener('change', (e) => { state.inventoryPageSize = parseInt(e.target.value) || 10; state.inventoryPage = 1; renderAdminBillingPage(); });
 }
 
 function renderAdminReturnsPage() {
@@ -4789,7 +8154,13 @@ function renderAdminReturnsPage() {
         const totalAmount = subtotal + gstBreakdown.total;
         const editingSalesReturnId = (document.getElementById('editingSalesReturnId')?.value || '').trim();
         const existingReturn = editingSalesReturnId ? (state.allSalesReturns || []).find(r => r.id === editingSalesReturnId) : null;
-        const creditNoteNumber = editingSalesReturnId ? (existingReturn?.creditNoteNumber || editingSalesReturnId) : (await getAndIncrementCounter('salesReturns'));
+        let creditNoteNumber;
+        if (editingSalesReturnId) {
+            creditNoteNumber = existingReturn?.creditNoteNumber || editingSalesReturnId;
+        } else {
+            const rawCounter = await getAndIncrementCounter('salesReturns');
+            creditNoteNumber = formatInvoiceFromCounter(rawCounter, 'salesReturns');
+        }
         const isCreditReturn = !!document.getElementById('salesReturnIsCredit')?.checked;
         const refundMode = isCreditReturn ? null : ((document.getElementById('salesReturnRefundMode')?.value) || 'cash');
 
@@ -5031,7 +8402,13 @@ function renderAdminReturnsPage() {
 
         const editingPurchaseReturnId = (document.getElementById('editingPurchaseReturnId')?.value || '').trim();
         const existingPR = editingPurchaseReturnId ? (state.allPurchaseReturns || []).find(r => r.id === editingPurchaseReturnId) : null;
-        const debitNoteNumber = editingPurchaseReturnId ? (existingPR?.debitNoteNumber || editingPurchaseReturnId) : (await getAndIncrementCounter('purchaseReturns'));
+        let debitNoteNumber;
+        if (editingPurchaseReturnId) {
+            debitNoteNumber = existingPR?.debitNoteNumber || editingPurchaseReturnId;
+        } else {
+            const rawCounter = await getAndIncrementCounter('purchaseReturns');
+            debitNoteNumber = formatInvoiceFromCounter(rawCounter, 'purchaseReturns');
+        }
         const settleType = (document.querySelector('input[name="purchaseReturnSettleType"]:checked')?.value) || 'creditors';
 
         try {
@@ -5463,7 +8840,8 @@ document.body.addEventListener('submit', async e => {
             zip: document.getElementById('zip').value,
         };
         
-        const invoiceNumber = await getAndIncrementCounter('sales');
+        const rawSalesCounter = await getAndIncrementCounter('sales');
+        const invoiceNumber = formatInvoiceFromCounter(rawSalesCounter, 'sales');
 
         const orderData = {
             userId: state.currentUser.uid,
@@ -5498,32 +8876,78 @@ document.body.addEventListener('submit', async e => {
                 console.warn('Saving default shipping profile failed (non-blocking):', e?.message || e);
             }
 
-            // Start a batch write to update stock and create orders
-            const batch = writeBatch(db);
-
-            // Decrement stock for each item
-            items.forEach(item => {
-                const productRef = doc(db, productsColPath, item.id);
-               batch.update(productRef, { stock: increment(-item.quantity) });
-            });
-            
-            // Create public order
+            // Create a public order id first (used as receipt in Razorpay order creation)
             const publicOrderRef = doc(collection(db, ordersColPath));
-            batch.set(publicOrderRef, orderData);
+            const publicOrderId = publicOrderRef.id;
 
-             // Create user-specific order
-            const userOrderPath = `artifacts/${appId}/users/${state.currentUser.uid}/orders`;
-            const userOrderRef = doc(db, userOrderPath, publicOrderRef.id);
-            batch.set(userOrderRef, orderData);
+            // Prepare payload for server-side Razorpay order creation (amount in paise)
+            const amountPaise = Math.round(totalAmount * 100);
+            try {
+                const createOrderFn = httpsCallable(functionsSvc, 'createRazorpayOrder');
+                const createResp = await createOrderFn({ amountPaise, currency: 'INR', receipt: publicOrderId, notes: { userId: state.currentUser.uid || null } });
+                const createData = createResp.data || {};
+                if (!createData || !createData.orderId) {
+                    throw new Error('Failed to create payment order');
+                }
 
-            // Clear the cart
-            const cartRef = doc(db, `artifacts/${appId}/users/${state.currentUser.uid}/cart`, 'user_cart');
-            batch.set(cartRef, { items: {} });
+                // Ensure Razorpay checkout script is present
+                async function ensureRzp() {
+                    if (window.Razorpay) return;
+                    await new Promise((resolve, reject) => {
+                        const s = document.createElement('script');
+                        s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+                        s.onload = resolve;
+                        s.onerror = () => reject(new Error('Failed to load Razorpay script'));
+                        document.head.appendChild(s);
+                    });
+                }
+                await ensureRzp();
 
-            // Commit all operations atomically
-            await batch.commit();
+                const options = {
+                    key: createData.keyId || '',
+                    amount: createData.amount || amountPaise,
+                    currency: createData.currency || 'INR',
+                    name: (state.siteSettings && state.siteSettings.shopName) || 'Tiaras',
+                    description: `Order ${publicOrderId}`,
+                    order_id: createData.orderId,
+                    handler: async function (response) {
+                        try {
+                            // On successful payment, call server to verify signature and persist the order atomically
+                            const verifyFn = httpsCallable(functionsSvc, 'verifyRazorpayPayment');
+                            const verifyPayload = {
+                                publicOrderId,
+                                orderData: Object.assign({}, orderData, { appId }),
+                                razorpay_order_id: response.razorpay_order_id,
+                                razorpay_payment_id: response.razorpay_payment_id,
+                                razorpay_signature: response.razorpay_signature
+                            };
+                            const vresp = await verifyFn(verifyPayload);
+                            const vdata = vresp.data || {};
+                            if (vdata && vdata.ok) {
+                                navigateTo('order_success', publicOrderId);
+                            } else {
+                                console.error('Payment verification failed', vdata);
+                                showMessage('Payment succeeded but verification failed. Please contact support.');
+                            }
+                        } catch (err) {
+                            console.error('verifyRazorpayPayment error', err);
+                            showMessage('Payment succeeded but server verification failed. Please contact support.');
+                        }
+                    },
+                    prefill: {
+                        name: shippingInfo.fullName || '',
+                        email: state.currentUser?.email || '',
+                        contact: shippingInfo.phone || ''
+                    },
+                    theme: { color: '#000000' }
+                };
 
-            navigateTo('order_success', publicOrderRef.id);
+                const rzp = new window.Razorpay(options);
+                rzp.open();
+            } catch (err) {
+                console.error('Payment initialization failed', err);
+                showMessage('Unable to initialize payment. Please try again or use another payment method.');
+            }
         } catch (error) {
             console.error("Error placing order:", error);
             showMessage("There was an issue placing your order. Please try again.");
@@ -5586,6 +9010,7 @@ document.body.addEventListener('submit', async e => {
         const editingId = (document.getElementById('editingPurchaseId')?.value || '').trim();
         const supplierName = document.getElementById('supplierName').value;
         const purchaseDate = document.getElementById('purchaseDate').value;
+        const supplierInvoiceNumber = (document.getElementById('supplierInvoiceNumber')?.value || '').trim() || null;
     // Toggle ON (checked) = Inclusive; OFF = Exclusive
     const pricesIncludeGst = !!(document.getElementById('purchasePricesIncludeGst')?.checked || false);
         const items = [];
@@ -5612,7 +9037,7 @@ document.body.addEventListener('submit', async e => {
                 };
                 // Open the edit modal prefilled so user can update missing fields
                 try {
-                    showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id, isGstRegistered: (typeof supplierObj.isGstRegistered !== 'undefined') ? !!supplierObj.isGstRegistered : undefined });
+                    showPartyEditModal({ type: 'supplier', name: supplierObj.name || '', gstin: supplierObj.gstin || '', address: supplierObj.address || '', docId: supplierObj.id, isGstRegistered: (typeof supplierObj.isGstRegistered !== 'undefined') ? !!supplierObj.isGstRegistered : undefined, stateCode: supplierObj.stateCode || '', pin: supplierObj.pin || '', mobile: supplierObj.mobile || '' });
                 } catch (_) {
                     // Fallback: show message
                     pendingPurchaseRetryFn = null;
@@ -5627,10 +9052,12 @@ document.body.addEventListener('submit', async e => {
             const productName = row.querySelector('.purchase-product-select').options[row.querySelector('.purchase-product-select').selectedIndex].text;
             const purchasePrice = parseFloat(row.querySelector('.purchase-price').value) || 0;
             const quantity = parseInt(row.querySelector('.purchase-quantity').value) || 0;
-            const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
+            const gstPercentage = getRowGstPercentage(row);
+            const hsnCode = (row.querySelector('.purchase-hsn')?.value || '').trim() || null;
 
             if (productId && purchasePrice > 0 && quantity > 0) {
-                items.push({ productId, productName, price: purchasePrice, quantity, gstPercentage });
+                // Store both 'price' (legacy) and 'purchasePrice' (used by costing logic)
+                items.push({ productId, productName, purchasePrice: purchasePrice, price: purchasePrice, quantity, gstPercentage, hsn: hsnCode });
             }
         });
 
@@ -5657,13 +9084,23 @@ document.body.addEventListener('submit', async e => {
             });
             gstComputed = { total: 0, subtotalEx: sEx, subtotalInc: sInc, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
         }
-        // Preserve original invoice number when editing, else generate
+        // Preserve original invoice number when editing; allow reuse of deleted invoice if selected; else generate
         let invoiceNumber = undefined;
+        const deletedSelEl = document.getElementById('deletedInvoiceSelect');
         if (editingId) {
             const original = state.allPurchases.find(p => p.id === editingId);
-            invoiceNumber = original?.invoiceNumber || await getAndIncrementCounter('purchases');
+            invoiceNumber = original?.invoiceNumber || '';
         } else {
-            invoiceNumber = await getAndIncrementCounter('purchases');
+            const reusedHiddenEl = document.getElementById('purchaseReusedInvoice');
+            const reusedVal = (reusedHiddenEl?.value || '').trim();
+            if (reusedVal) {
+                invoiceNumber = reusedVal;
+            } else if (deletedSelEl && (deletedSelEl.value || '').trim()) {
+                invoiceNumber = (deletedSelEl.value || '').trim();
+            } else {
+                const rawPurchCounter = await getAndIncrementCounter('purchases');
+                invoiceNumber = formatInvoiceFromCounter(rawPurchCounter, 'purchases');
+            }
         }
 
         const paymentTypeRadio = (document.querySelector('input[name="purchasePaymentType"]:checked')?.value) || 'credit';
@@ -5677,14 +9114,18 @@ document.body.addEventListener('submit', async e => {
             return;
         }
 
-    const tmpTotal = (pricesIncludeGst ? gstComputed.subtotalInc : gstComputed.subtotalEx);
+    // Compute grand total: always include GST in the stored total amount.
+    // If prices include GST already, use subtotalInc; otherwise add computed GST total.
+    const tmpTotal = (pricesIncludeGst
+        ? +(gstComputed.subtotalInc || 0)
+        : +((gstComputed.subtotalEx || 0) + (gstComputed.total || 0)).toFixed(2)
+    );
         // If supplier is not GST-registered, require explicit confirmation before saving
         const confirmedEl = document.getElementById('confirmedUnregPurchase');
         if (!supplierRegistered) {
             if (!confirmedEl || (confirmedEl && confirmedEl.value !== '1')) {
-                // Show confirmation modal and abort save for now
-                const modal = document.getElementById('unregSupplierConfirmModal');
-                if (modal) modal.classList.remove('hidden');
+                    // Show confirmation modal (with accessibility helpers) and abort save for now
+                    try { openModalById && typeof openModalById === 'function' ? openModalById('unregSupplierConfirmModal') : (document.getElementById('unregSupplierConfirmModal')?.classList.remove('hidden')); } catch(_) {}
                 return;
             } else {
                 // Clear confirmation for subsequent submits
@@ -5710,8 +9151,20 @@ document.body.addEventListener('submit', async e => {
             : paymentTypeRadio;
 
         // Build detailed GST breakdown for persistence (if supplier registered)
+        // To ensure the saved record exactly matches what the user sees in the form,
+        // prefer using the displayed subtotal/GST/total values if present in the DOM.
+        const parseDisplayed = (id) => {
+            try {
+                const txt = (document.getElementById(id)?.textContent || '').replace(/[^0-9.\-]/g, '');
+                return txt === '' ? null : parseFloat(txt);
+            } catch (_) { return null; }
+        };
+        const displayedSubtotal = parseDisplayed('purchaseSubtotal');
+        const displayedGst = parseDisplayed('purchaseGst');
+        const displayedTotal = parseDisplayed('purchaseTotal');
+
         const gstBreakdownToStore = supplierRegistered ? {
-            total: +(gstComputed.total || 0).toFixed(2),
+            total: (displayedGst !== null) ? +(displayedGst.toFixed(2)) : +(gstComputed.total || 0).toFixed(2),
             cgst: +(gstComputed.cgstTotal || 0).toFixed(2),
             sgst: +(gstComputed.sgstTotal || 0).toFixed(2),
             igst: +(gstComputed.igstTotal || 0).toFixed(2),
@@ -5721,22 +9174,25 @@ document.body.addEventListener('submit', async e => {
 
         const purchaseData = {
             supplierName,
+            supplierInvoiceNumber: supplierInvoiceNumber,
             invoiceNumber,
             purchaseDate: new Date(purchaseDate),
             items,
-            // Store subtotal as ex-GST for consistency
-            subtotal: gstComputed.subtotalEx,
+            // Store subtotal as ex-GST for consistency, but prefer the value displayed in the UI when available
+            subtotal: (displayedSubtotal !== null) ? +(displayedSubtotal.toFixed(2)) : gstComputed.subtotalEx,
             gstBreakdown: gstBreakdownToStore,
             // record supplier GST details for audit
             supplierGstin: supplierObj?.gstin || null,
             supplierGstRegistered: !!supplierRegistered,
             supplierStateCode: supplierStateCode || null,
             merchantStateCode: merchantStateCode || null,
-            // Grand Total rule: Inclusive mode -> inclusive; Exclusive mode -> exclusive
-            totalAmount: effectiveTotal,
+            // Grand Total rule: use displayed total if available otherwise effectiveTotal
+            totalAmount: (displayedTotal !== null) ? +(displayedTotal.toFixed(2)) : effectiveTotal,
             pricesIncludeGst,
             paymentType: effectivePaymentType,
             payNow: payNowAmount > 0 ? { amount: payNowAmount, mode: payNowMode, bankAccount: payNowMode === 'bank' ? payNowBankAccount : null } : null,
+            // If this purchase is reusing a deleted invoice, record origin
+            ...(function(){ try { const hid = document.getElementById('purchaseReusedInvoice'); const rv = (hid?.value || '').trim(); if (rv) { const orig = (state.allPurchases||[]).find(p => (p.invoiceNumber||'') === rv && p.isDeleted); return { reusedFromInvoice: rv, reusedFromPurchaseId: orig ? orig.id : null }; } } catch(_){} return {}; })(),
             // **NEW FIELD:** Mark as not deleted
             isDeleted: false,
             createdAt: serverTimestamp()
@@ -5758,7 +9214,40 @@ document.body.addEventListener('submit', async e => {
                     const delta = (newMap.get(pid) || 0) - (origMap.get(pid) || 0);
                     if (delta !== 0) {
                         const productRef = doc(db, productsColPath, pid);
-                        batch.update(productRef, { stock: increment(delta) });
+                        // If quantity increased in edit, update costing similar to a new purchase for the delta
+                        if (delta > 0) {
+                            try {
+                                const currentProduct = state.products.find(p => p.id === pid) || { stock: 0 };
+                                const currentStock = parseFloat(currentProduct.stock) || 0;
+                                const currentAvg = (typeof currentProduct.purchasePrice === 'number') ? currentProduct.purchasePrice : (parseFloat(currentProduct.purchasePrice) || 0);
+                                // Calculate average price for the newly added quantity (from new items list)
+                                let addedQty = 0, addedValue = 0;
+                                for (const it of items) {
+                                    if (it.productId === pid) {
+                                        const q = Number(it.quantity) || 0;
+                                        const price = (typeof it.purchasePrice === 'number') ? it.purchasePrice : (parseFloat(it.purchasePrice) || 0);
+                                        // Only consider the portion that is the increase; simple heuristic uses item price
+                                        addedQty += q;
+                                        addedValue += price * q;
+                                    }
+                                }
+                                const addedAvg = addedQty > 0 ? (addedValue / addedQty) : currentAvg;
+                                const newStock = currentStock + delta;
+                                let newAvg = addedAvg;
+                                if (newStock > 0) {
+                                    newAvg = ((currentAvg * currentStock) + (addedAvg * delta)) / newStock;
+                                }
+                                const roundedAvg = Math.round((newAvg + Number.EPSILON) * 100) / 100;
+                                const roundedLast = Math.round((addedAvg + Number.EPSILON) * 100) / 100;
+                                batch.update(productRef, { stock: increment(delta), purchasePrice: roundedAvg, lastPurchasePrice: roundedLast });
+                            } catch (_) {
+                                // fallback: just update stock
+                                batch.update(productRef, { stock: increment(delta) });
+                            }
+                        } else {
+                            // Quantity decreased on edit: update stock but avoid complex de-weighting of average cost
+                            batch.update(productRef, { stock: increment(delta) });
+                        }
                     }
                 }
                 batch.set(purchaseRef, { ...purchaseData, updatedAt: serverTimestamp() }, { merge: true });
@@ -5879,12 +9368,60 @@ document.body.addEventListener('submit', async e => {
                 const purchaseRef = doc(collection(db, purchasesColPath));
                 batch.set(purchaseRef, purchaseData);
 
-                // Increment stock and update costing for new purchase only (simple approach)
+                // If user selected a deleted invoice to reuse, attempt a server-side reservation first
+                try {
+                    const sel = (document.getElementById('purchaseReusedInvoice')?.value || '').trim() || (document.getElementById('deletedInvoiceSelect')?.value || '').trim();
+                    if (sel) {
+                        const original = (state.allPurchases || []).find(p => (p.invoiceNumber || '') === sel && p.isDeleted);
+                        if (original && original.id) {
+                            try {
+                                // Prefer server-side reservation (transactional). Falls back to client-side batch update when Functions unavailable.
+                                if (typeof httpsCallable === 'function' && functionsSvc) {
+                                    const reserveFn = httpsCallable(functionsSvc, 'reserveDeletedInvoice');
+                                    await reserveFn({ appId, invoiceNumber: sel, newPurchaseId: purchaseRef.id });
+                                    // Server will mark original and create the audit record atomically.
+                                } else {
+                                    // Fallback: mark original and create audit record in the same batch
+                                    const origRef = doc(db, purchasesColPath, original.id);
+                                    batch.update(origRef, { reused: true, reusedBy: purchaseRef.id, reusedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+                                    const auditRef = doc(collection(db, invoiceReusesColPath));
+                                    batch.set(auditRef, {
+                                        invoiceNumber: sel,
+                                        originalPurchaseId: original.id,
+                                        newPurchaseId: purchaseRef.id,
+                                        reusedBy: (state.currentUser && state.currentUser.uid) || 'system',
+                                        reusedAt: serverTimestamp(),
+                                        createdAt: serverTimestamp()
+                                    });
+                                }
+                            } catch (e) {
+                                console.error('Failed to reserve deleted invoice:', e);
+                                showMessage('Failed to reserve deleted invoice. Save aborted.');
+                                return;
+                            }
+                        }
+                    }
+                } catch (err) { console.error('reserve-deleted-invoice wrapper failed', err); }
+
+                // Increment stock and update costing for new purchase only
+                // Update stock, lastPurchasePrice and a simple weighted-average purchasePrice
                 for (const item of items) {
                     const productRef = doc(db, productsColPath, item.productId);
                     const currentProduct = state.products.find(p => p.id === item.productId) || { stock: 0 };
-                    const newStock = (currentProduct.stock || 0) + item.quantity;
-                    batch.update(productRef, { stock: newStock });
+                    const currentStock = parseFloat(currentProduct.stock) || 0;
+                    const currentAvg = (typeof currentProduct.purchasePrice === 'number') ? currentProduct.purchasePrice : (parseFloat(currentProduct.purchasePrice) || 0);
+                    const qty = Number(item.quantity) || 0;
+                    const itemPrice = (typeof item.purchasePrice === 'number') ? item.purchasePrice : (parseFloat(item.purchasePrice) || 0);
+                    const newStock = currentStock + qty;
+                    // Compute new weighted average (if stock weighted available), otherwise fall back to latest price
+                    let newAvg = itemPrice;
+                    if (newStock > 0) {
+                        newAvg = ((currentAvg * currentStock) + (itemPrice * qty)) / newStock;
+                    }
+                    // Round to two decimals for storage
+                    const roundedAvg = Math.round((newAvg + Number.EPSILON) * 100) / 100;
+                    const roundedLast = Math.round((itemPrice + Number.EPSILON) * 100) / 100;
+                    batch.update(productRef, { stock: newStock, purchasePrice: roundedAvg, lastPurchasePrice: roundedLast });
                 }
 
                 // Auto-post based on Pay Now split or payment type
@@ -6034,6 +9571,7 @@ document.body.addEventListener('submit', async e => {
             stock: 0, // Stock will be added via the purchase entry
             gstPercentage: gstPercentageEl ? parseInt(gstPercentageEl.value) : 0,
             category: e.target.querySelector('#productCategory').value,
+            productGroup: (e.target.querySelector('#modalProductGroup') ? e.target.querySelector('#modalProductGroup').value : '') || null,
             image: e.target.querySelector('#productImage').value,
             createdAt: serverTimestamp()
         };
@@ -6072,6 +9610,127 @@ function showMessage(msg) {
        messageModal.querySelector('div').classList.remove('scale-95');
      }, 10);
 };
+
+// Small transient toast for admin summaries and short notices
+function showToast(title, lines = [], opts = {}) {
+    try {
+        const containerId = 'appToastContainer';
+        let container = document.getElementById(containerId);
+        if (!container) {
+            container = document.createElement('div');
+            container.id = containerId;
+            container.style.position = 'fixed';
+            container.style.top = '1rem';
+            container.style.right = '1rem';
+            container.style.zIndex = 99999;
+            document.body.appendChild(container);
+        }
+        const toast = document.createElement('div');
+        toast.className = 'app-toast';
+        toast.style.background = 'rgba(0,0,0,0.85)';
+        toast.style.color = 'white';
+        toast.style.padding = '12px 16px';
+        toast.style.borderRadius = '8px';
+        toast.style.boxShadow = '0 6px 18px rgba(0,0,0,0.2)';
+        toast.style.marginTop = '8px';
+        toast.style.minWidth = '240px';
+        const titleEl = document.createElement('div');
+        titleEl.style.fontWeight = '700';
+        titleEl.style.marginBottom = lines && lines.length ? '6px' : '0';
+        titleEl.textContent = title || '';
+        toast.appendChild(titleEl);
+        if (lines && lines.length) {
+            const ul = document.createElement('ul');
+            ul.style.margin = '0';
+            ul.style.paddingLeft = '18px';
+            ul.style.fontSize = '13px';
+            ul.style.lineHeight = '1.25';
+            lines.slice(0, 6).forEach(l => {
+                const li = document.createElement('li');
+                li.textContent = l;
+                ul.appendChild(li);
+            });
+            toast.appendChild(ul);
+        }
+    const close = document.createElement('button');
+    close.textContent = '×';
+        close.style.position = 'absolute';
+        close.style.top = '6px';
+        close.style.right = '8px';
+        close.style.background = 'transparent';
+        close.style.border = 'none';
+        close.style.color = 'white';
+        close.style.fontSize = '16px';
+        close.style.cursor = 'pointer';
+        close.addEventListener('click', () => { try { container.removeChild(toast); } catch(_) {} });
+        toast.appendChild(close);
+        // If a details payload was provided, render a small Details button
+        if (opts.details) {
+            const detailsBtn = document.createElement('button');
+            detailsBtn.textContent = 'Details';
+            detailsBtn.style.marginLeft = '8px';
+            detailsBtn.style.background = 'transparent';
+            detailsBtn.style.color = 'white';
+            detailsBtn.style.border = '1px solid rgba(255,255,255,0.2)';
+            detailsBtn.style.padding = '4px 8px';
+            detailsBtn.style.borderRadius = '6px';
+            detailsBtn.style.cursor = 'pointer';
+            detailsBtn.addEventListener('click', () => { showDetailModal(opts.details); });
+            toast.appendChild(detailsBtn);
+        }
+        container.appendChild(toast);
+        const ttl = typeof opts.ttl === 'number' ? opts.ttl : 6000;
+        setTimeout(() => { try { if (toast.parentNode) toast.parentNode.removeChild(toast); } catch(_) {} }, ttl);
+    } catch (e) { console.warn('showToast error', e); }
+}
+
+function showDetailModal(details) {
+    try {
+        const id = 'appDetailModal';
+        let modal = document.getElementById(id);
+        if (modal) modal.parentNode.removeChild(modal);
+        modal = document.createElement('div');
+        modal.id = id;
+        modal.style.position = 'fixed';
+        modal.style.left = '0';
+        modal.style.top = '0';
+        modal.style.width = '100%';
+        modal.style.height = '100%';
+        modal.style.display = 'flex';
+        modal.style.alignItems = 'center';
+        modal.style.justifyContent = 'center';
+        modal.style.background = 'rgba(0,0,0,0.6)';
+        modal.style.zIndex = 100000;
+        const box = document.createElement('div');
+        box.style.background = 'white';
+        box.style.color = '#111';
+        box.style.padding = '18px';
+        box.style.borderRadius = '8px';
+        box.style.maxWidth = '900px';
+        box.style.width = '90%';
+        box.style.maxHeight = '80%';
+        box.style.overflow = 'auto';
+        const title = document.createElement('h3');
+        title.textContent = 'Details';
+        title.style.marginTop = '0';
+        box.appendChild(title);
+        const pre = document.createElement('pre');
+        pre.style.whiteSpace = 'pre-wrap';
+        pre.style.wordBreak = 'break-word';
+        pre.style.background = '#f7f7f7';
+        pre.style.padding = '12px';
+        pre.style.borderRadius = '6px';
+        pre.textContent = typeof details === 'string' ? details : JSON.stringify(details, null, 2);
+        box.appendChild(pre);
+        const close = document.createElement('button');
+        close.textContent = 'Close';
+        close.style.marginTop = '12px';
+        close.addEventListener('click', () => { try { modal.parentNode.removeChild(modal); } catch(_) {} });
+        box.appendChild(close);
+        modal.appendChild(box);
+        document.body.appendChild(modal);
+    } catch (e) { console.warn('showDetailModal error', e); }
+}
 
 if (messageOkBtn) {
    messageOkBtn.addEventListener('click', () => {
@@ -6138,19 +9797,20 @@ async function softDeletePurchase(purchaseId) {
     try {
         const batch = writeBatch(db);
 
-        // 1. Soft delete the purchase record
-        batch.update(purchaseRef, { isDeleted: true });
+    // 1. Soft delete the purchase record and record audit info
+    batch.update(purchaseRef, { isDeleted: true, cancelledBy: (state.currentUser && state.currentUser.uid) || 'system', cancelledAt: serverTimestamp() });
 
-        // 2. Adjust product stock (decrement)
-        for (const item of purchase.items) {
+        // 2. Adjust product stock (restore stock back to inventory)
+        // When a purchase (bill) is cancelled we should add the purchased quantities back to stock.
+        for (const item of purchase.items || []) {
             const productRef = doc(db, productsColPath, item.productId);
-            batch.update(productRef, { stock: increment(-item.quantity) });
+            batch.update(productRef, { stock: increment((item.quantity || 0)) });
         }
 
         // 3. Mark creditors ledger entry as deleted
         try {
             const credRef = doc(db, creditorsLedgerColPath, purchaseId);
-            batch.set(credRef, { isDeleted: true, updatedAt: serverTimestamp() }, { merge: true });
+            batch.set(credRef, { isDeleted: true, cancelledBy: (state.currentUser && state.currentUser.uid) || 'system', cancelledAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
         } catch (_) { /* ignore */ }
 
         // NOTE: For simplicity, average purchase price is not recalculated as it's complex and prone to errors.
@@ -6176,7 +9836,33 @@ function initializeAppAndListeners() {
     onAuthStateChanged(auth, async (user) => {
         if (!user && !initialAuthResolved) {
             initialAuthResolved = true;
+            // If running locally and not forcing production, check that the Auth emulator is reachable
+            const host = window && window.location && (window.location.hostname || '');
+            const shouldCheckEmulator = !__tiaras_forceProd && (host === 'localhost' || host === '127.0.0.1');
+
+            async function pingUrl(url, timeoutMs = 1200) {
+                try {
+                    const controller = new AbortController();
+                    const id = setTimeout(() => controller.abort(), timeoutMs);
+                    const res = await fetch(url, { method: 'GET', signal: controller.signal });
+                    clearTimeout(id);
+                    return res.ok || res.status === 200 || res.status === 404;
+                } catch (_) {
+                    return false;
+                }
+            }
+
             try {
+                if (shouldCheckEmulator) {
+                    const emuOk = await pingUrl('http://127.0.0.1:9099/');
+                    if (!emuOk) {
+                        // Inform developer: emulator not running. Suggest starting or using production flag.
+                        try { console && console.warn && console.warn('Auth emulator not reachable at http://127.0.0.1:9099'); } catch (_) {}
+                        showMessage('Local Firebase emulator not running. Start the emulator (auth, firestore, functions) or open this page with ?useProd=1 to use production Firebase.');
+                        return;
+                    }
+                }
+
                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                     await signInWithCustomToken(auth, __initial_auth_token);
                 } else {
@@ -6263,6 +9949,7 @@ function addPurchaseItemRow() {
                 ${productOptions}
                 <option value="new" class="text-blue-500 font-bold">+ Add New Product</option>
             </select>
+            <input type="text" class="purchase-hsn mt-2 w-full px-3 py-2 border border-gray-200 rounded-md text-sm" placeholder="HSN / SAC (optional)">
         </div>
         <div class="col-span-2">
             <input type="number" class="purchase-price w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Price" step="0.01">
@@ -6282,13 +9969,18 @@ function addPurchaseItemRow() {
             <input type="number" class="purchase-quantity w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Qty">
         </div>
         <div class="col-span-1 purchase-gst-col">
-            <select class="purchase-gst w-full px-2 py-2 border border-gray-300 rounded-md">
-                <option value="0">0%</option>
-                <option value="5">5%</option>
-                <option value="12">12%</option>
-                <option value="18" selected>18%</option>
-                <option value="28">28%</option>
-            </select>
+            <div class="flex items-center gap-2">
+                <select class="purchase-gst flex-1 px-2 py-2 border border-gray-300 rounded-md">
+                    <option value="0">0%</option>
+                    <option value="5">5%</option>
+                    <option value="12">12%</option>
+                    <option value="18" selected>18%</option>
+                    <option value="28">28%</option>
+                    <option value="custom">Custom...</option>
+                </select>
+                <button type="button" class="purchase-gst-custom-btn px-2 py-1 text-xs bg-gray-100 border rounded" title="Add custom GST%">Custom</button>
+            </div>
+            <input type="number" min="0" step="0.01" class="purchase-gst-custom mt-1 w-full px-2 py-2 border border-gray-300 rounded-md hidden" placeholder="Custom %">
         </div>
         <div class="col-span-2">
             <p class="purchase-item-total text-right font-semibold">0.00</p>
@@ -6302,11 +9994,82 @@ function addPurchaseItemRow() {
     // Ensure GST select editability matches current toggle state for this new row
     const pricesIncludeToggle = document.getElementById('purchasePricesIncludeGst');
     const select = row.querySelector('.purchase-gst');
-    if (select) {
-        // Enable GST% editing when in Inclusive mode (toggle ON)
-        const enabled = !!(pricesIncludeToggle && pricesIncludeToggle.checked);
-        select.disabled = !enabled;
+    const customInput = row.querySelector('.purchase-gst-custom');
+        if (select) {
+            // Enable GST% editing when in Inclusive mode (toggle ON)
+            const enabled = !!(pricesIncludeToggle && pricesIncludeToggle.checked);
+            select.disabled = !enabled;
+            // Wire change to show/hide custom input
+            select.addEventListener('change', (ev) => {
+                try {
+                    const v = (select.value || '').toString();
+                    if (v === 'custom') {
+                        if (customInput) {
+                            customInput.classList.remove('hidden');
+                            customInput.focus();
+                        }
+                    } else {
+                        if (customInput) {
+                            customInput.classList.add('hidden');
+                        }
+                    }
+                    updatePurchaseTotal();
+                } catch (_) {}
+            });
+
+            // Wire explicit Custom button to reveal custom input (helps visibility)
+            const customBtn = row.querySelector('.purchase-gst-custom-btn');
+            if (customBtn) {
+                customBtn.addEventListener('click', () => {
+                    try {
+                        select.value = 'custom';
+                        if (customInput) {
+                            customInput.classList.remove('hidden');
+                            customInput.focus();
+                        }
+                        // enable select if disabled so user can change it
+                        try { select.disabled = false; } catch(_) {}
+                        updatePurchaseTotal();
+                    } catch (_) {}
+                });
+            }
+        }
+    if (customInput) {
+        customInput.addEventListener('input', () => updatePurchaseTotal());
     }
+    // After adding the row, move keyboard focus to the new product select so Tab order continues there
+    try {
+        const productSelect = row.querySelector('.purchase-product-select');
+        if (productSelect) {
+            // Small timeout to ensure element is in DOM and focusable
+            setTimeout(() => { try { productSelect.focus(); } catch (_) {} }, 0);
+        }
+    } catch (_) {}
+}
+
+// Helper: read GST% for a purchase-item row, preferring custom input when present
+function getRowGstPercentage(row) {
+    try {
+        if (!row) return 0;
+        const customInput = row.querySelector('.purchase-gst-custom');
+        const sel = row.querySelector('.purchase-gst');
+        if (customInput && !customInput.classList.contains('hidden')) {
+            const v = (customInput.value || '').toString().trim();
+            if (v !== '') return parseFloat(v) || 0;
+        }
+        if (sel) {
+            const val = (sel.value || '').toString().trim();
+            if (val === 'custom') {
+                if (customInput) {
+                    const v2 = (customInput.value || '').toString().trim();
+                    if (v2 !== '') return parseFloat(v2) || 0;
+                }
+                return 0;
+            }
+            return parseFloat(val) || 0;
+        }
+    } catch (_) {}
+    return 0;
 }
 
 // Load an existing purchase into the entry form for editing
@@ -6343,6 +10106,21 @@ function loadPurchaseIntoForm(purchaseId) {
         if (priceEl) priceEl.value = (it.purchasePrice || 0).toString();
         if (qtyEl) qtyEl.value = (it.quantity || 0).toString();
         if (gstEl) gstEl.value = String(it.gstPercentage || 0);
+        // If the GST% is not one of the preset options, switch select to 'custom' and show custom input
+        try {
+            const customInput = row.querySelector('.purchase-gst-custom');
+            const presetValues = ['0','5','12','18','28'];
+            const v = String(it.gstPercentage || 0);
+            if (gstEl && !presetValues.includes(v)) {
+                gstEl.value = 'custom';
+                if (customInput) { customInput.classList.remove('hidden'); customInput.value = v; }
+            } else {
+                // ensure custom input hidden for preset values
+                if (customInput) customInput.classList.add('hidden');
+            }
+            // trigger change to ensure any listeners run
+            try { gstEl.dispatchEvent(new Event('change')); } catch(_) {}
+        } catch(_) {}
     }
     updatePurchaseTotal();
     // Scroll to form
@@ -6355,6 +10133,15 @@ function setPurchaseGstEnabled(enabled) {
     document.querySelectorAll('.purchase-item-row .purchase-gst').forEach(sel => {
         sel.disabled = !enabled;
     });
+    document.querySelectorAll('.purchase-item-row .purchase-gst-custom').forEach(inp => {
+        if (!enabled) {
+            // hide custom input when GST editing disabled
+            try { inp.classList.add('hidden'); } catch(_) {}
+            inp.disabled = true;
+        } else {
+            inp.disabled = false;
+        }
+    });
 }
 
 function updatePurchaseTotal() {
@@ -6365,7 +10152,7 @@ function updatePurchaseTotal() {
     document.querySelectorAll('.purchase-item-row').forEach(row => {
         const price = parseFloat(row.querySelector('.purchase-price').value) || 0;
     const quantity = parseFloat(row.querySelector('.purchase-quantity').value) || 0;
-        const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
+        const gstPercentage = getRowGstPercentage(row);
         items.push({ price, quantity, gstPercentage });
         // Display per-row total (use inclusive/exclusive display semantics)
         const lineInc = price * quantity;
@@ -6379,22 +10166,52 @@ function updatePurchaseTotal() {
     const supplierStateCode = getStateCodeFromGstin(supplierObj?.gstin || '');
     const supplierRegistered = !!(supplierObj && (supplierObj.gstin || '').trim());
 
+    // Calculate totals. Requirement:
+    // - Exclusive mode: NO GST calculated (gst = 0). subtotal = sum of (price*qty). grand total = subtotal.
+    // - Inclusive mode: GST should be calculated from item GST rates. subtotal = sum of line totals. GST portion = calculated per item and summed. Grand total = subtotal + GST portion.
     let gstComputed = { total: 0, subtotalEx: 0, subtotalInc: 0, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
-    if (supplierRegistered) {
-        gstComputed = computeGstForItems(items.map(it => ({ price: it.price, quantity: it.quantity, gstPercentage: it.gstPercentage })), pricesIncludeGst, merchantStateCode, supplierStateCode);
+    const sumLineTotals = items.reduce((s, it) => s + ((it.price || 0) * (it.quantity || 0)), 0);
+    const intraState = (merchantStateCode && supplierStateCode) ? (merchantStateCode === supplierStateCode) : true;
+
+    if (!pricesIncludeGst) {
+        // Exclusive mode: do not compute GST
+        gstComputed = { total: 0, subtotalEx: sumLineTotals, subtotalInc: sumLineTotals, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState };
     } else {
-        // Treat GST as part of cost
-        let sEx = 0, sInc = 0;
-        items.forEach(it => { const line = it.price * it.quantity; sEx += line; sInc += line; });
-        gstComputed = { total: 0, subtotalEx: sEx, subtotalInc: sInc, cgstTotal: 0, sgstTotal: 0, igstTotal: 0, rates: {}, intraState: true };
+        // Inclusive mode: compute GST portion from item GST rates
+        let totalGst = 0;
+        const rates = {};
+        items.forEach(it => {
+            const line = (it.price || 0) * (it.quantity || 0);
+            const rate = Number(it.gstPercentage) || 0;
+            if (rate > 0) {
+                // Treat entered line amount as EXCLUSIVE of GST for this mode: tax = line * (rate/100)
+                const gstPortion = line * (rate / 100);
+                totalGst += gstPortion;
+                rates[rate] = (rates[rate] || 0) + gstPortion;
+            }
+        });
+        // Split CGST/SGST or IGST based on intraState
+        let cgst = 0, sgst = 0, igst = 0;
+        if (totalGst > 0) {
+            if (intraState) { cgst = totalGst / 2; sgst = totalGst / 2; }
+            else { igst = totalGst; }
+        }
+        gstComputed = { total: totalGst, subtotalEx: sumLineTotals, subtotalInc: sumLineTotals, cgstTotal: cgst, sgstTotal: sgst, igstTotal: igst, rates, intraState };
     }
 
     // Update subtotal, GST breakdown and grand total in UI
-    document.getElementById('purchaseSubtotal').textContent = `${(gstComputed.subtotalEx).toFixed(2)}`;
     const labelEl = document.getElementById('purchaseSubtotalLabel');
-    if (labelEl) { labelEl.textContent = 'Subtotal (Excl. GST)'; }
-
     const gstEl = document.getElementById('purchaseGst');
+    if (pricesIncludeGst) {
+        // In Inclusive mode: subtotal = total of all line totals (inclusive amounts)
+        // then GST (tax portion) is shown and ADDED on top to compute grand total per request.
+        document.getElementById('purchaseSubtotal').textContent = `${(gstComputed.subtotalInc).toFixed(2)}`;
+        if (labelEl) { labelEl.textContent = 'Subtotal (Sum of line totals)'; }
+    } else {
+        document.getElementById('purchaseSubtotal').textContent = `${(gstComputed.subtotalEx).toFixed(2)}`;
+        if (labelEl) { labelEl.textContent = 'Subtotal (Excl. GST)'; }
+    }
+
     if (gstEl) {
         if (gstComputed.total > 0) {
             if (gstComputed.igstTotal && gstComputed.igstTotal > 0) {
@@ -6407,7 +10224,18 @@ function updatePurchaseTotal() {
         }
     }
 
-    document.getElementById('purchaseTotal').textContent = `${(pricesIncludeGst ? gstComputed.subtotalInc : gstComputed.subtotalEx).toFixed(2)}`;
+    // Compute grand total: for inclusive mode, add the GST portion on top of the line-totals subtotal
+    try {
+        const grandTotalEl = document.getElementById('purchaseTotal');
+        if (grandTotalEl) {
+            if (pricesIncludeGst) {
+                const grand = (gstComputed.subtotalInc || 0) + (gstComputed.total || 0);
+                grandTotalEl.textContent = `${grand.toFixed(2)}`;
+            } else {
+                grandTotalEl.textContent = `${(gstComputed.subtotalEx).toFixed(2)}`;
+            }
+        }
+    } catch (_) {}
 
     const badge = document.getElementById('purchaseModeBadge');
     if (badge) {
@@ -6428,23 +10256,42 @@ function renderPurchaseHistory() {
     if (!container) return;
     
     // **MODIFIED:** Filter to only show NON-DELETED purchases
-    const nonDeletedPurchases = state.allPurchases.filter(p => !p.isDeleted);
+    const nonDeletedPurchases = (state.allPurchases || []).filter(p => !p.isDeleted);
 
+    // Render header controls: date range and Today quick button
+    const todayIso = new Date().toISOString().split('T')[0];
+    const headerControls = `
+        <div class="mb-4 flex items-center gap-3">
+            <label class="text-sm text-gray-600">From</label>
+            <input type="date" id="purchaseFromDate" class="px-3 py-2 border rounded" />
+            <label class="text-sm text-gray-600">To</label>
+            <input type="date" id="purchaseToDate" class="px-3 py-2 border rounded" />
+            <button id="purchaseTodayBtn" class="bg-blue-600 text-white px-3 py-2 rounded">Today</button>
+            <button id="purchaseApplyDateBtn" class="bg-green-600 text-white px-3 py-2 rounded">Apply</button>
+            <button id="purchaseClearDateBtn" class="bg-gray-200 text-gray-700 px-3 py-2 rounded">Clear</button>
+        </div>
+    `;
+
+    // If there are no purchases, still render header so user can set a range
     if (nonDeletedPurchases.length === 0) {
-        container.innerHTML = `<p class="text-gray-500 text-center">No purchase history found.</p>`;
+        container.innerHTML = headerControls + `<p class="text-gray-500 text-center">No purchase history found.</p>`;
+        // attach handlers
+        try { document.getElementById('purchaseTodayBtn').addEventListener('click', () => { document.getElementById('purchaseFromDate').value = todayIso; document.getElementById('purchaseToDate').value = todayIso; }); } catch(_){}
+        try { document.getElementById('purchaseClearDateBtn').addEventListener('click', () => { document.getElementById('purchaseFromDate').value = ''; document.getElementById('purchaseToDate').value = ''; renderPurchaseHistory(); }); } catch(_){}
+        try { document.getElementById('purchaseApplyDateBtn').addEventListener('click', () => renderPurchaseHistory()); } catch(_){}
         return;
     }
-    
+
     const historyHTML = nonDeletedPurchases.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).map(purchase => `
         <div class="bg-gray-50 p-4 rounded-lg text-sm">
             <div class="flex justify-between items-start mb-2">
                 <div>
                    <p><strong>Supplier:</strong> ${purchase.supplierName}</p>
-                    <p class="text-xs text-gray-500">Invoice #: ${purchase.invoiceNumber || purchase.id}</p>
+                    <p class="text-xs text-gray-500">Invoice #: ${purchase.invoiceNumber || purchase.id} ${purchase.reusedFromInvoice ? `<span class="ml-2 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs" title="Reused from ${escapeHtml(purchase.reusedFromInvoice)}">Reused</span>` : ''}</p>
                 </div>
                 <div class="text-right flex items-center space-x-3">
                     <div>
-                        <p class="font-bold">Total (₹): ${purchase.totalAmount.toFixed(2)}</p>
+                        <p class="font-bold">Total (₹): ${(purchase.totalAmount || 0).toFixed(2)}</p>
                         <button data-page="purchase_invoice" data-id="${purchase.id}" class="nav-btn text-xs text-blue-500 hover:underline">View Record</button>
                     </div>
                     <button data-id="${purchase.id}" class="edit-purchase-btn bg-yellow-500 text-white p-2 rounded-full hover:bg-yellow-600 w-8 h-8 flex items-center justify-center" title="Edit Entry"><i class="fa-solid fa-pen text-xs"></i></button>
@@ -6453,19 +10300,93 @@ function renderPurchaseHistory() {
             </div>
             <p class="text-xs text-gray-500 mb-2">Date: ${formatDate(purchase.purchaseDate)}</p>
             <details>
-                <summary class="cursor-pointer text-blue-500 text-xs">View Items (${purchase.items.length})</summary>
-                <ul class="list-disc pl-5 mt-2 text-xs">
-                   ${purchase.items.map(item => `<li>${item.productName} - ${item.quantity} x ${item.purchasePrice.toFixed(2)}</li>`).join('')}
-                </ul>
+                     <summary class="cursor-pointer text-blue-500 text-xs">View Items (${(purchase.items||[]).length})</summary>
+                     <ul class="list-disc pl-5 mt-2 text-xs">
+                         ${(purchase.items||[]).map(item => `<li>${item.productName || ''} - ${item.quantity || 0} x ${(typeof item.purchasePrice === 'number' ? item.purchasePrice : (parseFloat(item.purchasePrice) || 0)).toFixed(2)}</li>`).join('')}
+                     </ul>
             </details>
         </div>
     `).join('');
 
-    container.innerHTML = historyHTML;
+    // Compose full HTML with header controls
+    container.innerHTML = headerControls + historyHTML;
+
+    // Attach control handlers
+    try {
+        const fromEl = document.getElementById('purchaseFromDate');
+        const toEl = document.getElementById('purchaseToDate');
+        const todayBtn = document.getElementById('purchaseTodayBtn');
+        const applyBtn = document.getElementById('purchaseApplyDateBtn');
+        const clearBtn = document.getElementById('purchaseClearDateBtn');
+        // default dates: empty
+        if (todayBtn) todayBtn.addEventListener('click', () => {
+            try { fromEl.value = todayIso; toEl.value = todayIso; applyBtn && applyBtn.click(); } catch(_){}
+        });
+        if (applyBtn) applyBtn.addEventListener('click', () => {
+            try {
+                const from = fromEl && fromEl.value ? new Date(fromEl.value) : null;
+                const to = toEl && toEl.value ? new Date(toEl.value) : null;
+                // inclusive to end of day
+                if (from || to) {
+                    const filtered = nonDeletedPurchases.filter(p => {
+                        try {
+                            const pd = _toDate(p.purchaseDate || p.createdAt);
+                            if (!pd) return false;
+                            if (from && pd < new Date(from.getFullYear(), from.getMonth(), from.getDate(), 0,0,0)) return false;
+                            if (to && pd > new Date(to.getFullYear(), to.getMonth(), to.getDate(), 23,59,59,999)) return false;
+                            return true;
+                        } catch(_) { return false; }
+                    }).sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+                    // render filtered list
+                    const listHtml = filtered.map(purchase => `
+                        <div class="bg-gray-50 p-4 rounded-lg text-sm">
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                   <p><strong>Supplier:</strong> ${purchase.supplierName}</p>
+                                    <p class="text-xs text-gray-500">Invoice #: ${purchase.invoiceNumber || purchase.id} ${purchase.reusedFromInvoice ? `<span class="ml-2 px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 text-xs" title="Reused from ${escapeHtml(purchase.reusedFromInvoice)}">Reused</span>` : ''}</p>
+                                </div>
+                                <div class="text-right flex items-center space-x-3">
+                                    <div>
+                                        <p class="font-bold">Total (₹): ${(purchase.totalAmount || 0).toFixed(2)}</p>
+                                        <button data-page="purchase_invoice" data-id="${purchase.id}" class="nav-btn text-xs text-blue-500 hover:underline">View Record</button>
+                                    </div>
+                                    <button data-id="${purchase.id}" class="edit-purchase-btn bg-yellow-500 text-white p-2 rounded-full hover:bg-yellow-600 w-8 h-8 flex items-center justify-center" title="Edit Entry"><i class="fa-solid fa-pen text-xs"></i></button>
+                                    <button data-id="${purchase.id}" class="soft-delete-purchase-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-8 h-8 flex items-center justify-center" title="Delete Entry & Reverse Stock"><i class="fa-solid fa-trash-can-arrow-up text-xs"></i></button>
+                                </div>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-2">Date: ${formatDate(purchase.purchaseDate)}</p>
+                            <details>
+                                     <summary class="cursor-pointer text-blue-500 text-xs">View Items (${(purchase.items||[]).length})</summary>
+                                     <ul class="list-disc pl-5 mt-2 text-xs">
+                                         ${(purchase.items||[]).map(item => `<li>${item.productName || ''} - ${item.quantity || 0} x ${(typeof item.purchasePrice === 'number' ? item.purchasePrice : (parseFloat(item.purchasePrice) || 0)).toFixed(2)}</li>`).join('')}
+                                     </ul>
+                            </details>
+                        </div>
+                    `).join('');
+                    // replace history region (after header)
+                    const afterHeader = container.querySelectorAll('div')[1];
+                    // simpler: set innerHTML keeping header
+                    container.innerHTML = headerControls + listHtml;
+                    // re-attach handlers recursively
+                    try { document.getElementById('purchaseTodayBtn').addEventListener('click', () => { fromEl.value = todayIso; toEl.value = todayIso; applyBtn && applyBtn.click(); }); } catch(_){}
+                    try { document.getElementById('purchaseClearDateBtn').addEventListener('click', () => { fromEl.value = ''; toEl.value = ''; renderPurchaseHistory(); }); } catch(_){}
+                    // attach edit handlers
+                    container.querySelectorAll('.edit-purchase-btn').forEach(btn => { btn.addEventListener('click', () => loadPurchaseIntoForm(btn.dataset.id)); });
+                    container.querySelectorAll('.soft-delete-purchase-btn').forEach(btn => { btn.addEventListener('click', () => softDeletePurchase(btn.dataset.id)); });
+                    return;
+                }
+            } catch (e) { console.error('apply date filter error', e); }
+        });
+        if (clearBtn) clearBtn.addEventListener('click', () => { try { document.getElementById('purchaseFromDate').value = ''; document.getElementById('purchaseToDate').value = ''; renderPurchaseHistory(); } catch(_){} });
+    } catch (e) { console.warn('attach purchase history control handlers failed', e); }
 
     // Attach edit handlers
     container.querySelectorAll('.edit-purchase-btn').forEach(btn => {
         btn.addEventListener('click', () => loadPurchaseIntoForm(btn.dataset.id));
+    });
+    // Attach soft-delete handlers
+    container.querySelectorAll('.soft-delete-purchase-btn').forEach(btn => {
+        btn.addEventListener('click', () => softDeletePurchase(btn.dataset.id));
     });
 }
 
@@ -6612,7 +10533,13 @@ async function handleGenerateLocalInvoice(e) {
     const isCreditSale = remainingAmount > 0 || !!document.getElementById('localSaleIsCredit')?.checked;
     const editingLocalSaleId = (document.getElementById('editingLocalSaleId')?.value || '').trim();
     const existingSale = editingLocalSaleId ? (state.allLocalSales || []).find(s => s.id === editingLocalSaleId) : null;
-    const invoiceNumber = editingLocalSaleId ? (existingSale?.invoiceNumber || editingLocalSaleId) : (await getAndIncrementCounter('localSales'));
+    let invoiceNumber;
+    if (editingLocalSaleId) {
+        invoiceNumber = existingSale?.invoiceNumber || editingLocalSaleId;
+    } else {
+        const rawLocalCounter = await getAndIncrementCounter('localSales');
+        invoiceNumber = formatInvoiceFromCounter(rawLocalCounter, 'localSales');
+    }
 
     // Store data for the invoice page and for saving
     const localSaleDocData = {
@@ -6768,12 +10695,61 @@ function openNewProductModal(triggeringSelect) {
    modal.classList.remove('hidden');
    // Ensure proper display when showing
    if (!modal.classList.contains('flex')) modal.classList.add('flex');
+   // Debug: log modal add/cancel element presence and styles to help diagnose unresponsive buttons
+   try {
+       const dbgAdd = document.getElementById('modalAddProductGroupInlineBtn');
+       const dbgCancel = document.getElementById('modalCancelNewProductGroupBtn');
+       console.debug('openNewProductModal: modalAddProductGroupInlineBtn exists?', !!dbgAdd, dbgAdd && { id: dbgAdd.id, disabled: dbgAdd.disabled });
+       console.debug('openNewProductModal: modalCancelNewProductGroupBtn exists?', !!dbgCancel, dbgCancel && { id: dbgCancel.id, disabled: dbgCancel.disabled });
+       try { if (dbgAdd) console.debug('modalAdd rect/style', dbgAdd.getBoundingClientRect(), window.getComputedStyle(dbgAdd)); } catch(_){}
+       try { if (dbgCancel) console.debug('modalCancel rect/style', dbgCancel.getBoundingClientRect(), window.getComputedStyle(dbgCancel)); } catch(_){}
+   } catch(_) {}
+   try {
+       // Ensure inline row accepts pointer events (in case CSS set pointer-events:none)
+       const modalRowEl = document.getElementById('modalNewProductGroupRow');
+       if (modalRowEl) {
+           try { modalRowEl.style.pointerEvents = 'auto'; } catch(_) {}
+       }
+   } catch(_) {}
+  try {
+      // Force Add/Cancel buttons to be clickable (raise above accidental overlays)
+      const dbgAddB = document.getElementById('modalAddProductGroupInlineBtn');
+      const dbgCancelB = document.getElementById('modalCancelNewProductGroupBtn');
+      if (dbgAddB) {
+          try { dbgAddB.style.pointerEvents = 'auto'; dbgAddB.style.zIndex = '9999'; dbgAddB.style.position = dbgAddB.style.position || 'relative'; } catch(_) {}
+      }
+      if (dbgCancelB) {
+          try { dbgCancelB.style.pointerEvents = 'auto'; dbgCancelB.style.zIndex = '9999'; dbgCancelB.style.position = dbgCancelB.style.position || 'relative'; } catch(_) {}
+      }
+  } catch(_) {}
+   // Populate product group select from state (if available)
+   try {
+       const pgSel = document.getElementById('modalProductGroup');
+       if (pgSel) {
+           // Populate selects from canonical state (deduplicated)
+           try { renderProductGroupSelects(); } catch (_) {}
+       }
+   } catch (e) { /* ignore if state not ready */ }
 }
 
 function closeNewProductModal() {
-    if(window.newProductTriggerSelect) {
-       window.newProductTriggerSelect.value = ''; // Reset the triggering select
-    }
+    try {
+        // If opened from a product <select>, reset that select back to the placeholder
+        if (window.newProductTriggerSelect) {
+            try {
+                const sel = window.newProductTriggerSelect;
+                if (sel && typeof sel.value !== 'undefined') {
+                    sel.value = '';
+                    try { sel.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+                }
+            } catch(_) {}
+        }
+        window.newProductTriggerSelect = null;
+    } catch(_) {}
+    try {
+        const lingering = document.querySelectorAll('.purchase-product-select, .local-sale-product-select');
+        lingering.forEach(s => { try { if (s && s.value === 'new') { s.value = ''; try { s.dispatchEvent(new Event('change', { bubbles: true })); } catch(_){} } } catch(_){} });
+    } catch(_) {}
     const modal = document.getElementById('newProductModal');
    if (!modal) return;
    const form = modal.querySelector('form');
@@ -6950,11 +10926,34 @@ function renderAdminLedgersPage() {
     const bankBalance = bankInRangeAll.reduce((acc, e) => acc + Number(e.debit || 0) - Number(e.credit || 0), 0);
 
     // Cash book rows
-    const cashEntries = (state.allCashLedger || [])
-        .filter(x => !x.isDeleted)
-        .filter(x => inRange(x.date))
-        .slice()
-        .sort((a,b) => (_toDate(a.date) - _toDate(b.date)));
+    // Sorting helpers for ledgers
+    function sortLedgerEntries(arr, sortState) {
+        const out = Array.isArray(arr) ? arr.slice() : [];
+        const key = sortState?.key || 'date';
+        const dir = sortState?.dir === 'asc' ? 1 : -1;
+        out.sort((a,b) => {
+            try {
+                const va = (key === 'date') ? (_toDate(a.date)?.getTime() || 0) : (a[key] || '');
+                const vb = (key === 'date') ? (_toDate(b.date)?.getTime() || 0) : (b[key] || '');
+                if (va < vb) return -1 * dir;
+                if (va > vb) return 1 * dir;
+                return 0;
+            } catch (_) { return 0; }
+        });
+        return out;
+    }
+
+    function toggleLedgerSort(which, key) {
+        try {
+            const stateKey = which === 'cash' ? 'cashSort' : 'bankSort';
+            const s = state[stateKey] || { key: 'date', dir: 'desc' };
+            if (s.key === key) s.dir = s.dir === 'asc' ? 'desc' : 'asc'; else { s.key = key; s.dir = 'asc'; }
+            state[stateKey] = s;
+        } catch (_) {}
+    }
+
+    const cashEntries = sortLedgerEntries((state.allCashLedger || []).filter(x => !x.isDeleted), state.cashSort)
+        .filter(x => inRange(x.date));
     // Cash pagination (use per-pane size if present)
     const cashPageSize = state.cashPageSize || state.ledgerPageSize || 10;
     const cashPage = state.cashPage || 1;
@@ -6964,13 +10963,14 @@ function renderAdminLedgersPage() {
     let cashRun = cashBefore.reduce((acc, e) => acc + Number(e.debit || 0) - Number(e.credit || 0), 0);
     const cashSlice = cashEntries.slice((cashPage - 1) * cashPageSize, cashPage * cashPageSize);
     const cashRows = (cashSlice.length ? cashSlice.map(e => {
-        const d = formatDate(e.date);
+        const d = formatDateTime(e.date);
         const debit = Number(e.debit || 0);
         const credit = Number(e.credit || 0);
         cashRun += (debit - credit);
-        const ref = e.refId || '';
-        const notes = e.notes || '';
-        return `<tr class="border-b text-sm"><td class="p-2">${d}</td><td class="p-2">${e.refType || ''}</td><td class="p-2">${ref}</td><td class="p-2">${notes}</td><td class="p-2 text-right text-green-700">${debit?debit.toFixed(2):'-'}</td><td class="p-2 text-right text-red-600">${credit?credit.toFixed(2):'-'}</td><td class="p-2 text-right font-semibold">${cashRun.toFixed(2)}</td></tr>`;
+    const ref = e.refId || '';
+    const notes = e.notes || '';
+    const refHtml = ref ? `<button type="button" class="text-blue-600 underline text-sm ref-link" data-ref="${ref}">${ref}</button>` : '';
+    return `<tr class="border-b text-sm"><td class="p-2">${d}</td><td class="p-2">${e.refType || ''}</td><td class="p-2">${refHtml}</td><td class="p-2">${notes}</td><td class="p-2 text-right text-green-700">${debit?debit.toFixed(2):'-'}</td><td class="p-2 text-right text-red-600">${credit?credit.toFixed(2):'-'}</td><td class="p-2 text-right font-semibold">${cashRun.toFixed(2)}</td></tr>`;
     }).join('') : `<tr><td colspan="7" class="p-3 text-center text-gray-500">No cash entries in range</td></tr>`);
     const cashPageSizeOptions = [10,25,50].map(n => `<option value="${n}" ${cashPageSize===n? 'selected':''}>${n}</option>`).join('');
     const cashPaginationHTML = `<div class="flex flex-col sm:flex-row items-center justify-between mt-2 text-sm text-gray-600 gap-2"><div>Showing ${cashSlice.length ? ((cashPage - 1) * cashPageSize + 1) : 0} - ${((cashPage - 1) * cashPageSize) + cashSlice.length} of ${cashTotal}</div><div class="flex items-center gap-2 flex-wrap"><button id="cashFirstBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage<=1? 'disabled':''}>First</button><button id="cashPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage<=1? 'disabled':''}>Prev</button><input id="cashPageInput" type="number" min="1" max="${cashTotalPages}" value="${cashPage}" class="w-14 text-center border rounded p-1" /><button id="cashNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage>=cashTotalPages? 'disabled':''}>Next</button><button id="cashLastBtn" class="px-2 py-1 bg-gray-100 rounded" ${cashPage>=cashTotalPages? 'disabled':''}>Last</button><select id="cashPageSizeSel" class="border rounded p-1 text-sm">${cashPageSizeOptions}</select></div></div>`;
@@ -6978,12 +10978,9 @@ function renderAdminLedgersPage() {
     // Bank book rows with account filter
     const selectedBank = state.bankAccountFilter || 'All';
     const allBankAccounts = (state.allBanks || []).map(b => b.name).filter(Boolean);
-    const bankEntries = (state.allBankLedger || [])
-        .filter(x => !x.isDeleted)
+    const bankEntries = sortLedgerEntries((state.allBankLedger || []).filter(x => !x.isDeleted), state.bankSort)
         .filter(x => inRange(x.date))
-        .filter(x => selectedBank === 'All' ? true : ((x.bankAccount || 'Main Bank') === selectedBank))
-        .slice()
-        .sort((a,b) => (_toDate(a.date) - _toDate(b.date)));
+        .filter(x => selectedBank === 'All' ? true : ((x.bankAccount || 'Main Bank') === selectedBank));
     // Bank pagination (use per-pane size if present)
     const bankPageSize = state.bankPageSize || state.ledgerPageSize || 10;
     const bankPage = state.bankPage || 1;
@@ -6993,7 +10990,7 @@ function renderAdminLedgersPage() {
     let bankRun = bankBefore.reduce((acc, e) => acc + Number(e.debit || 0) - Number(e.credit || 0), 0);
     const bankSlice = bankEntries.slice((bankPage - 1) * bankPageSize, bankPage * bankPageSize);
     const bankRows = (bankSlice.length ? bankSlice.map(e => {
-        const d = formatDate(e.date);
+        const d = formatDateTime(e.date);
         const debit = Number(e.debit || 0);
         const credit = Number(e.credit || 0);
         bankRun += (debit - credit);
@@ -7013,6 +11010,7 @@ function renderAdminLedgersPage() {
     const qCust = custSearchVal.trim().toLowerCase();
     const allSuppliersList = (state.allSuppliers || []);
     const allCustomersList = (state.allCustomers || []);
+    // filter lists
     const filteredSuppliers = allSuppliersList.filter(s => {
         const n = (s.name || '').toLowerCase();
         const g = (s.gstin || '').toLowerCase();
@@ -7023,18 +11021,90 @@ function renderAdminLedgersPage() {
         const g = (c.gstin || '').toLowerCase();
         return !qCust || n.includes(qCust) || g.includes(qCust);
     });
-    const suppliersListHTML = (filteredSuppliers).map(s=>{ const pid=(state.__primarySuppliers||[]).find(p=>(p.name||'').toLowerCase()===(s.name||'').toLowerCase())?.id||''; const n=(s.name||'').replace(/"/g,'&quot;'); const g=(s.gstin||'').replace(/"/g,'&quot;'); const a=(s.address||'').replace(/"/g,'&quot;'); return `<li><div class=\"flex flex-col gap-0.5\"><div class=\"flex items-center gap-2\"><span>${s.name}${s.gstin?` — <span class=\\\"text-xs text-gray-500\\\">${s.gstin}</span>`:''}</span><button type=\"button\" class=\"text-blue-600 text-xs underline edit-party-btn\" data-type=\"supplier\" data-name=\"${n}\" data-gstin=\"${g}\" data-address=\"${a}\" data-docid=\"${pid}\">Edit</button></div>${s.address?`<span class=\\\"text-xs text-gray-500\\\">${s.address}</span>`:''}</div></li>`}).join('') || '<li class="text-gray-500">None</li>';
-    const customersListHTML = (filteredCustomers).map(c=>{ const pid=(state.__primaryCustomers||[]).find(p=>(p.name||'').toLowerCase()===(c.name||'').toLowerCase())?.id||''; const n=(c.name||'').replace(/"/g,'&quot;'); const g=(c.gstin||'').replace(/"/g,'&quot;'); const a=(c.address||'').replace(/"/g,'&quot;'); return `<li><div class=\"flex flex-col gap-0.5\"><div class=\"flex items-center gap-2\"><span>${c.name}${c.gstin?` — <span class=\\\"text-xs text-gray-500\\\">${c.gstin}</span>`:''}</span><button type=\"button\" class=\"text-blue-600 text-xs underline edit-party-btn\" data-type=\"customer\" data-name=\"${n}\" data-gstin=\"${g}\" data-address=\"${a}\" data-docid=\"${pid}\">Edit</button></div>${c.address?`<span class=\\\"text-xs text-gray-500\\\">${c.address}</span>`:''}</div></li>`}).join('') || '<li class="text-gray-500">None</li>';
+
+    // --- Sorting & Pagination for party tables ---
+    // Load persisted sort preferences (per type) from localStorage
+    const loadSort = (type) => {
+        try { return JSON.parse(localStorage.getItem(`party_sort_${type}`) || 'null'); } catch(_) { return null; }
+    };
+    const saveSort = (type, cfg) => {
+        try { localStorage.setItem(`party_sort_${type}`, JSON.stringify(cfg)); } catch(_) {}
+    };
+
+    // pagination state (persist in state.ui)
+    state.ui = state.ui || {};
+    state.ui.partySuppliersPage = state.ui.partySuppliersPage || 1;
+    state.ui.partyCustomersPage = state.ui.partyCustomersPage || 1;
+    state.ui.partyPageSize = state.ui.partyPageSize || 25; // default page size
+
+    const applySortAndPaginate = (list, type) => {
+        const sortCfg = loadSort(type) || { key: null, dir: 'asc' };
+        let arr = Array.isArray(list) ? list.slice() : [];
+        if (sortCfg && sortCfg.key) {
+            const k = sortCfg.key;
+            arr.sort((a,b) => {
+                const va = ((a[k] || '') + '').toString().toLowerCase();
+                const vb = ((b[k] || '') + '').toString().toLowerCase();
+                if (va < vb) return sortCfg.dir === 'asc' ? -1 : 1;
+                if (va > vb) return sortCfg.dir === 'asc' ? 1 : -1;
+                return 0;
+            });
+            // Optionally apply sort to internal state arrays for persistence
+            try {
+                if (type === 'suppliers') state.allSuppliers = arr.slice();
+                if (type === 'customers') state.allCustomers = arr.slice();
+            } catch (_) {}
+        }
+        // pagination
+        const page = type === 'suppliers' ? (state.ui.partySuppliersPage || 1) : (state.ui.partyCustomersPage || 1);
+        const pageSize = state.ui.partyPageSize || 25;
+        const total = arr.length;
+        const totalPages = Math.max(1, Math.ceil(total / pageSize));
+        const normalizedPage = Math.min(Math.max(1, page), totalPages);
+        if (type === 'suppliers') state.ui.partySuppliersPage = normalizedPage; else state.ui.partyCustomersPage = normalizedPage;
+        const start = (normalizedPage - 1) * pageSize;
+        const slice = arr.slice(start, start + pageSize);
+        return { slice, total, totalPages, page: normalizedPage, pageSize };
+    };
+
+    const suppliersPaged = applySortAndPaginate(filteredSuppliers, 'suppliers');
+    const customersPaged = applySortAndPaginate(filteredCustomers, 'customers');
+    const supSort = loadSort('suppliers') || { key: null, dir: 'asc' };
+    const custSort = loadSort('customers') || { key: null, dir: 'asc' };
+    const suppliersListHTML = (suppliersPaged.slice).map(s=>{ 
+        const pid=(state.__primarySuppliers||[]).find(p=>(p.name||'').toLowerCase()===(s.name||'').toLowerCase())?.id||'';
+        const n=(s.name||'').replace(/"/g,'&quot;');
+        const g=(s.gstin||'').replace(/"/g,'&quot;');
+        const a=(s.address||'').replace(/"/g,'&quot;');
+        const gstCell = s.gstin ? `<span class="inline-block">${g}</span><button type=\"button\" class=\"copy-gstin-btn text-gray-500 text-xs ml-2\" data-gstin=\"${g}\" title=\"Copy GSTIN\">Copy</button>` : '-';
+        const em = (s.email||'').replace(/"/g,'&quot;');
+        const emailCell = em ? `<a href=\"mailto:${em}\" class=\"text-sm text-blue-600 underline\">${em}</a>` : '-';
+        return `<tr class="border-b text-sm"><td class="p-2 align-top font-medium">${s.name}</td><td class="p-2 align-top text-xs text-gray-600">${gstCell}</td><td class="p-2 align-top text-xs text-gray-700">${emailCell}</td><td class="p-2 align-top text-sm text-gray-700">${s.address? a : '-'}</td><td class="p-2 text-right"><div class="inline-flex items-center justify-end"><button type=\"button\" class=\"text-blue-600 text-xs underline edit-party-btn\" data-type=\"supplier\" data-name=\"${n}\" data-gstin=\"${g}\" data-address=\"${a}\" data-docid=\"${pid}\">Edit</button><button type=\"button\" class=\"text-red-600 text-xs underline ml-3 delete-party-btn\" data-type=\"supplier\" data-name=\"${n}\" data-docid=\"${pid}\">Delete</button></div></td></tr>`;
+    }).join('') || `<tr><td colspan="5" class="p-3 text-gray-500">None</td></tr>`;
+    const customersListHTML = (customersPaged.slice).map(c=>{ 
+        const pid=(state.__primaryCustomers||[]).find(p=>(p.name||'').toLowerCase()===(c.name||'').toLowerCase())?.id||'';
+        const n=(c.name||'').replace(/"/g,'&quot;');
+        const g=(c.gstin||'').replace(/"/g,'&quot;');
+        const a=(c.address||'').replace(/"/g,'&quot;');
+        const gstCell = c.gstin ? `<span class="inline-block">${g}</span><button type=\"button\" class=\"copy-gstin-btn text-gray-500 text-xs ml-2\" data-gstin=\"${g}\" title=\"Copy GSTIN\">Copy</button>` : '-';
+        const em = (c.email||'').replace(/"/g,'&quot;');
+        const emailCell = em ? `<a href=\"mailto:${em}\" class=\"text-sm text-blue-600 underline\">${em}</a>` : '-';
+        return `<tr class="border-b text-sm"><td class="p-2 align-top font-medium">${c.name}</td><td class="p-2 align-top text-xs text-gray-600">${gstCell}</td><td class="p-2 align-top text-xs text-gray-700">${emailCell}</td><td class="p-2 align-top text-sm text-gray-700">${c.address? a : '-'}</td><td class="p-2 text-right"><div class="inline-flex items-center justify-end"><button type=\"button\" class=\"text-blue-600 text-xs underline edit-party-btn\" data-type=\"customer\" data-name=\"${n}\" data-gstin=\"${g}\" data-address=\"${a}\" data-docid=\"${pid}\">Edit</button><button type=\"button\" class=\"text-red-600 text-xs underline ml-3 delete-party-btn\" data-type=\"customer\" data-name=\"${n}\" data-docid=\"${pid}\">Delete</button></div></td></tr>`;
+    }).join('') || `<tr><td colspan="5" class="p-3 text-gray-500">None</td></tr>`;
     const isAddCollapsed = !!state.ui.partyAddCollapsed;
     const isListCollapsed = !!state.ui.partyListCollapsed;
 
     container.innerHTML = `
-      <div class="grid grid-cols-1 gap-6"> <!-- removed lg:grid-cols-3 -->
+        <div class="grid grid-cols-1 gap-6"> <!-- removed lg:grid-cols-3 -->
+        <!-- Ledger Entry Modal is created dynamically and appended to document.body to avoid being replaced during re-renders -->
         <div class="space-y-6"> <!-- removed lg:col-span-2 -->
         <div class="flex items-end gap-4 mb-4">
             <div>
                 <label class="block text-sm text-gray-700">Start Date</label>
-                <input type="date" id="ledgerStartDate" class="border rounded p-2" value="${state.ledgerStartDate}">
+                <div class="flex items-center gap-2">
+                    <input type="date" id="ledgerStartDate" class="border rounded p-2" value="${state.ledgerStartDate}">
+                    <label class="text-sm flex items-center"><input type="checkbox" id="ledgerStartToday" class="mr-2" ${state.ledgerStartUseToday ? 'checked' : ''} />Today</label>
+                </div>
             </div>
             <div>
                 <label class="block text-sm text-gray-700">End Date</label>
@@ -7056,17 +11126,27 @@ function renderAdminLedgersPage() {
               <div class="text-2xl font-bold">₹${(cashBalance+bankBalance).toFixed(2)}</div>
             </div>
         </div>
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        <div class="flex items-center justify-end gap-2 mb-2">
+            <label class="text-sm text-gray-600 mr-2">Reorder:</label>
+            <button id="moveCashUpBtn" class="px-2 py-1 border rounded text-sm">Cash ↑</button>
+            <button id="moveBankUpBtn" class="px-2 py-1 border rounded text-sm">Bank ↑</button>
+        </div>
+        <div id="ledgerBooksGrid" class="grid grid-cols-1 gap-8 mb-8">
             <div class="bg-white p-6 rounded-lg shadow">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-xl font-bold">Cash Book</h3>
+                        <div class="flex items-center gap-2">
+                        <button id="addCashDebitBtn" class="px-3 py-1 bg-green-600 text-white text-sm rounded">Add Debit</button>
+                        <button id="addCashCreditBtn" class="px-3 py-1 bg-red-600 text-white text-sm rounded">Add Credit</button>
+                        
+                    </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left">
                         <thead class="bg-gray-100 text-xs">
                             <tr>
-                                <th class="p-2">Date</th>
-                                <th class="p-2">Ref Type</th>
+                                <th class="p-2">Date <select id="cashSortSel" class="ml-2 text-xs border rounded p-1"><option value="date:desc" ${state.cashSort?.key==='date' && state.cashSort?.dir==='desc' ? 'selected':''}>Newest</option><option value="date:asc" ${state.cashSort?.key==='date' && state.cashSort?.dir==='asc' ? 'selected':''}>Oldest</option></select></th>
+                                <th class="p-2">Ref Type <select id="cashSortRefTypeSel" class="hidden text-xs"></select></th>
                                 <th class="p-2">Ref</th>
                                 <th class="p-2">Notes</th>
                                 <th class="p-2 text-right">Debit (₹)</th>
@@ -7085,19 +11165,24 @@ function renderAdminLedgersPage() {
             <div class="bg-white p-6 rounded-lg shadow">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-xl font-bold">Bank Book</h3>
-                    <div class="flex items-center gap-2">
-                        <label class="text-xs text-gray-600">Account</label>
-                        <select id="bankAccountFilter" class="border rounded p-1 text-sm">
-                            <option ${selectedBank==='All'?'selected':''}>All</option>
-                            ${allBankAccounts.map(n=>`<option ${selectedBank===n?'selected':''}>${n}</option>`).join('')}
-                        </select>
+                        <div class="flex items-center gap-2">
+                        <div class="flex items-center gap-2">
+                            <label class="text-xs text-gray-600">Account</label>
+                            <select id="bankAccountFilter" class="border rounded p-1 text-sm">
+                                <option ${selectedBank==='All'?'selected':''}>All</option>
+                                ${allBankAccounts.map(n=>`<option ${selectedBank===n?'selected':''}>${n}</option>`).join('')}
+                            </select>
+                        </div>
+                        <button id="addBankDebitBtn" class="px-3 py-1 bg-green-600 text-white text-sm rounded">Add Debit</button>
+                        <button id="addBankCreditBtn" class="px-3 py-1 bg-red-600 text-white text-sm rounded">Add Credit</button>
+                        
                     </div>
                 </div>
                 <div class="overflow-x-auto">
                     <table class="w-full text-left">
                         <thead class="bg-gray-100 text-xs">
                             <tr>
-                                <th class="p-2">Date</th>
+                                <th class="p-2">Date <select id="bankSortSel" class="ml-2 text-xs border rounded p-1"><option value="date:desc" ${state.bankSort?.key==='date' && state.bankSort?.dir==='desc' ? 'selected':''}>Newest</option><option value="date:asc" ${state.bankSort?.key==='date' && state.bankSort?.dir==='asc' ? 'selected':''}>Oldest</option></select></th>
                                 <th class="p-2">Ref Type</th>
                                 <th class="p-2">Ref</th>
                                 <th class="p-2">Notes</th>
@@ -7159,44 +11244,17 @@ function renderAdminLedgersPage() {
             </div>
             ${debtorsPaginationHTML}
         </div>
-        <!-- Party Directory: Add and List panes, placed below Sundry Debtors -->
-        <div class="bg-white p-8 rounded-lg shadow-lg mt-8">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-xl font-bold">Add Parties</h3>
-                <button id="togglePartyAdd" class="text-sm text-gray-600 hover:text-gray-800">${isAddCollapsed?'Expand':'Collapse'}</button>
-            </div>
-            <div id="partyAddBody" class="${isAddCollapsed?'hidden':''}">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <form id="addSupplierForm" class="space-y-2 border rounded p-4">
-                    <h4 class="font-semibold">Add Supplier</h4>
-                    <div class="flex gap-2">
-                        <input type="text" id="newSupplierName" placeholder="Supplier name" class="flex-1 border rounded p-2" required>
-                        <button class="bg-gray-800 text-white px-3 rounded" type="submit">Add</button>
-                    </div>
-                    <div class="grid grid-cols-1 gap-2">
-                        <input type="text" id="newSupplierGstin" placeholder="GSTIN (optional)" class="border rounded p-2" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
-                        <textarea id="newSupplierAddress" placeholder="Address (optional)" class="border rounded p-2" rows="2"></textarea>
-                    </div>
-                </form>
-                <form id="addCustomerForm" class="space-y-2 border rounded p-4">
-                    <h4 class="font-semibold">Add Customer</h4>
-                    <div class="flex gap-2">
-                        <input type="text" id="newCustomerName" placeholder="Customer name" class="flex-1 border rounded p-2" required>
-                        <button class="bg-gray-800 text-white px-3 rounded" type="submit">Add</button>
-                    </div>
-                    <div class="grid grid-cols-1 gap-2">
-                        <input type="text" id="newCustomerGstin" placeholder="GSTIN (optional)" class="border rounded p-2" pattern="[0-9A-Z]{15}" title="15 characters: A-Z and 0-9">
-                        <textarea id="newCustomerAddress" placeholder="Address (optional)" class="border rounded p-2" rows="2"></textarea>
-                    </div>
-                </form>
-            </div>
-            </div>
-        </div>
+        <!-- Party Directory: Add pane removed. Use directory buttons instead. -->
         <div class="bg-white p-8 rounded-lg shadow-lg mt-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-xl font-bold">Party Directory</h3>
-                <button id="togglePartyList" class="text-sm text-gray-600 hover:text-gray-800">${isListCollapsed?'Expand':'Collapse'}</button>
-            </div>
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-xl font-bold">Party Directory</h3>
+                            <div class="flex items-center gap-3">
+                                                <button id="partyCompactToggle" class="text-sm text-gray-600 hover:text-gray-800">Compact</button>
+                                                <button id="togglePartyList" class="text-sm text-gray-600 hover:text-gray-800">${isListCollapsed?'Expand':'Collapse'}</button>
+                                                <button id="addSupplierDirBtn" class="px-3 py-1 bg-green-600 text-white text-sm rounded">Add Supplier</button>
+                                                <button id="addCustomerDirBtn" class="px-3 py-1 bg-blue-600 text-white text-sm rounded">Add Customer</button>
+                                            </div>
+                                    </div>
             <div id="partyListBody" class="${isListCollapsed?'hidden':''}">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
@@ -7205,7 +11263,33 @@ function renderAdminLedgersPage() {
                         <button id="clearSupplierSearch" class="text-xs text-gray-600 hover:text-gray-800 ${supSearchVal? '' : 'invisible'}">Clear</button>
                     </div>
                     <input type="text" id="supplierSearch" placeholder="Search name or GSTIN" class="border rounded p-2 w-full mb-2" value="${(supSearchVal||'').replace(/\"/g,'&quot;')}">
-                    <ul class="list-disc pl-6 text-sm mb-1">${suppliersListHTML}</ul>
+                                                            <div class="overflow-x-auto">
+                                                                <table class="w-full text-left party-table" data-type="suppliers">
+                                                                    <thead class="bg-gray-100 text-xs">
+                                                                        <tr>
+                                                                            <th role="button" tabindex="0" aria-sort="${supSort.key==='name'? (supSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="name">Name <span class="sort-indicator">${supSort.key==='name' ? (supSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th role="button" tabindex="0" aria-sort="${supSort.key==='gstin'? (supSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="gstin">GSTIN <span class="sort-indicator">${supSort.key==='gstin' ? (supSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th role="button" tabindex="0" aria-sort="${supSort.key==='email'? (supSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="email">Email <span class="sort-indicator">${supSort.key==='email' ? (supSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th role="button" tabindex="0" aria-sort="${supSort.key==='address'? (supSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="address">Address <span class="sort-indicator">${supSort.key==='address' ? (supSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th class="p-2 text-right">Actions</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        ${suppliersListHTML}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                            <div class="flex items-center justify-between mt-2 text-sm text-gray-600">
+                                                                <div>Showing ${suppliersPaged.slice.length ? ((suppliersPaged.page - 1) * suppliersPaged.pageSize + 1) : 0} - ${((suppliersPaged.page - 1) * suppliersPaged.pageSize) + suppliersPaged.slice.length} of ${suppliersPaged.total}</div>
+                                                                <div class="flex items-center gap-2">
+                                                                    <button id="supPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${suppliersPaged.page<=1? 'disabled':''}>Prev</button>
+                                                                    <input id="supPageInput" type="number" min="1" max="${suppliersPaged.totalPages}" value="${suppliersPaged.page}" class="w-14 text-center border rounded p-1" />
+                                                                    <button id="supNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${suppliersPaged.page>=suppliersPaged.totalPages? 'disabled':''}>Next</button>
+                                                                    <select id="supPageSizeSel" class="border rounded p-1 text-sm">
+                                                                        ${[10,25,50].map(n=>`<option value="${n}" ${suppliersPaged.pageSize===n? 'selected':''}>${n}</option>`).join('')}
+                                                                    </select>
+                                                                </div>
+                                                            </div>
                 </div>
                 <div>
                     <div class="flex items-center justify-between mb-2">
@@ -7213,7 +11297,33 @@ function renderAdminLedgersPage() {
                         <button id="clearCustomerSearch" class="text-xs text-gray-600 hover:text-gray-800 ${custSearchVal? '' : 'invisible'}">Clear</button>
                     </div>
                     <input type="text" id="customerSearch" placeholder="Search name or GSTIN" class="border rounded p-2 w-full mb-2" value="${(custSearchVal||'').replace(/\"/g,'&quot;')}">
-                    <ul class="list-disc pl-6 text-sm mb-1">${customersListHTML}</ul>
+                                                            <div class="overflow-x-auto">
+                                                                <table class="w-full text-left party-table" data-type="customers">
+                                                                    <thead class="bg-gray-100 text-xs">
+                                                                        <tr>
+                                                                            <th role="button" tabindex="0" aria-sort="${custSort.key==='name'? (custSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="name">Name <span class="sort-indicator">${custSort.key==='name' ? (custSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th role="button" tabindex="0" aria-sort="${custSort.key==='gstin'? (custSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="gstin">GSTIN <span class="sort-indicator">${custSort.key==='gstin' ? (custSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th role="button" tabindex="0" aria-sort="${custSort.key==='email'? (custSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="email">Email <span class="sort-indicator">${custSort.key==='email' ? (custSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th role="button" tabindex="0" aria-sort="${custSort.key==='address'? (custSort.dir==='asc'?'ascending':'descending') : 'none'}" class="p-2 sortable cursor-pointer" data-key="address">Address <span class="sort-indicator">${custSort.key==='address' ? (custSort.dir==='asc' ? '▲' : '▼') : ''}</span></th>
+                                                                            <th class="p-2 text-right">Actions</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody>
+                                                                        ${customersListHTML}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                            <div class="flex items-center justify-between mt-2 text-sm text-gray-600">
+                                                                <div>Showing ${customersPaged.slice.length ? ((customersPaged.page - 1) * customersPaged.pageSize + 1) : 0} - ${((customersPaged.page - 1) * customersPaged.pageSize) + customersPaged.slice.length} of ${customersPaged.total}</div>
+                                                                <div class="flex items-center gap-2">
+                                                                    <button id="custPrevBtn" class="px-2 py-1 bg-gray-100 rounded" ${customersPaged.page<=1? 'disabled':''}>Prev</button>
+                                                                    <input id="custPageInput" type="number" min="1" max="${customersPaged.totalPages}" value="${customersPaged.page}" class="w-14 text-center border rounded p-1" />
+                                                                    <button id="custNextBtn" class="px-2 py-1 bg-gray-100 rounded" ${customersPaged.page>=customersPaged.totalPages? 'disabled':''}>Next</button>
+                                                                    <select id="custPageSizeSel" class="border rounded p-1 text-sm">
+                                                                        ${[10,25,50].map(n=>`<option value="${n}" ${customersPaged.pageSize===n? 'selected':''}>${n}</option>`).join('')}
+                                                                    </select>
+                                                                </div>
+                                                            </div>
                 </div>
             </div>
             </div>
@@ -7221,12 +11331,19 @@ function renderAdminLedgersPage() {
         <!-- End Party Directory panes -->
         <div class="bg-white p-8 rounded-lg shadow-lg mt-8">
             <h3 class="text-xl font-bold mb-4">Quick Postings</h3>
+            <!-- Condensed controls: three buttons that reveal the corresponding form -->
+            <div class="mb-4 flex gap-2" role="tablist" aria-label="Quick Postings">
+                <button id="quickPostingBtnSp" type="button" class="px-3 py-2 bg-green-600 text-white rounded" aria-controls="supplierPaymentForm" aria-pressed="true" onclick="showQuickPostingForm('supplierPaymentForm')">Supplier Payment</button>
+                <button id="quickPostingBtnCr" type="button" class="px-3 py-2 bg-indigo-600 text-white rounded" aria-controls="customerReceiptForm" aria-pressed="false" onclick="showQuickPostingForm('customerReceiptForm')">Customer Receipt</button>
+                <button id="quickPostingBtnT" type="button" class="px-3 py-2 bg-gray-700 text-white rounded" aria-controls="cashBankTransferForm" aria-pressed="false" onclick="showQuickPostingForm('cashBankTransferForm')">Cash ↔ Bank Transfer</button>
+            </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <form id="supplierPaymentForm" class="space-y-3 border rounded p-4">
                     <h4 class="font-semibold">Supplier Payment</h4>
                     <input type="text" id="spParty" placeholder="Supplier Name" class="w-full border rounded p-2" list="suppliersDatalist" required>
                     <datalist id="suppliersDatalist">${(state.allSuppliers||[]).map(s=>`<option value="${(s.name||'').replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
                     <input type="date" id="spDate" class="w-full border rounded p-2" value="${new Date().toISOString().split('T')[0]}" required>
+                    <div id="spTimeDisplay" class="text-sm text-gray-700 mt-1">Posting time: ${getLocalTimeHHMMSS()}</div>
                     <input type="number" id="spAmount" placeholder="Amount (₹)" class="w-full border rounded p-2" step="0.01" required>
                     <select id="spMode" class="w-full border rounded p-2">
                         <option value="cash" selected>Cash</option>
@@ -7240,13 +11357,22 @@ function renderAdminLedgersPage() {
                                         <label class="flex items-center gap-2 text-xs text-gray-700"><input type="checkbox" id="spReconciled"> Mark as reconciled</label>
                                         <input type="text" id="spReconNote" placeholder="Reconciliation note (optional)" class="w-full border rounded p-2">
                     <input type="text" id="spNotes" placeholder="Notes (optional)" class="w-full border rounded p-2">
+                    <div class="mt-2 text-sm text-gray-600">
+                        <div>Total outstanding for supplier: <span id="spTotalOutstanding">0.00</span></div>
+                        <div class="mt-2">
+                            <button type="button" id="spSelectAllBills" class="px-2 py-1 bg-gray-100 rounded text-sm">Select All Bills</button>
+                            <button type="button" id="spClearBills" class="px-2 py-1 bg-gray-100 rounded text-sm ml-2">Clear</button>
+                        </div>
+                        <div id="spBillsContainer" class="mt-2 max-h-40 overflow-y-auto text-sm border rounded p-2 bg-white"></div>
+                    </div>
                     <button type="submit" class="bg-green-600 text-white px-4 py-2 rounded">Record Payment</button>
                 </form>
-                <form id="customerReceiptForm" class="space-y-3 border rounded p-4">
+                <form id="customerReceiptForm" class="space-y-3 border rounded p-4 hidden">
                     <h4 class="font-semibold">Customer Receipt</h4>
                     <input type="text" id="crParty" placeholder="Customer Name" class="w-full border rounded p-2" list="customersDatalist" required>
                     <datalist id="customersDatalist">${(state.allCustomers||[]).map(c=>`<option value="${(c.name||'').replace(/"/g,'&quot;')}"></option>`).join('')}</datalist>
                     <input type="date" id="crDate" class="w-full border rounded p-2" value="${new Date().toISOString().split('T')[0]}" required>
+                    <div id="crTimeDisplay" class="text-sm text-gray-700 mt-1">Posting time: ${getLocalTimeHHMMSS()}</div>
                     <input type="number" id="crAmount" placeholder="Amount (₹)" class="w-full border rounded p-2" step="0.01" required>
                     <select id="crMode" class="w-full border rounded p-2">
                         <option value="cash" selected>Cash</option>
@@ -7264,9 +11390,10 @@ function renderAdminLedgersPage() {
                 </form>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
-                <form id="cashBankTransferForm" class="space-y-3 border rounded p-4">
+                <form id="cashBankTransferForm" class="space-y-3 border rounded p-4 hidden">
                     <h4 class="font-semibold">Cash ↔ Bank Transfer</h4>
                     <input type="date" id="tDate" class="w-full border rounded p-2" value="${new Date().toISOString().split('T')[0]}" required>
+                    <div id="tTimeDisplay" class="text-sm text-gray-700 mt-1">Posting time: ${getLocalTimeHHMMSS()}</div>
                     <input type="number" id="tAmount" placeholder="Amount (₹)" class="w-full border rounded p-2" step="0.01" required>
                     <select id="tDirection" class="w-full border rounded p-2">
                         <option value="cashToBank">Cash to Bank (Deposit)</option>
@@ -7313,7 +11440,66 @@ function renderAdminLedgersPage() {
                     
                 </aside>
       </div>
-    `;
+        `;
+
+    // After rendering, ensure time inputs reflect the admin-unlocked state (they may be recreated by innerHTML)
+    try {
+        const ids = ['cashObTime','bankObTime','spTime','crTime','tTime'];
+        ids.forEach(id => {
+            try {
+                const el = document.getElementById(id);
+                if (el) el.disabled = !state.timePickerUnlocked;
+            } catch (_) {}
+        });
+    } catch (_) {}
+
+    // Ledger reorder controls: allow swapping Cash/Bank panels to give more room
+    try {
+        state.ui = state.ui || {};
+        // restore saved order if any
+        try {
+            const saved = localStorage.getItem('ledgerSectionOrder');
+            if (saved) state.ui.ledgerSectionOrder = JSON.parse(saved);
+        } catch (_) {}
+
+        const ledgerGrid = document.getElementById('ledgerBooksGrid');
+        const moveCashBtn = document.getElementById('moveCashUpBtn');
+        const moveBankBtn = document.getElementById('moveBankUpBtn');
+
+        function ensureLedgerOrder(prefer) {
+            try {
+                if (!ledgerGrid) return;
+                const children = Array.from(ledgerGrid.children).filter(c => c.nodeType === 1);
+                if (children.length < 2) return;
+                // detect which child is cash/bank by header text
+                let cashEl = null, bankEl = null;
+                for (const ch of children) {
+                    const h = ch.querySelector('h3');
+                    const txt = (h && h.textContent) ? h.textContent.trim().toLowerCase() : '';
+                    if (txt.startsWith('cash')) cashEl = ch;
+                    if (txt.startsWith('bank')) bankEl = ch;
+                }
+                if (!cashEl || !bankEl) return;
+                if (prefer === 'cash') {
+                    if (ledgerGrid.firstElementChild !== cashEl) ledgerGrid.insertBefore(cashEl, ledgerGrid.firstElementChild);
+                    state.ui.ledgerSectionOrder = ['cash','bank'];
+                } else if (prefer === 'bank') {
+                    if (ledgerGrid.firstElementChild !== bankEl) ledgerGrid.insertBefore(bankEl, ledgerGrid.firstElementChild);
+                    state.ui.ledgerSectionOrder = ['bank','cash'];
+                }
+                try { localStorage.setItem('ledgerSectionOrder', JSON.stringify(state.ui.ledgerSectionOrder)); } catch(_){}
+            } catch (e) { console.error('ensureLedgerOrder', e); }
+        }
+
+        // attach handlers
+        moveCashBtn?.addEventListener('click', () => ensureLedgerOrder('cash'));
+        moveBankBtn?.addEventListener('click', () => ensureLedgerOrder('bank'));
+
+        // apply saved order immediately
+        if (state.ui.ledgerSectionOrder && state.ui.ledgerSectionOrder[0]) {
+            ensureLedgerOrder(state.ui.ledgerSectionOrder[0]);
+        }
+    } catch (_) {}
 
     // Date filter listeners
     const applyBtn = document.getElementById('applyLedgerDateBtn');
@@ -7323,11 +11509,45 @@ function renderAdminLedgersPage() {
             const e = document.getElementById('ledgerEndDate').value;
             state.ledgerStartDate = s || state.ledgerStartDate;
             state.ledgerEndDate = e || state.ledgerEndDate;
+            // Update the 'use today' flag when apply is clicked
+            try {
+                const todayChk = document.getElementById('ledgerStartToday');
+                const todayStr = new Date().toISOString().split('T')[0];
+                state.ledgerStartUseToday = !!(todayChk && todayChk.checked) || (state.ledgerStartDate === todayStr);
+            } catch (_) { state.ledgerStartUseToday = false; }
             // Reset pagination to first page when date range changes
             state.cashPage = 1; state.bankPage = 1; state.creditorsPage = 1; state.debtorsPage = 1;
             renderAdminLedgersPage();
         });
     }
+
+    // Wire the 'Today' checkbox so toggling it updates the start date immediately
+    try {
+        const todayChk = document.getElementById('ledgerStartToday');
+        if (todayChk) {
+            todayChk.addEventListener('change', (ev) => {
+                try {
+                    const checked = !!ev.currentTarget.checked;
+                    const todayStr = new Date().toISOString().split('T')[0];
+                    const startEl = document.getElementById('ledgerStartDate');
+                    if (checked) {
+                        if (startEl) startEl.value = todayStr;
+                        state.ledgerStartDate = todayStr;
+                        state.ledgerStartUseToday = true;
+                    } else {
+                        // revert to financial year start
+                        const def = getFinancialYearStart(new Date());
+                        if (startEl) startEl.value = def;
+                        state.ledgerStartDate = def;
+                        state.ledgerStartUseToday = false;
+                    }
+                    // reset pagination and re-render
+                    state.cashPage = 1; state.bankPage = 1; state.creditorsPage = 1; state.debtorsPage = 1;
+                    renderAdminLedgersPage();
+                } catch (e) { console.error('ledgerStartToday change handler', e); }
+            });
+        }
+    } catch (_) {}
 
     // Supplier Payment form handler
     const spForm = document.getElementById('supplierPaymentForm');
@@ -7335,7 +11555,7 @@ function renderAdminLedgersPage() {
         spForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const party = document.getElementById('spParty').value.trim();
-            const date = new Date(document.getElementById('spDate').value);
+            const date = parseDateWithNow('spDate');
             const amount = parseFloat(document.getElementById('spAmount').value) || 0;
             const mode = (document.getElementById('spMode')?.value || 'cash');
             const bankAccount = mode==='bank' ? (document.getElementById('spBankAccount')?.value || 'Main Bank') : null;
@@ -7343,44 +11563,87 @@ function renderAdminLedgersPage() {
             const reconNote = document.getElementById('spReconNote')?.value || '';
             const notes = document.getElementById('spNotes').value.trim();
             if (!party || amount <= 0) { showMessage('Enter supplier name and a positive amount.'); return; }
-            try {
-                const ref = doc(collection(db, creditorsLedgerColPath));
-                await setDoc(ref, {
-                    partyName: party,
-                    date,
-                    refType: 'Payment',
-                    refId: ref.id,
-                    notes,
-                    debit: amount,
-                    credit: 0,
-                    isDeleted: false,
-                    createdAt: serverTimestamp(),
-                });
-                // Mirror entry in cash/bank ledger (credit because asset decreases)
-                const cashPayload = {
-                    date,
-                    refType: 'Supplier Payment',
-                    refId: ref.id,
-                    notes: notes ? `${notes} · To ${party}` : `To ${party}`,
-                    debit: 0,
-                    credit: amount,
-                    bankAccount: bankAccount || undefined,
-                    reconciled: reconciled || false,
-                    reconNote: reconNote || undefined,
-                    isDeleted: false,
-                    createdAt: serverTimestamp(),
-                };
-                if (mode === 'bank') {
-                    await addDoc(collection(db, bankLedgerColPath), cashPayload);
-                } else {
-                    await addDoc(collection(db, cashLedgerColPath), cashPayload);
-                }
+                try {
+                    // Collect selected bills (if any) from the UI and parse outstanding amounts
+                    const container = document.getElementById('spBillsContainer');
+                    const checked = container ? Array.from(container.querySelectorAll('.sp-bill-checkbox')).filter(c => c.checked) : [];
+                    const selectedBills = checked.map(c => ({ refId: c.getAttribute('data-refid'), outstanding: Number(c.getAttribute('data-amount') || 0) }));
+
+                    // Create the cash/bank ledger entry first so we can reference it from per-bill payment entries
+                    const cashPayload = {
+                        date,
+                        refType: 'Supplier Payment',
+                        // use a generated batch refId (the addDoc id will be filled in after creation)
+                        refId: null,
+                        notes: notes ? `${notes} · To ${party}` : `To ${party}`,
+                        debit: 0,
+                        credit: amount,
+                        reconciled: !!reconciled,
+                        isDeleted: false,
+                        createdAt: serverTimestamp(),
+                    };
+                    if (bankAccount) cashPayload.bankAccount = bankAccount;
+                    if (reconNote) cashPayload.reconNote = reconNote;
+
+                    // Use a batched write so the cash/bank ledger entry and creditors payment entries are atomic.
+                    const batch = writeBatch(db);
+                    // Create cash/bank doc ref without writing yet so we can reference its id
+                    const cashDocRef = (mode === 'bank') ? doc(collection(db, bankLedgerColPath)) : doc(collection(db, cashLedgerColPath));
+                    // set refId to the cashDoc id for traceability
+                    const cashPayloadWithRef = { ...cashPayload, refId: cashDocRef.id };
+                    batch.set(cashDocRef, cashPayloadWithRef);
+
+                    // Distribute amount across selected bills (first-fit) and create creditors payment docs in batch
+                    let remaining = amount;
+                    if (selectedBills.length > 0) {
+                        for (const b of selectedBills) {
+                            if (remaining <= 0) break;
+                            const apply = Math.min(remaining, b.outstanding || 0);
+                            if (apply <= 0) continue;
+                            const creditorRef = doc(collection(db, creditorsLedgerColPath));
+                            batch.set(creditorRef, {
+                                partyName: party,
+                                date,
+                                refType: 'Payment',
+                                refId: b.refId,
+                                paymentRef: cashDocRef.id,
+                                notes: notes || `Payment against ${b.refId}`,
+                                debit: apply,
+                                credit: 0,
+                                isDeleted: false,
+                                createdAt: serverTimestamp(),
+                            });
+                            remaining -= apply;
+                        }
+                    }
+
+                    // If no selected bills or leftover remaining amount, create a generic creditors payment doc referencing the cashDocRef
+                    if (selectedBills.length === 0 || remaining > 0) {
+                        const creditorRef = doc(collection(db, creditorsLedgerColPath));
+                        batch.set(creditorRef, {
+                            partyName: party,
+                            date,
+                            refType: 'Payment',
+                            refId: cashDocRef.id,
+                            paymentRef: cashDocRef.id,
+                            notes,
+                            debit: remaining > 0 ? remaining : amount,
+                            credit: 0,
+                            isDeleted: false,
+                            createdAt: serverTimestamp(),
+                        });
+                    }
+
+                    // Commit the batch
+                    await batch.commit();
                 await ensurePartyExists(party, 'supplier');
                 // Optimistic update and re-render
                 upsertPartyInState('supplier', { name: party });
                 renderAdminLedgersPage();
                 showMessage('Supplier payment recorded.');
                 spForm.reset();
+                // clear bills UI
+                try { document.getElementById('spBillsContainer').innerHTML = ''; document.getElementById('spTotalOutstanding').textContent = '0.00'; } catch(_) {}
             } catch (err) {
                 console.error('Supplier payment error:', err);
                 showMessage('Failed to record supplier payment.');
@@ -7388,13 +11651,69 @@ function renderAdminLedgersPage() {
         });
     }
 
+    // Populate supplier bills list and totals when party field changes or on demand
+    function populateSupplierBillsFor(partyName) {
+        try {
+            const container = document.getElementById('spBillsContainer');
+            const totalEl = document.getElementById('spTotalOutstanding');
+            if (!container || !totalEl) return;
+            const all = (state.allCreditorsLedger || []).filter(x => !x.isDeleted);
+            // Consider only purchase-origin creditor entries as bill items
+            const purchaseEntries = all.filter(e => (e.refType || '').toLowerCase().includes('purchase') && (e.partyName||'').trim().toLowerCase() === (partyName||'').trim().toLowerCase());
+            // Group by refId to compute outstanding per bill
+            const byRef = {};
+            for (const e of purchaseEntries) {
+                const refId = e.refId || e.id || ('ref_' + (e.id||Math.random()));
+                if (!byRef[refId]) byRef[refId] = { refId, invoice: e.invoiceNumber || '', date: e.date || e.createdAt || null, credit: 0, paid: 0 };
+                byRef[refId].credit += Number(e.credit || 0);
+            }
+            // Sum payments (debits) against these refIds
+            for (const e of all.filter(x => (x.refType||'').toLowerCase().includes('payment') || (x.refType||'').toLowerCase().includes('payment') )) {
+                const refId = e.refId || e.id;
+                if (refId && byRef[refId]) byRef[refId].paid += Number(e.debit || 0);
+            }
+            const bills = Object.values(byRef).map(b => ({
+                refId: b.refId,
+                invoice: b.invoice,
+                date: b.date,
+                outstanding: Math.round(((b.credit || 0) - (b.paid || 0) + Number.EPSILON) * 100) / 100
+            })).filter(b => b.outstanding > 0).sort((a,b) => (b.date?.seconds || 0) - (a.date?.seconds || 0));
+            const totalOutstanding = bills.reduce((acc,b)=>acc + b.outstanding, 0);
+            totalEl.textContent = (Math.round((totalOutstanding+Number.EPSILON)*100)/100).toFixed(2);
+            if (!bills.length) { container.innerHTML = '<div class="text-gray-500">No unpaid bills for this supplier.</div>'; return; }
+            container.innerHTML = bills.map(b => `<label class="flex items-center justify-between"><span><input type="checkbox" class="sp-bill-checkbox mr-2" data-refid="${(b.refId||'').replace(/"/g,'&quot;')}" data-amount="${b.outstanding}"> ${b.invoice ? b.invoice + ' · ' : ''}${formatDate(_toDate(b.date) || new Date())}</span><span>₹${b.outstanding.toFixed(2)}</span></label>`).join('');
+            // Attach handlers
+            container.querySelectorAll('.sp-bill-checkbox').forEach(chk => chk.addEventListener('change', () => {
+                const checked = Array.from(container.querySelectorAll('.sp-bill-checkbox')).filter(c => c.checked);
+                const selTotal = checked.reduce((acc,c) => acc + Number(c.getAttribute('data-amount') || 0), 0);
+                const spAmountEl = document.getElementById('spAmount');
+                if (spAmountEl) spAmountEl.value = selTotal.toFixed(2);
+            }));
+        } catch (err) { console.error('populateSupplierBillsFor error', err); }
+    }
+
+    // Wire up party input change/select-all/clear buttons
+    const spPartyInput = document.getElementById('spParty');
+    if (spPartyInput) {
+        spPartyInput.addEventListener('change', (e) => populateSupplierBillsFor(e.target.value));
+        spPartyInput.addEventListener('blur', (e) => populateSupplierBillsFor(e.target.value));
+    }
+    document.getElementById('spSelectAllBills')?.addEventListener('click', () => {
+        const container = document.getElementById('spBillsContainer'); if (!container) return;
+        container.querySelectorAll('.sp-bill-checkbox').forEach(c => { c.checked = true; c.dispatchEvent(new Event('change')); });
+    });
+    document.getElementById('spClearBills')?.addEventListener('click', () => {
+        const container = document.getElementById('spBillsContainer'); if (!container) return;
+        container.querySelectorAll('.sp-bill-checkbox').forEach(c => { c.checked = false; c.dispatchEvent(new Event('change')); });
+    });
+
     // Customer Receipt form handler
     const crForm = document.getElementById('customerReceiptForm');
     if (crForm) {
         crForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const party = document.getElementById('crParty').value.trim();
-            const date = new Date(document.getElementById('crDate').value);
+            const date = parseDateWithNow('crDate');
             const amount = parseFloat(document.getElementById('crAmount').value) || 0;
             const mode = (document.getElementById('crMode')?.value || 'cash');
             const bankAccount = mode==='bank' ? (document.getElementById('crBankAccount')?.value || 'Main Bank') : null;
@@ -7452,7 +11771,7 @@ function renderAdminLedgersPage() {
     if (tForm) {
         tForm.addEventListener('submit', async (e) => {
             e.preventDefault();
-            const date = new Date(document.getElementById('tDate').value);
+            const date = parseDateWithNow('tDate');
             const amount = parseFloat(document.getElementById('tAmount').value) || 0;
             const dir = document.getElementById('tDirection').value;
             const bankAccount = document.getElementById('tBankAccount')?.value || 'Main Bank';
@@ -7461,27 +11780,47 @@ function renderAdminLedgersPage() {
             const notes = document.getElementById('tNotes').value.trim();
             if (amount <= 0) { showMessage('Enter a positive amount.'); return; }
             try {
+                // Create a single transfer document and two ledger entries that reference it (contra)
+                const batch = writeBatch(db);
+                const transferRef = doc(collection(db, transfersColPath));
+                const transferPayload = {
+                    date,
+                    amount,
+                    direction: dir === 'cashToBank' ? 'cashToBank' : 'bankToCash',
+                    bankAccount: bankAccount || null,
+                    reconciled: !!reconciled,
+                    reconNote: reconNote || null,
+                    notes: notes || null,
+                    createdAt: serverTimestamp(),
+                    isDeleted: false,
+                };
+                batch.set(transferRef, transferPayload);
                 if (dir === 'cashToBank') {
                     // Cash credit, Bank debit
-                    await addDoc(collection(db, cashLedgerColPath), {
-                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Cash → Bank` : 'Cash → Bank',
+                    const cashDoc = doc(db, cashLedgerColPath, `${transferRef.id}-cash`);
+                    const bankDoc = doc(db, bankLedgerColPath, `${transferRef.id}-bank`);
+                    batch.set(cashDoc, {
+                        date, refType: 'Transfer', refId: transferRef.id, notes: notes ? `${notes} · Cash → Bank` : 'Cash → Bank',
                         debit: 0, credit: amount, isDeleted: false, createdAt: serverTimestamp(),
                     });
-                    await addDoc(collection(db, bankLedgerColPath), {
-                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Cash → Bank` : 'Cash → Bank', bankAccount, reconciled, reconNote: reconNote || undefined,
+                    batch.set(bankDoc, {
+                        date, refType: 'Transfer', refId: transferRef.id, notes: notes ? `${notes} · Cash → Bank` : 'Cash → Bank', bankAccount, reconciled, reconNote: reconNote || undefined,
                         debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
                     });
                 } else {
                     // Bank to Cash: Bank credit, Cash debit
-                    await addDoc(collection(db, bankLedgerColPath), {
-                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Bank → Cash` : 'Bank → Cash', bankAccount, reconciled, reconNote: reconNote || undefined,
+                    const bankDoc = doc(db, bankLedgerColPath, `${transferRef.id}-bank`);
+                    const cashDoc = doc(db, cashLedgerColPath, `${transferRef.id}-cash`);
+                    batch.set(bankDoc, {
+                        date, refType: 'Transfer', refId: transferRef.id, notes: notes ? `${notes} · Bank → Cash` : 'Bank → Cash', bankAccount, reconciled, reconNote: reconNote || undefined,
                         debit: 0, credit: amount, isDeleted: false, createdAt: serverTimestamp(),
                     });
-                    await addDoc(collection(db, cashLedgerColPath), {
-                        date, refType: 'Transfer', refId: '', notes: notes ? `${notes} · Bank → Cash` : 'Bank → Cash',
+                    batch.set(cashDoc, {
+                        date, refType: 'Transfer', refId: transferRef.id, notes: notes ? `${notes} · Bank → Cash` : 'Bank → Cash',
                         debit: amount, credit: 0, isDeleted: false, createdAt: serverTimestamp(),
                     });
                 }
+                await batch.commit();
                 renderAdminLedgersPage();
                 showMessage('Transfer recorded.');
                 tForm.reset();
@@ -7551,20 +11890,24 @@ function renderAdminLedgersPage() {
         });
     }
     if (addSupForm) {
+        try { const supAddrAdd = document.getElementById('newSupplierAddressAdd'); if (supAddrAdd) attachNameCapitalization(supAddrAdd); } catch(_) {}
         addSupForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('newSupplierName').value.trim();
             const gstin = (document.getElementById('newSupplierGstin')?.value || '').trim();
-            const address = (document.getElementById('newSupplierAddress')?.value || '').trim();
+            const address = (document.getElementById('newSupplierAddressAdd')?.value || '').trim();
+            const creditDaysRaw = (document.getElementById('newSupplierCreditDays')?.value || '').toString().trim();
+            const creditDays = creditDaysRaw === '' ? 0 : (parseInt(creditDaysRaw, 10) || 0);
             if (!name) return;
             try {
-                await ensurePartyExists(name, 'supplier', true, { gstin: gstin || undefined, address: address || undefined });
+                await ensurePartyExists(name, 'supplier', true, { gstin: gstin || undefined, address: address || undefined, creditDays: creditDays !== null ? creditDays : undefined });
                 // Optimistic local list update and re-render
-                upsertPartyInState('supplier', { name, gstin: gstin || undefined, address: address || undefined });
+                upsertPartyInState('supplier', { name, gstin: gstin || undefined, address: address || undefined, creditDays: creditDays !== null ? creditDays : undefined });
                 renderAdminLedgersPage();
                 document.getElementById('newSupplierName').value = '';
                 if (document.getElementById('newSupplierGstin')) document.getElementById('newSupplierGstin').value = '';
-                if (document.getElementById('newSupplierAddress')) document.getElementById('newSupplierAddress').value = '';
+                if (document.getElementById('newSupplierAddressAdd')) document.getElementById('newSupplierAddressAdd').value = '';
+                if (document.getElementById('newSupplierCreditDays')) document.getElementById('newSupplierCreditDays').value = '';
                 showMessage('Supplier added to directory.');
             } catch (err) {
                 console.error('Add supplier error:', err);
@@ -7574,20 +11917,25 @@ function renderAdminLedgersPage() {
     }
     const addCustForm = document.getElementById('addCustomerForm');
     if (addCustForm) {
+        try { const custAddr = document.getElementById('newCustomerAddress'); if (custAddr) attachNameCapitalization(custAddr); } catch(_) {}
+        try { const custEmailEl = document.getElementById('newCustomerEmail'); if (custEmailEl) try { enforceLowercaseInput(custEmailEl); } catch(_) {} } catch(_) {}
         addCustForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             const name = document.getElementById('newCustomerName').value.trim();
             const gstin = (document.getElementById('newCustomerGstin')?.value || '').trim();
             const address = (document.getElementById('newCustomerAddress')?.value || '').trim();
+            const creditDaysRaw = (document.getElementById('newCustomerCreditDays')?.value || '').toString().trim();
+            const creditDays = creditDaysRaw === '' ? 0 : (parseInt(creditDaysRaw, 10) || 0);
             if (!name) return;
             try {
-                await ensurePartyExists(name, 'customer', true, { gstin: gstin || undefined, address: address || undefined });
+                await ensurePartyExists(name, 'customer', true, { gstin: gstin || undefined, address: address || undefined, creditDays: creditDays !== null ? creditDays : undefined });
                 // Optimistic local list update and re-render
-                upsertPartyInState('customer', { name, gstin: gstin || undefined, address: address || undefined });
+                upsertPartyInState('customer', { name, gstin: gstin || undefined, address: address || undefined, creditDays: creditDays !== null ? creditDays : undefined });
                 renderAdminLedgersPage();
                 document.getElementById('newCustomerName').value = '';
                 if (document.getElementById('newCustomerGstin')) document.getElementById('newCustomerGstin').value = '';
                 if (document.getElementById('newCustomerAddress')) document.getElementById('newCustomerAddress').value = '';
+                if (document.getElementById('newCustomerCreditDays')) document.getElementById('newCustomerCreditDays').value = '';
                 showMessage('Customer added to directory.');
             } catch (err) {
                 console.error('Add customer error:', err);
@@ -7595,6 +11943,377 @@ function renderAdminLedgersPage() {
             }
         });
     }
+
+    // Attach capitalization for inline add forms if present
+    try { const newSupplierNameEl = document.getElementById('newSupplierName'); if (newSupplierNameEl) attachNameCapitalization(newSupplierNameEl); } catch(_) {}
+    try { const newCustomerNameEl = document.getElementById('newCustomerName'); if (newCustomerNameEl) attachNameCapitalization(newCustomerNameEl); } catch(_) {}
+
+    // If an inline Add-Customer 'Not GST-registered' checkbox exists, wire it to clear/disable the GSTIN input
+    try {
+        const inlineNotReg = document.getElementById('newCustomerNotRegistered');
+        const inlineGstin = document.getElementById('newCustomerGstin');
+        const inlineGstinFb = document.getElementById('newCustomerGstinFeedback');
+        if (inlineNotReg && inlineGstin) {
+            const toggleInlineCustGst = () => {
+                try {
+                    if (inlineNotReg.checked) {
+                        inlineGstin.value = '';
+                        try { inlineGstin.classList.remove('tiaras-valid'); inlineGstin.classList.remove('tiaras-invalid'); inlineGstin.removeAttribute && inlineGstin.removeAttribute('aria-invalid'); } catch(_) {}
+                        if (inlineGstinFb) { try { inlineGstinFb.classList.add('hidden'); inlineGstinFb.textContent = ''; } catch(_) {} }
+                        inlineGstin.disabled = true;
+                    } else {
+                        inlineGstin.disabled = false;
+                    }
+                } catch(_) {}
+            };
+            inlineNotReg.addEventListener('change', toggleInlineCustGst);
+            toggleInlineCustGst();
+        }
+    } catch(_) {}
+
+    // Directory header add buttons — open a modal that reuses the advanced supplier/customer fields
+    const addSupplierDirBtn = document.getElementById('addSupplierDirBtn');
+    if (addSupplierDirBtn) {
+        addSupplierDirBtn.addEventListener('click', () => {
+            // create modal HTML
+            const modal = document.createElement('div');
+            modal.id = 'dirAddSupplierModal';
+            modal.className = 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-40';
+            modal.innerHTML = `
+                <div class="bg-white rounded-md p-6 max-w-lg w-full">
+                    <h3 class="text-lg font-semibold mb-2">Add Supplier</h3>
+                    <div class="space-y-3">
+                        <input type="text" id="dirNewSupplierName" placeholder="Supplier name" class="w-full border rounded p-2" required />
+                        <input type="text" id="dirNewSupplierGstin" placeholder="GSTIN (optional)" class="w-full border rounded p-2" />
+                        <label class="inline-flex items-center text-xs text-gray-700"><input type="checkbox" id="dirNewSupplierNotRegistered" class="mr-2"> Not GST-registered</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <select id="dirNewSupplierStateCode" class="w-full border rounded p-2">
+                                <option value="">Select state</option>
+                                ${GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('')}
+                            </select>
+                            <input type="tel" id="dirNewSupplierPin" placeholder="PIN" class="w-full border rounded p-2" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" minlength="6" />
+                        </div>
+                        <textarea id="dirNewSupplierAddress" placeholder="Address" class="w-full border rounded p-2" rows="3" required></textarea>
+                        <div class="flex">
+                            <span class="inline-flex items-center px-3 rounded-l border border-r-0 bg-gray-100 text-gray-700">${state.siteSettings?.countryCode || '+91'}</span>
+                            <input type="tel" id="dirNewSupplierMobile" placeholder="Mobile" class="w-full border rounded-r p-2" required />
+                        </div>
+                        <div>
+                            <label class="block text-sm text-gray-700 mb-1">Email (optional)</label>
+                            <input type="email" id="dirNewSupplierEmail" placeholder="supplier@example.com" class="w-full border rounded p-2" />
+                            <div id="dirNewSupplierEmailFeedback" class="text-xs text-red-600 mt-1 hidden" role="status" aria-live="polite"></div>
+                        </div>
+                        <div class="grid grid-cols-2 gap-2">
+                            <input type="number" id="dirNewSupplierCreditDays" placeholder="Credit Days (Net)" class="w-full border rounded p-2" min="0" />
+                            <input type="number" step="0.01" id="dirNewSupplierCreditLimit" placeholder="Credit Limit (₹)" class="w-full border rounded p-2" min="0" />
+                        </div>
+                        <div class="flex justify-end gap-3 mt-2">
+                            <button id="dirCancelSupplierBtn" class="px-4 py-2 rounded bg-gray-200">Cancel</button>
+                            <button id="dirAddSupplierBtn" class="px-4 py-2 rounded bg-green-600 text-white">Add Supplier</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+
+            const cleanup = () => { try { modal.remove(); } catch(_) {} };
+
+            const nameEl = document.getElementById('dirNewSupplierName');
+            const gstEl = document.getElementById('dirNewSupplierGstin');
+            const notRegEl = document.getElementById('dirNewSupplierNotRegistered');
+            const addrEl = document.getElementById('dirNewSupplierAddress');
+            const stateEl = document.getElementById('dirNewSupplierStateCode');
+            const pinEl = document.getElementById('dirNewSupplierPin');
+            const mobEl = document.getElementById('dirNewSupplierMobile');
+            const addBtn = document.getElementById('dirAddSupplierBtn');
+            const cancelBtn = document.getElementById('dirCancelSupplierBtn');
+
+            // Ensure address, pin and mobile are required in this modal
+            try { if (addrEl) addrEl.required = true; if (pinEl) pinEl.required = true; if (mobEl) mobEl.required = true; } catch(_) {}
+
+            // Wire GSTIN validation and uppercase enforcement if helpers exist
+            try { if (gstEl) enforceUppercaseInput(gstEl); } catch(_) {}
+            try { if (gstEl) attachGstinValidation(gstEl, null); } catch(_) {}
+            try { if (mobEl) attachMobileValidation(mobEl, null); } catch(_) {}
+            try { if (pinEl) attachPinBehavior(pinEl, null); } catch(_) {}
+            try { const emailEl = document.getElementById('dirNewSupplierEmail'); const emailFb = document.getElementById('dirNewSupplierEmailFeedback'); if (emailEl) { attachEmailValidation(emailEl, emailFb); try { enforceLowercaseInput(emailEl); } catch(_) {} } } catch(_) {}
+            try { if (nameEl) attachNameCapitalization(nameEl); } catch(_) {}
+            try { if (addrEl) attachNameCapitalization(addrEl); } catch(_) {}
+
+            // Auto-apply state code from GSTIN (debounced)
+            try {
+                let _debApplySup = null;
+                const applyStateFromGstinSup = () => {
+                    try {
+                        const vFull = (gstEl.value || '').trim().toUpperCase();
+                        if (!vFull || vFull.length < 2) return;
+                        const code = getStateCodeFromGstin(vFull);
+                        if (code && stateEl) {
+                            stateEl.value = code;
+                            try { document.dispatchEvent(new CustomEvent('gstin:stateApplied', { detail: { inputId: gstEl.id, stateCode: code } })); } catch(_) {}
+                        }
+                    } catch(_) {}
+                    _debApplySup = null;
+                };
+                const scheduleApplySup = () => { if (_debApplySup) clearTimeout(_debApplySup); _debApplySup = setTimeout(applyStateFromGstinSup, 360); };
+                if (gstEl) {
+                    gstEl.addEventListener('input', scheduleApplySup);
+                    gstEl.addEventListener('change', scheduleApplySup);
+                    gstEl.addEventListener('blur', scheduleApplySup);
+                }
+            } catch(_) {}
+
+            // Default state to merchant state
+            try { if (stateEl) stateEl.value = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '') || ''; } catch(_) {}
+            // Wire the "Not GST-registered" checkbox for this customer modal to clear/disable GSTIN
+            try {
+                const notRegCustEl = document.getElementById('dirNewCustomerNotRegistered');
+                if (notRegCustEl && gstEl) {
+                    const toggleDirCustGst = () => {
+                        try {
+                            if (notRegCustEl.checked) {
+                                gstEl.value = '';
+                                try { gstEl.classList.remove('tiaras-valid'); gstEl.classList.remove('tiaras-invalid'); gstEl.removeAttribute && gstEl.removeAttribute('aria-invalid'); } catch(_) {}
+                                gstEl.disabled = true;
+                            } else {
+                                gstEl.disabled = false;
+                            }
+                        } catch (_) {}
+                    };
+                    notRegCustEl.addEventListener('change', toggleDirCustGst);
+                    toggleDirCustGst();
+                }
+            } catch(_) {}
+
+            // If the "Not GST-registered" checkbox exists in this modal, wire it to clear/disable the GSTIN input
+            try {
+                const notRegModalEl = document.getElementById('dirNewSupplierNotRegistered');
+                if (notRegModalEl && gstEl) {
+                    const toggleDirGst = () => {
+                        try {
+                            if (notRegModalEl.checked) {
+                                gstEl.value = '';
+                                try { gstEl.classList.remove('tiaras-valid'); gstEl.classList.remove('tiaras-invalid'); gstEl.removeAttribute && gstEl.removeAttribute('aria-invalid'); } catch(_) {}
+                                gstEl.disabled = true;
+                            } else {
+                                gstEl.disabled = false;
+                            }
+                        } catch (_) {}
+                    };
+                    notRegModalEl.addEventListener('change', toggleDirGst);
+                    toggleDirGst();
+                }
+            } catch(_) {}
+
+            // Cancel handlers
+            cancelBtn.addEventListener('click', (e) => { e.preventDefault(); cleanup(); });
+            modal.addEventListener('click', (e) => {
+                if (e.target !== modal) return;
+                try { const sel = window.getSelection ? window.getSelection().toString() : ''; if (sel && sel.length > 0) return; } catch(_) {}
+                cleanup();
+            });
+
+            addBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const name = (nameEl.value || '').trim();
+                if (!name) { showMessage('Enter supplier name.'); return; }
+                const notRegistered = !!(notRegEl && notRegEl.checked);
+                let gstin = (gstEl?.value || '').trim().toUpperCase();
+                if (notRegistered) gstin = '';
+                const address = (addrEl?.value || '').trim();
+                if (!address) { showMessage('Enter supplier address. Address is required when adding to directory.'); return; }
+                const stateCode = (stateEl?.value || '').trim() || undefined;
+                const pin = (pinEl?.value || '').trim();
+                const mobile = (mobEl?.value || '').trim();
+                // Read supplier email
+                const supplierEmail = (document.getElementById('dirNewSupplierEmail')?.value || '').trim().toLowerCase();
+                if (!notRegistered && gstin && !GSTIN_REGEX.test(gstin)) { showMessage('Invalid GSTIN format.'); return; }
+                try {
+                    const pinDigits = (pin || '').replace(/\D/g, '');
+                    if (!pin || pinDigits.length !== 6) { showMessage('Enter valid 6-digit PIN.'); return; }
+                } catch (_) {}
+                if (!mobile) { showMessage('Enter supplier mobile.'); return; }
+                // Enforce exact 10 digits for mobile at submit-time
+                try {
+                    const mobileDigits = (mobile || '').replace(/\D/g, '');
+                    if (mobileDigits.length !== 10) { showMessage('Enter valid 10-digit mobile number.'); return; }
+                } catch (_) {}
+                const creditDaysRaw = (document.getElementById('dirNewSupplierCreditDays')?.value || '').toString().trim();
+                const creditLimitRaw = (document.getElementById('dirNewSupplierCreditLimit')?.value || '').toString().trim();
+                const creditDays = creditDaysRaw === '' ? 0 : (parseInt(creditDaysRaw, 10) || 0);
+                const creditLimit = creditLimitRaw === '' ? 0 : (parseFloat(creditLimitRaw.replace(/,/g, '')) || 0);
+                // read customer email from modal (used below when adding customer)
+                const customerEmail = (document.getElementById('dirNewCustomerEmail')?.value || '').trim().toLowerCase();
+                try {
+                    await ensurePartyExists(name, 'supplier', true, { gstin: gstin || undefined, address: address || undefined, stateCode: stateCode || undefined, pin: pin || undefined, mobile: mobile || undefined, email: supplierEmail || undefined, creditDays: creditDays !== null ? creditDays : undefined, creditLimit: creditLimit !== null ? creditLimit : undefined });
+                    upsertPartyInState('supplier', { name, gstin: gstin || undefined, address: address || undefined, stateCode: stateCode || undefined, pin: pin || undefined, mobile: mobile || undefined, email: supplierEmail || undefined, creditDays: creditDays !== null ? creditDays : undefined, creditLimit: creditLimit !== null ? creditLimit : undefined });
+                    renderAdminLedgersPage();
+                    showMessage('Supplier added to directory.');
+                    cleanup();
+                } catch (err) {
+                    console.error('Directory add supplier error:', err);
+                    showMessage('Failed to add supplier.');
+                }
+            });
+        });
+    }
+    const addCustomerDirBtn = document.getElementById('addCustomerDirBtn');
+    if (addCustomerDirBtn) {
+        addCustomerDirBtn.addEventListener('click', () => {
+            const modal = document.createElement('div');
+            modal.id = 'dirAddCustomerModal';
+            modal.className = 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-40';
+            modal.innerHTML = `
+                <div class="bg-white rounded-md p-6 max-w-lg w-full">
+                    <h3 class="text-lg font-semibold mb-2">Add Customer</h3>
+                    <div class="space-y-3">
+                        <input type="text" id="dirNewCustomerName" placeholder="Customer name" class="w-full border rounded p-2" required />
+                        <input type="text" id="dirNewCustomerGstin" placeholder="GSTIN (optional)" class="w-full border rounded p-2" />
+                        <label class="inline-flex items-center text-xs text-gray-700"><input type="checkbox" id="dirNewCustomerNotRegistered" class="mr-2"> Not GST-registered</label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <select id="dirNewCustomerStateCode" class="w-full border rounded p-2">
+                                <option value="">Select state</option>
+                                ${GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('')}
+                            </select>
+                            <input type="tel" id="dirNewCustomerPin" placeholder="PIN" class="w-full border rounded p-2" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" minlength="6" />
+                        </div>
+                        <textarea id="dirNewCustomerAddress" placeholder="Address" class="w-full border rounded p-2" rows="3" required></textarea>
+                            <div class="flex">
+                                <span class="inline-flex items-center px-3 rounded-l border border-r-0 bg-gray-100 text-gray-700">${state.siteSettings?.countryCode || '+91'}</span>
+                                <input type="tel" id="dirNewCustomerMobile" placeholder="Mobile" class="w-full border rounded-r p-2" required />
+                            </div>
+                            <div>
+                                <label class="block text-sm text-gray-700 mb-1">Email (optional)</label>
+                                <input type="email" id="dirNewCustomerEmail" placeholder="customer@example.com" class="w-full border rounded p-2" />
+                                <div id="dirNewCustomerEmailFeedback" class="text-xs text-red-600 mt-1 hidden" role="status" aria-live="polite"></div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input type="number" id="dirNewCustomerCreditDays" placeholder="Credit Days (Net)" class="w-full border rounded p-2" min="0" />
+                                <input type="number" step="0.01" id="dirNewCustomerCreditLimit" placeholder="Credit Limit (₹)" class="w-full border rounded p-2" min="0" />
+                            </div>
+                        <div class="flex justify-end gap-3 mt-2">
+                            <button id="dirCancelCustomerBtn" class="px-4 py-2 rounded bg-gray-200">Cancel</button>
+                            <button id="dirAddCustomerBtn" class="px-4 py-2 rounded bg-blue-600 text-white">Add Customer</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            const cleanup = () => { try { modal.remove(); } catch(_) {} };
+            const nameEl = document.getElementById('dirNewCustomerName');
+            const gstEl = document.getElementById('dirNewCustomerGstin');
+            const notRegEl = document.getElementById('dirNewCustomerNotRegistered');
+            const addrEl = document.getElementById('dirNewCustomerAddress');
+            const stateEl = document.getElementById('dirNewCustomerStateCode');
+            const pinEl = document.getElementById('dirNewCustomerPin');
+            const mobEl = document.getElementById('dirNewCustomerMobile');
+            const addBtn = document.getElementById('dirAddCustomerBtn');
+            const cancelBtn = document.getElementById('dirCancelCustomerBtn');
+
+            // Ensure address, pin and mobile are required in this modal
+            try { if (addrEl) addrEl.required = true; if (pinEl) pinEl.required = true; if (mobEl) mobEl.required = true; } catch(_) {}
+            try { if (gstEl) enforceUppercaseInput(gstEl); } catch(_) {}
+            try { if (gstEl) attachGstinValidation(gstEl, null); } catch(_) {}
+            try { if (mobEl) attachMobileValidation(mobEl, null); } catch(_) {}
+            try { if (pinEl) attachPinBehavior(pinEl, null); } catch(_) {}
+            try { const emailEl = document.getElementById('dirNewCustomerEmail'); const emailFb = document.getElementById('dirNewCustomerEmailFeedback'); if (emailEl) { attachEmailValidation(emailEl, emailFb); try { enforceLowercaseInput(emailEl); } catch(_) {} } } catch(_) {}
+            try { if (nameEl) attachNameCapitalization(nameEl); } catch(_) {}
+            try { if (addrEl) attachNameCapitalization(addrEl); } catch(_) {}
+            // Wire the Not GST-registered checkbox for this directory Add Customer modal
+            try {
+                if (notRegEl && gstEl) {
+                    const toggleDirCustGstModal = () => {
+                        try {
+                            if (notRegEl.checked) {
+                                gstEl.value = '';
+                                try { gstEl.classList.remove('tiaras-valid'); gstEl.classList.remove('tiaras-invalid'); gstEl.removeAttribute && gstEl.removeAttribute('aria-invalid'); } catch(_) {}
+                                gstEl.disabled = true;
+                                // hide any inline feedback if present
+                                try { const fb = document.getElementById('dirNewCustomerGstinFeedback'); if (fb) { fb.classList.add('hidden'); fb.textContent = ''; } } catch(_) {}
+                            } else {
+                                gstEl.disabled = false;
+                            }
+                        } catch(_) {}
+                    };
+                    notRegEl.addEventListener('change', toggleDirCustGstModal);
+                    toggleDirCustGstModal();
+                }
+            } catch(_) {}
+            // Auto-apply state code from GSTIN (debounced)
+            try {
+                let _debApplyCust = null;
+                const applyStateFromGstinCust = () => {
+                    try {
+                        const vFull = (gstEl.value || '').trim().toUpperCase();
+                        if (!vFull || vFull.length < 2) return;
+                        const code = getStateCodeFromGstin(vFull);
+                        if (code && stateEl) {
+                            stateEl.value = code;
+                            try { document.dispatchEvent(new CustomEvent('gstin:stateApplied', { detail: { inputId: gstEl.id, stateCode: code } })); } catch(_) {}
+                        }
+                    } catch(_) {}
+                    _debApplyCust = null;
+                };
+                const scheduleApplyCust = () => { if (_debApplyCust) clearTimeout(_debApplyCust); _debApplyCust = setTimeout(applyStateFromGstinCust, 360); };
+                if (gstEl) {
+                    gstEl.addEventListener('input', scheduleApplyCust);
+                    gstEl.addEventListener('change', scheduleApplyCust);
+                    gstEl.addEventListener('blur', scheduleApplyCust);
+                }
+            } catch(_) {}
+            // Default state to merchant state
+            try { if (stateEl) stateEl.value = state.siteSettings?.merchantStateCode || getStateCodeFromGstin(state.siteSettings?.merchantGstin || '') || ''; } catch(_) {}
+            cancelBtn.addEventListener('click', (e) => { e.preventDefault(); cleanup(); });
+            modal.addEventListener('click', (e) => {
+                if (e.target !== modal) return;
+                try { const sel = window.getSelection ? window.getSelection().toString() : ''; if (sel && sel.length > 0) return; } catch(_) {}
+                cleanup();
+            });
+            addBtn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const name = (nameEl.value || '').trim();
+                if (!name) { showMessage('Enter customer name.'); return; }
+                const notRegistered = !!(notRegEl && notRegEl.checked);
+                let gstin = (gstEl?.value || '').trim().toUpperCase();
+                if (notRegistered) gstin = '';
+                if (!notRegistered && gstin && !GSTIN_REGEX.test(gstin)) { showMessage('Invalid GSTIN format.'); return; }
+                const address = (addrEl?.value || '').trim();
+                const stateCode = (stateEl?.value || '').trim() || undefined;
+                const pin = (pinEl?.value || '').trim();
+                const mobile = (mobEl?.value || '').trim();
+                if (!address) { showMessage('Enter customer address.'); return; }
+                try {
+                    const pinDigits = (pin || '').replace(/\D/g, '');
+                    if (!pin || pinDigits.length !== 6) { showMessage('Enter valid 6-digit PIN.'); return; }
+                } catch (_) {}
+                if (!mobile) { showMessage('Enter customer mobile.'); return; }
+                // Enforce exact 10 digits for mobile at submit-time
+                try {
+                    const mobileDigits = (mobile || '').replace(/\D/g, '');
+                    if (mobileDigits.length !== 10) { showMessage('Enter valid 10-digit mobile number.'); return; }
+                } catch (_) {}
+                const creditDaysRaw = (document.getElementById('dirNewCustomerCreditDays')?.value || '').toString().trim();
+                const creditLimitRaw = (document.getElementById('dirNewCustomerCreditLimit')?.value || '').toString().trim();
+                const creditDays = creditDaysRaw === '' ? 0 : (parseInt(creditDaysRaw, 10) || 0);
+                const creditLimit = creditLimitRaw === '' ? 0 : (parseFloat(creditLimitRaw.replace(/,/g, '')) || 0);
+                // Read customer email from modal before using it (normalize to lowercase)
+                const customerEmail = (document.getElementById('dirNewCustomerEmail')?.value || '').trim().toLowerCase();
+                try {
+                    await ensurePartyExists(name, 'customer', true, { gstin: gstin || undefined, address: address || undefined, stateCode: stateCode || undefined, pin: pin || undefined, mobile: mobile || undefined, email: customerEmail || undefined, creditDays: creditDays !== null ? creditDays : undefined, creditLimit: creditLimit !== null ? creditLimit : undefined });
+                    upsertPartyInState('customer', { name, gstin: gstin || undefined, address: address || undefined, stateCode: stateCode || undefined, pin: pin || undefined, mobile: mobile || undefined, email: customerEmail || undefined, creditDays: creditDays !== null ? creditDays : undefined, creditLimit: creditLimit !== null ? creditLimit : undefined });
+                    renderAdminLedgersPage();
+                    showMessage('Customer added to directory.');
+                    cleanup();
+                } catch (err) {
+                    console.error('Directory add customer error:', err);
+                    showMessage('Failed to add customer.');
+                }
+            });
+        });
+    }
+
+    // Start posting time ticker to keep displayed posting times up-to-date
+    try { startPostingTimeTicker(); } catch(_) {}
 
     // Migration button handler
     const migBtn = document.getElementById('migratePartiesBtn');
@@ -7626,20 +12345,250 @@ function renderAdminLedgersPage() {
             const gstin = btn.getAttribute('data-gstin') || '';
             const address = btn.getAttribute('data-address') || '';
             const docId = btn.getAttribute('data-docid') || '';
-            try {
-                // Attempt to find an existing party in state to retrieve isGstRegistered flag
-                let isGstRegistered = undefined;
-                if (docId) {
-                    const list = type === 'supplier' ? (state.allSuppliers || []) : (state.allCustomers || []);
-                    const found = list.find(x => x.id === docId || (x.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
-                    if (found && typeof found.isGstRegistered !== 'undefined') isGstRegistered = !!found.isGstRegistered;
+                try {
+                    // Attempt to find an existing party in state to retrieve isGstRegistered flag and extra fields
+                    let isGstRegistered = undefined;
+                    let stateCodeVal = '';
+                    let pinVal = '';
+                    let mobileVal = '';
+                    if (docId) {
+                        const list = type === 'supplier' ? (state.allSuppliers || []) : (state.allCustomers || []);
+                        const found = list.find(x => x.id === docId || (x.name||'').trim().toLowerCase() === (name||'').trim().toLowerCase());
+                        if (found && typeof found.isGstRegistered !== 'undefined') isGstRegistered = !!found.isGstRegistered;
+                        if (found) {
+                            stateCodeVal = found.stateCode || '';
+                            pinVal = found.pin || '';
+                            mobileVal = found.mobile || '';
+                        }
+                    }
+                    showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered, stateCode: stateCodeVal, pin: pinVal, mobile: mobileVal });
+                } catch (_) {
+                    showPartyEditModal({ type, name, gstin, address, docId });
                 }
-                showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered });
-            } catch (_) {
-                showPartyEditModal({ type, name, gstin, address, docId });
-            }
         });
     });
+
+        // Small helper: show a styled confirmation modal and return a Promise<boolean>
+        const showConfirmModal = (message) => {
+            return new Promise(resolve => {
+                try {
+                    const modal = document.createElement('div');
+                    modal.className = 'fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50';
+                    modal.setAttribute('role', 'dialog');
+                    modal.setAttribute('aria-modal', 'true');
+                    modal.setAttribute('aria-hidden', 'false');
+                    modal.tabIndex = -1;
+                    modal.innerHTML = `
+                        <div class="max-w-md w-full rounded-lg bg-gray-800 text-white p-6" role="document">
+                            <div id="confirmModalMsg" class="text-sm mb-4">${message.replace(/"/g, '&quot;')}</div>
+                            <div class="flex justify-end gap-3">
+                                <button id="confirmCancelBtn" class="px-4 py-2 rounded-full bg-blue-800 text-white">Cancel</button>
+                                <button id="confirmOkBtn" class="px-4 py-2 rounded-full bg-blue-200 text-black">OK</button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(modal);
+                    // focus management & trap
+                    const cleanup = () => { try { if (modal && modal.parentNode) modal.parentNode.removeChild(modal); } catch(_) {} };
+                    const okBtn = modal.querySelector('#confirmOkBtn');
+                    const cancelBtn = modal.querySelector('#confirmCancelBtn');
+                    const focusable = () => Array.from(modal.querySelectorAll('a[href], button:not([disabled]), textarea, input:not([disabled]), select:not([disabled])'));
+                    const prev = document.activeElement;
+                    const onOk = () => { try { cleanup(); } catch(_){}; try { if (prev && typeof prev.focus === 'function') prev.focus(); } catch(_){}; resolve(true); };
+                    const onCancel = () => { try { cleanup(); } catch(_){}; try { if (prev && typeof prev.focus === 'function') prev.focus(); } catch(_){}; resolve(false); };
+                    okBtn && okBtn.addEventListener('click', onOk);
+                    cancelBtn && cancelBtn.addEventListener('click', onCancel);
+                    modal.addEventListener('click', (e) => {
+                        if (e.target !== modal) return;
+                        try { const sel = window.getSelection ? window.getSelection().toString() : ''; if (sel && sel.length > 0) return; } catch(_) {}
+                        onCancel();
+                    });
+                    // trap keyboard navigation and ESC
+                    const onKey = (e) => {
+                        if (e.key === 'Escape') { e.preventDefault(); onCancel(); return; }
+                        if (e.key === 'Tab') {
+                            const f = focusable();
+                            if (!f.length) return;
+                            const first = f[0];
+                            const last = f[f.length - 1];
+                            if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+                            else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+                        }
+                    };
+                    document.addEventListener('keydown', onKey);
+                    // cleanup key listener after resolution by wrapping resolve
+                    const originalResolve = resolve;
+                    resolve = (v) => { try { document.removeEventListener('keydown', onKey); } catch(_) {}; originalResolve(v); };
+                    // show and focus
+                    try { modal.querySelector('#confirmOkBtn')?.focus(); } catch(_) {}
+                } catch (err) {
+                    console.error('showConfirmModal error', err);
+                    resolve(false);
+                }
+            });
+        };
+
+        // Delete party handlers (soft-delete: set isDeleted = true) - delegated to each button
+        container.querySelectorAll('.delete-party-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const type = btn.getAttribute('data-type');
+                const docId = btn.getAttribute('data-docid') || '';
+                const name = (btn.getAttribute('data-name') || '').trim();
+                // Run pre-deletion checks using in-memory state to avoid accidental removal when related data exists
+                try {
+                    const list = (type === 'supplier' ? (state.allSuppliers || []) : (state.allCustomers || []));
+                    const found = list.find(x => (x.id || '') === docId || (x.name || '').trim().toLowerCase() === name.toLowerCase());
+                    const gstin = (found && found.gstin) ? String(found.gstin).trim() : '';
+
+                    // Check related documents in local state
+                    const related = { purchases: false, orders: false, ledger: false };
+                    if (type === 'supplier') {
+                        related.purchases = (state.allPurchases || []).some(p => !p.isDeleted && (((p.supplierName||'').trim().toLowerCase() === name.toLowerCase()) || (gstin && ((p.supplierGstin||'').trim() === gstin))));
+                        // Suppliers rarely appear in orders; skip orders check for suppliers
+                    } else {
+                        // customer: check orders where shippingInfo.fullName matches
+                        related.orders = (state.allOrders || []).some(o => !o.isDeleted && ((o.shippingInfo && (o.shippingInfo.fullName || '').trim().toLowerCase() === name.toLowerCase()) || ( (o.customerName||'').trim().toLowerCase() === name.toLowerCase() )));
+                    }
+                    // Generic ledger check: look for party-like fields that may reference this name
+                    const ledgerSources = [].concat(state.allCashLedger || [], state.allBankLedger || []);
+                    related.ledger = ledgerSources.some(l => {
+                        if (!l || l.isDeleted) return false;
+                        const candidates = [l.party, l.partyName, l.accountName, l.party || l.accountName || l.account || ''];
+                        return candidates.some(v => (v || '').toString().toLowerCase().includes(name.toLowerCase()));
+                    });
+
+                    const blockers = Object.keys(related).filter(k => related[k]);
+                    if (blockers.length) {
+                        showMessage(`Cannot delete ${type} "${name}" because related records exist: ${blockers.join(', ')}. Reassign or mark those records deleted first.`);
+                        return;
+                    }
+
+                    // Confirm & require master password for deletion (use styled modal)
+                    const confirmed = await showConfirmModal(`Delete ${type} "${name}"? This will mark the record as deleted.`);
+                    if (!confirmed) return;
+                    const ok = await verifyMasterPassword(`delete ${type} ${name}`);
+                    if (!ok) {
+                        showMessage('Deletion cancelled: master password required.');
+                        return;
+                    }
+
+                    const colPath = type === 'supplier' ? suppliersColPath : customersColPath;
+                    if (docId) {
+                        // Soft-delete by setting isDeleted flag so historical data remains intact
+                        await updateDoc(doc(db, colPath, docId), { isDeleted: true, updatedAt: serverTimestamp() });
+                    }
+                    // Remove from local state arrays to immediately reflect change
+                    try {
+                        if (type === 'supplier') {
+                            state.allSuppliers = (state.allSuppliers || []).filter(s => ((s.id || '') !== docId) && ((s.name || '').trim().toLowerCase() !== name.toLowerCase()));
+                        } else {
+                            state.allCustomers = (state.allCustomers || []).filter(c => ((c.id || '') !== docId) && ((c.name || '').trim().toLowerCase() !== name.toLowerCase()));
+                        }
+                    } catch (_) {}
+                    renderAdminLedgersPage();
+                    showMessage('Party deleted.');
+                } catch (err) {
+                    console.error('Delete party error:', err);
+                    showMessage('Failed to delete party.');
+                }
+            });
+        });
+
+    // Copy GSTIN handlers (buttons have aria-labels and are keyboard focusable)
+    container.querySelectorAll('.copy-gstin-btn').forEach(btn => {
+        try { btn.setAttribute('aria-label', btn.getAttribute('title') || 'Copy GSTIN'); btn.setAttribute('tabindex', '0'); } catch(_) {}
+        const doCopy = async (e) => {
+            if (e && e.stopPropagation) e.stopPropagation();
+            const gst = btn.getAttribute('data-gstin') || '';
+            try {
+                if (navigator && navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(gst);
+                    showMessage('GSTIN copied to clipboard');
+                } else {
+                    const ta = document.createElement('textarea'); ta.value = gst; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); ta.remove();
+                    showMessage('GSTIN copied to clipboard');
+                }
+            } catch (err) {
+                console.error('Copy failed', err);
+                showMessage('Unable to copy GSTIN');
+            }
+        };
+        btn.addEventListener('click', doCopy);
+        btn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); doCopy(ev); } });
+    });
+
+    // Table sort handlers (persisted and accessible): clicking or pressing Enter/Space on a header saves the sort
+    container.querySelectorAll('.party-table thead th.sortable').forEach(th => {
+        const activateSort = (ev) => {
+            const table = th.closest('table');
+            if (!table) return;
+            const type = table.getAttribute('data-type') || 'suppliers';
+            const key = th.getAttribute('data-key');
+            if (!key) return;
+            const cur = (function(){ try { return JSON.parse(localStorage.getItem(`party_sort_${type}`) || 'null') } catch(_) { return null; } })() || { key: null, dir: 'asc' };
+            const dir = (cur.key === key && cur.dir === 'asc') ? 'desc' : 'asc';
+            try { localStorage.setItem(`party_sort_${type}`, JSON.stringify({ key, dir })); } catch(_) {}
+            // reset to first page when changing sort
+            if (type === 'suppliers') state.ui.partySuppliersPage = 1; else state.ui.partyCustomersPage = 1;
+            // re-render the page to apply persisted sort (handlers will be re-attached)
+            try { renderAdminLedgersPage(); } catch (e) { console.error('Re-render after sort failed', e); }
+        };
+        th.addEventListener('click', activateSort);
+        th.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); activateSort(ev); } });
+    });
+
+    // Compact toggle: toggles padding/text size on party tables
+    const compactBtn = container.querySelector('#partyCompactToggle');
+    if (compactBtn) {
+        compactBtn.addEventListener('click', () => {
+            const body = container.querySelector('#partyListBody');
+            if (!body) return;
+            const enabled = body.classList.toggle('party-compact');
+            const tables = body.querySelectorAll('table.party-table');
+            tables.forEach(tbl => {
+                tbl.querySelectorAll('td, th').forEach(cell => {
+                    if (enabled) {
+                        cell.classList.remove('p-2'); cell.classList.add('p-1','text-xs');
+                    } else {
+                        cell.classList.remove('p-1','text-xs'); cell.classList.add('p-2');
+                    }
+                });
+            });
+        });
+    }
+
+    // Ledger ref-link handlers (open transfer/details modal)
+    container.querySelectorAll('.ref-link').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const refId = btn.getAttribute('data-ref');
+            if (!refId) return;
+            try { showTransferModal(refId); } catch (err) { console.warn('showTransferModal failed', err); }
+        });
+        btn.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); try { showTransferModal(btn.getAttribute('data-ref')); } catch(_){} } });
+    });
+
+    // Pagination controls wiring for suppliers
+    const supPrev = container.querySelector('#supPrevBtn');
+    const supNext = container.querySelector('#supNextBtn');
+    const supInput = container.querySelector('#supPageInput');
+    const supSize = container.querySelector('#supPageSizeSel');
+    if (supPrev) supPrev.addEventListener('click', () => { state.ui.partySuppliersPage = Math.max(1, (state.ui.partySuppliersPage||1) - 1); renderAdminLedgersPage(); });
+    if (supNext) supNext.addEventListener('click', () => { state.ui.partySuppliersPage = Math.min((suppliersPaged.totalPages||1), (state.ui.partySuppliersPage||1) + 1); renderAdminLedgersPage(); });
+    if (supInput) supInput.addEventListener('change', () => { const v = parseInt(supInput.value||'1',10)||1; state.ui.partySuppliersPage = Math.min(Math.max(1,v), suppliersPaged.totalPages||1); renderAdminLedgersPage(); });
+    if (supSize) supSize.addEventListener('change', () => { const v = parseInt(supSize.value||'25',10)||25; state.ui.partyPageSize = v; state.ui.partySuppliersPage = 1; renderAdminLedgersPage(); });
+
+    // Pagination controls wiring for customers
+    const custPrev = container.querySelector('#custPrevBtn');
+    const custNext = container.querySelector('#custNextBtn');
+    const custInput = container.querySelector('#custPageInput');
+    const custSize = container.querySelector('#custPageSizeSel');
+    if (custPrev) custPrev.addEventListener('click', () => { state.ui.partyCustomersPage = Math.max(1, (state.ui.partyCustomersPage||1) - 1); renderAdminLedgersPage(); });
+    if (custNext) custNext.addEventListener('click', () => { state.ui.partyCustomersPage = Math.min((customersPaged.totalPages||1), (state.ui.partyCustomersPage||1) + 1); renderAdminLedgersPage(); });
+    if (custInput) custInput.addEventListener('change', () => { const v = parseInt(custInput.value||'1',10)||1; state.ui.partyCustomersPage = Math.min(Math.max(1,v), customersPaged.totalPages||1); renderAdminLedgersPage(); });
+    if (custSize) custSize.addEventListener('change', () => { const v = parseInt(custSize.value||'25',10)||25; state.ui.partyPageSize = v; state.ui.partyCustomersPage = 1; renderAdminLedgersPage(); });
 
     // Drilldown handlers
     container.querySelectorAll('.party-row').forEach(row => {
@@ -7669,6 +12618,10 @@ async function ensurePartyExists(name, type, forceAdd = false, details = {}) {
                     await updateDoc(doc(db, colPath, entry.id), {
                         ...(details.gstin ? { gstin: details.gstin } : {}),
                         ...(details.address ? { address: details.address } : {}),
+                        ...(details.stateCode ? { stateCode: details.stateCode } : {}),
+                        ...(details.pin ? { pin: details.pin } : {}),
+                        ...(details.mobile ? { mobile: details.mobile } : {}),
+                        ...(details.email ? { email: details.email } : {}),
                         updatedAt: serverTimestamp(),
                     });
                 } catch (e) { /* ignore update failure */ }
@@ -7680,6 +12633,10 @@ async function ensurePartyExists(name, type, forceAdd = false, details = {}) {
     const payload = { name: trimmed, createdAt: serverTimestamp(), isDeleted: false };
     if (details && details.gstin) payload.gstin = details.gstin;
     if (details && details.address) payload.address = details.address;
+    if (details && details.stateCode) payload.stateCode = details.stateCode;
+    if (details && details.pin) payload.pin = details.pin;
+    if (details && details.mobile) payload.mobile = details.mobile;
+    if (details && details.email) payload.email = details.email;
     await addDoc(collection(db, colPath), payload);
 }
 
@@ -7838,12 +12795,17 @@ function showLedgerDrilldown(partyName, ledgerType) {
         modal.remove();
     });
     modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
+        if (e.target !== modal) return;
+        try {
+            const sel = window.getSelection ? window.getSelection().toString() : '';
+            if (sel && sel.length > 0) return; // user is selecting text — don't dismiss
+        } catch(_) {}
+        modal.remove();
     });
 }
 
 // Modal to edit a party (supplier/customer)
-function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered }) {
+function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered, stateCode, pin, mobile, creditDays, creditLimit }) {
     const title = type === 'supplier' ? 'Edit Supplier' : 'Edit Customer';
     const modal = document.createElement('div');
     modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
@@ -7872,6 +12834,42 @@ function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered
                     <label class="block text-sm text-gray-700 mb-1">Address (optional)</label>
                     <textarea id="partyEditAddress" class="w-full border rounded p-2" rows="3">${(address||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                 </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-gray-700 mb-1">State</label>
+                        <select id="partyEditStateCode" class="w-full border rounded p-2">
+                            <option value="">Select state</option>
+                            ${GST_STATE_CODES.map(s => `<option value="${s.code}">${s.name} (${s.code})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700 mb-1">PIN / Pincode</label>
+                        <input type="tel" id="partyEditPin" class="w-full border rounded p-2" value="${(pin||'')}" placeholder="PIN / Pincode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" minlength="6">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-700 mb-1">Mobile</label>
+                    <div class="flex">
+                        <span class="inline-flex items-center px-3 rounded-l border border-r-0 bg-gray-100 text-gray-700">${state.siteSettings?.countryCode || '+91'}</span>
+                        <input type="tel" id="partyEditMobile" class="w-full border rounded-r p-2" value="${(mobile||'')}" placeholder="Mobile number">
+                    </div>
+                    <div id="partyEditMobileFeedback" class="text-xs text-red-600 mt-1 hidden" role="status" aria-live="polite"></div>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-700 mb-1">Email (optional)</label>
+                    <input type="email" id="partyEditEmail" class="w-full border rounded p-2" value="${(typeof email !== 'undefined' && email !== null) ? (email||'') : ''}" placeholder="name@example.com">
+                    <div id="partyEditEmailFeedback" class="text-xs text-red-600 mt-1 hidden" role="status" aria-live="polite"></div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm text-gray-700 mb-1">Credit Days (Net)</label>
+                        <input type="number" id="partyEditCreditDays" class="w-full border rounded p-2" value="${(typeof creditDays !== 'undefined' && creditDays !== null) ? String(creditDays) : ''}" placeholder="e.g., 30">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-gray-700 mb-1">Credit Limit (₹)</label>
+                        <input type="number" step="0.01" id="partyEditCreditLimit" class="w-full border rounded p-2" value="${(typeof creditLimit !== 'undefined' && creditLimit !== null) ? String(creditLimit) : ''}" placeholder="e.g., 50000.00">
+                    </div>
+                </div>
                 <div class="flex justify-end gap-2 pt-2">
                     <button id="partyEditSaveBtn" class="bg-blue-600 text-white px-4 py-2 rounded">Save</button>
                 </div>
@@ -7881,21 +12879,30 @@ function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered
 
     const close = () => modal.remove();
     modal.querySelector('#closePartyEditModal').addEventListener('click', close);
-    modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+    modal.addEventListener('click', (e) => {
+        if (e.target !== modal) return;
+        try {
+            const sel = window.getSelection ? window.getSelection().toString() : '';
+            if (sel && sel.length > 0) return; // don't dismiss while selecting text
+        } catch(_) {}
+        close();
+    });
     // Setup GSTIN input validation and the not-registered checkbox behavior
     try {
-        const gstEl = document.getElementById('partyEditGstin');
-        const feedbackEl = document.getElementById('partyEditGstinFeedback');
-        const notRegEl = document.getElementById('partyEditNotRegistered');
+    const gstEl = document.getElementById('partyEditGstin');
+    const feedbackEl = document.getElementById('partyEditGstinFeedback');
+    const notRegEl = document.getElementById('partyEditNotRegistered');
+    const mobileEl = document.getElementById('partyEditMobile');
+    const mobileFb = document.getElementById('partyEditMobileFeedback');
         // Initialize checkbox state: prefer explicit isGstRegistered if provided, else infer from GSTIN presence
         try {
             const initialNotRegistered = (typeof isGstRegistered !== 'undefined') ? (!isGstRegistered) : (!(gstin && gstin.trim()));
             if (notRegEl) notRegEl.checked = !!initialNotRegistered;
             const toggle = () => {
                 try {
-                    if (notRegEl && notRegEl.checked) {
-                        if (gstEl) { gstEl.disabled = true; gstEl.value = ''; }
-                        if (feedbackEl) { feedbackEl.style.display = 'none'; feedbackEl.textContent = ''; }
+                        if (notRegEl && notRegEl.checked) {
+                        if (gstEl) { gstEl.disabled = true; gstEl.value = ''; try { gstEl.classList.remove('tiaras-valid'); gstEl.classList.remove('tiaras-invalid'); gstEl.removeAttribute && gstEl.removeAttribute('aria-invalid'); } catch(_) {} }
+                        if (feedbackEl) { try { feedbackEl.classList.add('hidden'); feedbackEl.textContent = ''; } catch(_) {} }
                     } else {
                         if (gstEl) gstEl.disabled = false;
                     }
@@ -7905,36 +12912,112 @@ function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered
             toggle();
         } catch (_) {}
         try { if (gstEl) enforceUppercaseInput(gstEl); } catch (_) {}
-        try { if (gstEl) attachGstinValidation(gstEl, feedbackEl); } catch (_) {}
+            try { if (gstEl) attachGstinValidation(gstEl, feedbackEl); } catch (_) {}
+            // Auto-apply state code from GSTIN in the edit modal (debounced)
+            try {
+                let _debParty = null;
+                const applyStateFromGstinParty = () => {
+                    try {
+                        if (notRegEl && notRegEl.checked) return;
+                        const vFull = (gstEl.value || '').trim().toUpperCase();
+                        if (!vFull || vFull.length < 15) return;
+                        const v = vFull.substring(0,15);
+                        if (GSTIN_REGEX.test(v)) {
+                            const code = getStateCodeFromGstin(v);
+                            if (code) {
+                                const stateSel = document.getElementById('partyEditStateCode');
+                                if (stateSel) stateSel.value = code;
+                                try { document.dispatchEvent(new CustomEvent('gstin:stateApplied', { detail: { inputId: gstEl.id, stateCode: code } })); } catch(_) {}
+                            }
+                        }
+                    } catch(_) {}
+                    _debParty = null;
+                };
+                const scheduleApplyParty = () => { if (_debParty) clearTimeout(_debParty); _debParty = setTimeout(applyStateFromGstinParty, 360); };
+                if (gstEl) {
+                    gstEl.addEventListener('input', scheduleApplyParty);
+                    gstEl.addEventListener('change', scheduleApplyParty);
+                    gstEl.addEventListener('blur', scheduleApplyParty);
+                }
+            } catch(_) {}
+            try { if (mobileEl) attachMobileValidation(mobileEl, mobileFb); } catch(_) {}
+            try { const pinElLocal = document.getElementById('partyEditPin'); if (pinElLocal) attachPinBehavior(pinElLocal, null); } catch(_) {}
+                try { const partyEmailEl = document.getElementById('partyEditEmail'); const partyEmailFb = document.getElementById('partyEditEmailFeedback'); if (partyEmailEl) attachEmailValidation(partyEmailEl, partyEmailFb); } catch(_) {}
+                    try { const partyNameEl = document.getElementById('partyEditName'); if (partyNameEl) attachNameCapitalization(partyNameEl); } catch(_) {}
+    } catch (_) {}
+
+    // Prefill state/pin/mobile if provided
+    try {
+        if (typeof stateCode !== 'undefined' && document.getElementById('partyEditStateCode')) document.getElementById('partyEditStateCode').value = stateCode || '';
+        if (typeof pin !== 'undefined' && document.getElementById('partyEditPin')) document.getElementById('partyEditPin').value = pin || '';
+        if (typeof mobile !== 'undefined' && document.getElementById('partyEditMobile')) document.getElementById('partyEditMobile').value = mobile || '';
     } catch (_) {}
 
     modal.querySelector('#partyEditSaveBtn').addEventListener('click', async () => {
         const newName = document.getElementById('partyEditName').value.trim();
         const newGstinRaw = document.getElementById('partyEditGstin').value.trim();
         const newAddr = document.getElementById('partyEditAddress').value.trim();
+        const newState = (document.getElementById('partyEditStateCode')?.value || '').trim();
+        const newPin = (document.getElementById('partyEditPin')?.value || '').trim();
+        const newMobile = (document.getElementById('partyEditMobile')?.value || '').trim();
+        const newCreditDaysRaw = (document.getElementById('partyEditCreditDays')?.value || '').toString().trim();
+        const newCreditLimitRaw = (document.getElementById('partyEditCreditLimit')?.value || '').toString().trim();
+        const newCreditDays = newCreditDaysRaw === '' ? 0 : (parseInt(newCreditDaysRaw, 10) || 0);
+        const newCreditLimit = newCreditLimitRaw === '' ? 0 : (parseFloat(newCreditLimitRaw.replace(/,/g, '')) || 0);
+        const newEmail = (document.getElementById('partyEditEmail')?.value || '').trim().toLowerCase();
         const notRegistered = !!(document.getElementById('partyEditNotRegistered') && document.getElementById('partyEditNotRegistered').checked);
         let newGstin = newGstinRaw;
         if (notRegistered) newGstin = '';
         if (!newName) { showMessage('Name is required.'); return; }
+        // Address is mandatory when creating a new party
+        try {
+            if (!docId && !newAddr) { showMessage('Enter address. Address is required when adding a new party.'); return; }
+        } catch (_) {}
+
+        // Mobile is mandatory when adding a new party (creation mode). Enforce exactly 10 digits.
+        try {
+            if (!docId && !newMobile) { showMessage('Enter mobile number. Mobile is required when adding a new party.'); return; }
+            const newMobileDigits = (newMobile || '').replace(/\D/g, '');
+            if (newMobileDigits.length !== 10) { showMessage('Enter valid 10-digit mobile number.'); return; }
+        } catch (_) {}
+        // Enforce mandatory 6-digit PIN
+        try {
+            const newPinDigits = (newPin || '').replace(/\D/g, '');
+            if (!newPin || newPinDigits.length !== 6) { showMessage('Enter valid 6-digit PIN.'); return; }
+        } catch (_) {}
         // Validate GSTIN only when supplier/customer is marked registered
         if (!notRegistered && newGstin && !GSTIN_REGEX.test(newGstin)) { showMessage('Invalid GSTIN format. Please check and enter a valid GSTIN or mark as Not GST-registered.'); return; }
         try {
             const colPath = type === 'supplier' ? suppliersColPath : customersColPath;
-            if (docId) {
-                await updateDoc(doc(db, colPath, docId), Object.assign({
-                    name: newName,
-                    updatedAt: serverTimestamp(),
-                }, newGstin ? { gstin: newGstin } : { gstin: deleteFieldIfEmpty() }, newAddr ? { address: newAddr } : { address: deleteFieldIfEmpty() }, { isGstRegistered: !notRegistered }));
-            } else {
-                // If no primary doc id, upsert into new collection
-                await addDoc(collection(db, colPath), Object.assign({
-                    name: newName,
-                    createdAt: serverTimestamp(),
-                    isDeleted: false,
-                    migratedFrom: 'edit-modal',
-                }, newGstin ? { gstin: newGstin } : {}, newAddr ? { address: newAddr } : {}, { isGstRegistered: !notRegistered }));
-            }
-                upsertPartyInState(type, { name: newName, gstin: newGstin || undefined, address: newAddr || undefined, isGstRegistered: !notRegistered });
+                if (docId) {
+                    // Build payload and remove undefined fields so updateDoc isn't called with unsupported undefined values
+                    const upd = Object.assign({
+                        name: newName,
+                        updatedAt: serverTimestamp(),
+                        isGstRegistered: !notRegistered
+                    },
+                        newGstin ? { gstin: newGstin } : {},
+                        newAddr ? { address: newAddr } : {},
+                        newState ? { stateCode: newState } : {},
+                        newPin ? { pin: newPin } : {},
+                        newMobile ? { mobile: newMobile } : {},
+                        (newCreditDays !== null) ? { creditDays: newCreditDays } : {},
+                        (newCreditLimit !== null) ? { creditLimit: newCreditLimit } : {},
+                        newEmail ? { email: newEmail } : {}
+                    );
+                    // Strip any keys with undefined (defensive)
+                    const clean = Object.fromEntries(Object.entries(upd).filter(([k, v]) => v !== undefined));
+                    await updateDoc(doc(db, colPath, docId), clean);
+                } else {
+                    // If no primary doc id, upsert into new collection
+                    await addDoc(collection(db, colPath), Object.assign({
+                        name: newName,
+                        createdAt: serverTimestamp(),
+                        isDeleted: false,
+                        migratedFrom: 'edit-modal',
+                    }, newGstin ? { gstin: newGstin } : {}, newAddr ? { address: newAddr } : {}, newState ? { stateCode: newState } : {}, newPin ? { pin: newPin } : {}, newMobile ? { mobile: newMobile } : {}, (newCreditDays !== null) ? { creditDays: newCreditDays } : {}, (newCreditLimit !== null) ? { creditLimit: newCreditLimit } : {}, newEmail ? { email: newEmail } : {}, { isGstRegistered: !notRegistered }));
+                }
+                upsertPartyInState(type, { name: newName, gstin: newGstin || undefined, address: newAddr || undefined, stateCode: newState || undefined, pin: newPin || undefined, mobile: newMobile || undefined, email: newEmail || undefined, creditDays: (newCreditDays !== null ? newCreditDays : undefined), creditLimit: (newCreditLimit !== null ? newCreditLimit : undefined), isGstRegistered: !notRegistered });
             renderAdminLedgersPage();
             showMessage('Party details saved.');
             close();
@@ -7955,9 +13038,111 @@ function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered
     });
 }
 
+// Show transfer (contra) details modal for a given transfer id
+async function showTransferModal(transferId) {
+    if (!transferId) return;
+    try {
+        const docRef = doc(db, transfersColPath, transferId);
+        const snap = await getDoc(docRef);
+        if (!snap.exists()) {
+            showMessage('Transfer details not found.');
+            return;
+        }
+        const t = snap.data();
+
+        // fetch ledger rows (cash and bank) that reference this transfer
+        const cashQ = query(collection(db, cashLedgerColPath), where('refId', '==', transferId));
+        const bankQ = query(collection(db, bankLedgerColPath), where('refId', '==', transferId));
+        const [cashSnap, bankSnap] = await Promise.all([getDocs(cashQ), getDocs(bankQ)]);
+        const cashRows = cashSnap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'cash' }));
+        const bankRows = bankSnap.docs.map(d => ({ id: d.id, ...d.data(), _col: 'bank' }));
+
+        const rows = [...cashRows, ...bankRows];
+
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50';
+        modal.innerHTML = `
+            <div class="bg-white rounded-lg shadow-xl w-[95%] max-w-2xl p-4">
+                <div class="flex items-start justify-between">
+                    <h4 class="font-semibold">Transfer Details</h4>
+                    <div class="space-x-2">
+                        <button id="transferReverseBtn" class="px-2 py-1 bg-red-600 text-white rounded text-sm">Reverse Transfer</button>
+                        <button id="closeTransferModal" class="px-2 py-1 bg-gray-200 rounded">Close</button>
+                    </div>
+                </div>
+                <div class="mt-3 grid grid-cols-2 gap-4 text-sm">
+                    <div><strong>Date:</strong> ${formatDate(t.date)}</div>
+                    <div><strong>Amount:</strong> ₹${(t.amount||0).toFixed(2)}</div>
+                    <div><strong>Direction:</strong> ${t.direction === 'cashToBank' ? 'Cash → Bank' : 'Bank → Cash'}</div>
+                    <div><strong>Bank Account:</strong> ${t.bankAccount || '-'}</div>
+                    <div><strong>Reconciled:</strong> ${t.reconciled ? 'Yes' : 'No'}</div>
+                    <div><strong>Notes:</strong> ${t.notes || '-'}</div>
+                </div>
+                <div class="mt-4">
+                    <h5 class="font-medium">Ledger rows</h5>
+                    <div id="transferLedgerRows" class="mt-2 text-sm overflow-auto max-h-48">
+                        ${rows.length ? rows.map(r => `<div class="py-2 border-b flex justify-between"><div><strong>${r._col.toUpperCase()}</strong> • ${r.accountName || r.party || ''}</div><div>₹${(r.amount||0).toFixed(2)}</div></div>`).join('') : '<div class="text-gray-500">No ledger rows found.</div>'}
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const close = () => modal.remove();
+        modal.querySelector('#closeTransferModal')?.addEventListener('click', close);
+        modal.addEventListener('click', (e) => {
+            if (e.target !== modal) return;
+            try { const sel = window.getSelection ? window.getSelection().toString() : ''; if (sel && sel.length > 0) return; } catch(_) {}
+            close();
+        });
+
+        // Reverse transfer handler: mark transfer and ledger rows as reversed (batched)
+        const reverseBtn = modal.querySelector('#transferReverseBtn');
+        reverseBtn?.addEventListener('click', async () => {
+            if (!confirm('Reverse this transfer? This will mark the transfer and its ledger rows as reversed.')) return;
+            try {
+                const batch = writeBatch(db);
+                // mark transfer doc
+                batch.update(doc(db, transfersColPath, transferId), { isReversed: true, reversedAt: serverTimestamp() });
+                // mark each ledger row
+                rows.forEach(r => {
+                    const colPath = r._col === 'cash' ? cashLedgerColPath : bankLedgerColPath;
+                    batch.update(doc(db, colPath, r.id), { isReversed: true, reversedAt: serverTimestamp() });
+                });
+                await batch.commit();
+                showMessage('Transfer reversed.');
+                close();
+            } catch (err) {
+                console.error('Reverse transfer error', err);
+                showMessage('Unable to reverse transfer.');
+            }
+        });
+
+    } catch (err) {
+        console.error('showTransferModal error', err);
+        showMessage('Unable to load transfer details.');
+    }
+}
+
 // Helper to remove fields when empty in update payloads
 function deleteFieldIfEmpty() {
     // As client web SDK lacks direct deleteField import in this file, fallback to omitting fields by not setting when empty.
     // This function exists to keep code readable above; it just returns undefined.
     return undefined;
 }
+
+// Ensure posting time ticker is running (safe to call multiple times)
+try { startPostingTimeTicker(); } catch(_) {}
+
+// Expose a few functions to `window` for deterministic headless testing when explicitly enabled.
+// Controlled by URL query `?testHooks=1` to avoid exposing hooks during normal use.
+try {
+    const enabled = (typeof window !== 'undefined' && window.location && String(window.location.search || '').includes('testHooks=1'));
+    if (enabled) {
+        if (typeof renderAdminPurchasesPage === 'function') window.renderAdminPurchasesPage = renderAdminPurchasesPage;
+        if (typeof closeNewProductModal === 'function') window.closeNewProductModal = closeNewProductModal;
+        if (typeof renderHeader === 'function') window.renderHeader = renderHeader;
+        if (typeof renderApp === 'function') window.renderApp = renderApp;
+        if (typeof addPurchaseItemRow === 'function') window.addPurchaseItemRow = addPurchaseItemRow;
+    }
+} catch (e) { /* ignore in non-browser contexts */ }

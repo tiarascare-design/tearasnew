@@ -1,0 +1,152 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Callable Test Client</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js';
+    import { getAuth, signInWithEmailAndPassword, signOut } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js';
+    import { getFunctions, httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAYLMFFAzJhiNZbtwXxmeGRMzuar6Af7fE",
+      authDomain: "tiaras-website.firebaseapp.com",
+      projectId: "tiaras-website",
+      storageBucket: "tiaras-website.appspot.com",
+      messagingSenderId: "689602737235",
+      appId: "1:689602737235:web:2659f1cb292de42cce82a6",
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const functions = getFunctions(app, 'us-central1');
+
+    window.signIn = async function () {
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+        document.getElementById('status').textContent = 'Signed in as ' + (auth.currentUser && auth.currentUser.email);
+      } catch (e) {
+        document.getElementById('status').textContent = 'Sign-in failed: ' + e.message;
+      }
+    }
+
+    window.signOut = async function () {
+      await signOut(auth);
+      document.getElementById('status').textContent = 'Signed out';
+    }
+
+    window.callCreate = async function () {
+      const amount = parseInt(document.getElementById('amount').value || '100', 10);
+      const callable = httpsCallable(functions, 'createRazorpayOrder');
+      try {
+        const resp = await callable({ amountPaise: amount, currency: 'INR' });
+        document.getElementById('result').textContent = JSON.stringify(resp.data);
+        // Auto-open Razorpay Checkout if response contains orderId and keyId
+        if (resp && resp.data && resp.data.orderId && resp.data.keyId) {
+          loadAndOpenRazorpay(resp.data);
+        }
+      } catch (e) {
+        document.getElementById('result').textContent = 'Error: ' + (e.message || e.toString());
+      }
+    }
+
+    function loadAndOpenRazorpay(orderInfo) {
+      // dynamically load checkout script if not present
+      if (!window.Razorpay) {
+        const s = document.createElement('script');
+        s.src = 'https://checkout.razorpay.com/v1/checkout.js';
+        s.async = true;
+        document.head.appendChild(s);
+        s.onload = () => openCheckout(orderInfo);
+      } else openCheckout(orderInfo);
+    }
+
+    function openCheckout(orderInfo) {
+      const options = {
+        key: orderInfo.keyId,
+        order_id: orderInfo.orderId,
+        amount: orderInfo.amount,
+        currency: orderInfo.currency || 'INR',
+        name: 'Tiaras Test',
+        description: 'Test Purchase',
+        handler: async function (resp) {
+          // call verify callable with payment data
+          const verifyCallable = httpsCallable(functions, 'verifyRazorpayPayment');
+          try {
+            const payload = {
+              publicOrderId: `client_test_order_${Date.now()}`,
+              orderData: { appId: 'tiaras-website', userId: (auth.currentUser && auth.currentUser.uid) || null, items: [], totalAmountPaise: orderInfo.amount },
+              razorpay_order_id: resp.razorpay_order_id || resp.order_id || orderInfo.orderId,
+              razorpay_payment_id: resp.razorpay_payment_id || resp.payment_id || resp.razorpay_payment_id,
+              razorpay_signature: resp.razorpay_signature || resp.signature || ''
+            };
+            const v = await verifyCallable(payload);
+            document.getElementById('result').textContent = 'Verify response: ' + JSON.stringify(v.data);
+          } catch (err) {
+            document.getElementById('result').textContent = 'Verify error: ' + (err.message || JSON.stringify(err));
+          }
+        },
+        modal: { ondismiss: function() { document.getElementById('result').textContent = 'Checkout dismissed'; } }
+      };
+      const r = new Razorpay(options);
+      r.open();
+    }
+
+    window.callVerify = async function () {
+      const callable = httpsCallable(functions, 'verifyRazorpayPayment');
+      const payload = JSON.parse(document.getElementById('verifyPayload').value || '{}');
+      try {
+        const resp = await callable(payload);
+        document.getElementById('result').textContent = JSON.stringify(resp.data);
+      } catch (e) {
+        document.getElementById('result').textContent = 'Error: ' + (e.message || e.toString());
+      }
+    }
+  </script>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;padding:20px}
+    input,button,textarea{font-size:14px;padding:8px;margin:4px 0;width:100%}
+    #result{white-space:pre-wrap;background:#f7f7f7;padding:10px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <h2>Firebase Callable Test Client</h2>
+  <div>
+    <label>Email</label>
+    <input id="email" placeholder="test@example.com" />
+    <label>Password</label>
+    <input id="password" type="password" placeholder="password" />
+    <button onclick="signIn()">Sign In</button>
+    <button onclick="signOut()">Sign Out</button>
+    <div id="status">Not signed in</div>
+  </div>
+
+  <hr />
+  <div>
+    <h3>Create Razorpay Order</h3>
+    <label>Amount (paise)</label>
+    <input id="amount" value="100" />
+    <button onclick="callCreate()">Create Order</button>
+  </div>
+
+  <hr />
+  <div>
+    <h3>Verify Razorpay Payment</h3>
+    <label>Payload (JSON)</label>
+    <textarea id="verifyPayload" rows="6">{
+  "publicOrderId":"client_test_order_123",
+  "orderData":{"appId":"tiaras-website","userId":"e2e","items":[],"totalAmountPaise":100},
+  "razorpay_order_id":"",
+  "razorpay_payment_id":"",
+  "razorpay_signature":""
+}</textarea>
+    <button onclick="callVerify()">Call Verify</button>
+  </div>
+
+  <h3>Result</h3>
+  <div id="result"></div>
+</body>
+</html>

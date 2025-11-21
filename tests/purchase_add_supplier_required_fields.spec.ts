@@ -30,9 +30,14 @@ test('inline add supplier requires address and state before add', async ({ page 
   // Click Add -> should show message modal or not add
   await addBtn.click();
 
-  // The app shows a message modal via showMessage(); wait for it
-  const msg = page.locator('#messageModal');
-  await expect(msg).toBeVisible({ timeout: 2000 });
+  // The app shows a message modal via showMessage(); wait for its event
+  const msgDetail = await page.evaluate(() => {
+    return new Promise(resolve => {
+      const t = setTimeout(() => resolve({ timeout: true }), 2000);
+      document.addEventListener('app:message', function handler(e) { clearTimeout(t); resolve(e.detail || {}); }, { once: true });
+    });
+  });
+  expect((msgDetail as any).timeout).not.toBe(true);
   // Dismiss the message modal so the inline form is usable again
   await page.click('#messageOkBtn');
   // Ensure the inline add row is visible again (modal may have interrupted focus)
@@ -50,9 +55,15 @@ test('inline add supplier requires address and state before add', async ({ page 
 
   // Click Add -> should succeed (app shows a "Supplier added." message)
   await addBtn.click();
-  await page.waitForSelector('#messageModal', { timeout: 5000 });
-  const mt = await page.locator('#messageText').textContent();
-  const mtLower = (mt || '').toLowerCase();
+  // Wait for the app's message event and assert its content indicates success
+  const resultDetail = await page.evaluate(() => {
+    return new Promise(resolve => {
+      const t = setTimeout(() => resolve({ timeout: true }), 5000);
+      document.addEventListener('app:message', function handler(e) { clearTimeout(t); resolve(e.detail || {}); }, { once: true });
+    });
+  });
+  expect((resultDetail as any).timeout).not.toBe(true);
+  const mtLower = ((resultDetail as any).message || '').toLowerCase();
   // Accept either successful add or 'already exists' (idempotent across runs)
   expect(mtLower.includes('supplier added') || mtLower.includes('already exists')).toBeTruthy();
   // Dismiss the success message

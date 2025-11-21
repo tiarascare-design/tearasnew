@@ -2,6 +2,25 @@
   "functions": {
     "source": "functions"
   },
+  "emulators": {
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "auth": {
+      "port": 9099
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4000
+    },
+    "hosting": {
+      "port": 5000
+    },
+    "singleProjectMode": true
+  },
   "hosting": {
     "public": ".",
     "ignore": [
@@ -15,7 +34,10 @@
       {
         "source": "/**",
         "headers": [
-          { "key": "Cross-Origin-Opener-Policy", "value": "same-origin-allow-popups" }
+          {
+            "key": "Cross-Origin-Opener-Policy",
+            "value": "same-origin-allow-popups"
+          }
         ]
       }
     ]

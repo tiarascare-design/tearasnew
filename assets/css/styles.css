@@ -189,3 +189,18 @@ input:checked + .toggle-slider:before {
         display: none;
     }
 }
+
+/* Input validation states used by JS helpers */
+.tiaras-valid {
+    border-color: #16a34a !important; /* green */
+    box-shadow: 0 0 0 3px rgba(22,163,74,0.06) !important;
+}
+.tiaras-invalid {
+    border-color: #dc2626 !important; /* red */
+    box-shadow: 0 0 0 3px rgba(220,38,38,0.06) !important;
+}
+.tiaras-validation-feedback {
+    display: none;
+    color: #dc2626;
+    font-size: 0.8rem;
+}

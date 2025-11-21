@@ -1,0 +1,12 @@
+{
+  "merchantStateCode": "32",
+  "adminEmails": [],
+  "isGstEnabled": false,
+  "merchantGstRegistered": false,
+  "isScrollingBarVisible": false,
+  "scrollingBarText": "",
+  "businessAddress": "TIARAS Headquarters, 123 Luxury Lane, Perumbavoor, Kerala, India 683542",
+  "merchantGstin": "",
+  "adminUids": [],
+  "masterResetPasswordHash": "cf0ae9bd8d5f5433497cf7618684e970ce629f7d23bda900d035e876a02ba875"
+}

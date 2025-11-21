@@ -20,14 +20,14 @@
     <div id="top-bars-container"></div>
 
     <div id="app">
-        <header id="main-header" class="bg-white sticky top-0 z-50 border-b border-gray-200"></header>
+        <header id="main-header" class="bg-white sticky z-50 border-b border-gray-200" style="top: var(--topbars-height, 0px);"></header>
 
         <main id="pageContent"></main>
 
         <footer id="main-footer" class="bg-white border-t border-gray-200"></footer>
 
-        <!-- Generic Message Modal -->
-        <div id="messageModal" class="fixed inset-0 z-[100] bg-black bg-opacity-60 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+    <!-- Generic Message Modal -->
+        <div id="messageModal" class="fixed inset-0 z-[110] bg-black bg-opacity-60 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300 pointer-events-auto">
             <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm text-center p-8 transform scale-95 transition-transform duration-300">
                 <p id="messageText" class="text-lg mb-6"></p>
                 <button id="messageOkBtn" class="bg-black text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-gray-800 transition duration-300">OK</button>
@@ -44,7 +44,7 @@
                 <form id="newProductForm" class="space-y-4">
                     <div><label for="productName" class="block text-sm font-medium text-gray-700 mb-1">Product Name</label><input type="text" id="productName" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div>
                     <div><label for="productDescription" class="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea id="productDescription" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></textarea></div>
-                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div><label for="salePrice" class="block text-sm font-medium text-gray-700 mb-1">Sale Price (₹)</label><input type="number" id="salePrice" step="0.01" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div>
                         <div>
                             <label for="gstPercentage" class="block text-sm font-medium text-gray-700 mb-1">GST %</label>
@@ -55,6 +55,24 @@
                                 <option value="18">18%</option>
                                 <option value="28">28%</option>
                             </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="modalProductGroup" class="block text-sm font-medium text-gray-700 mb-1">Group</label>
+                            <div class="flex items-center gap-2">
+                                <select id="modalProductGroup" class="flex-1 min-w-0 w-full px-4 py-2 border border-gray-300 rounded-md">
+                                    <option value="">— Select group —</option>
+                                </select>
+                                <button type="button" id="showModalNewProductGroupBtn" class="text-sm text-blue-600 hover:underline whitespace-nowrap ml-2 flex-shrink-0">+ Add</button>
+                            </div>
+                            <div id="modalNewProductGroupRow" class="mt-2 hidden">
+                                <div class="flex items-center gap-2">
+                                    <input type="text" id="modalNewProductGroupName" class="flex-1 px-3 py-2 border border-gray-300 rounded-md" placeholder="New group name">
+                                    <button type="button" id="modalAddProductGroupInlineBtn" class="bg-green-600 text-white px-3 py-2 rounded">Add</button>
+                                    <button type="button" id="modalCancelNewProductGroupBtn" class="bg-gray-200 text-gray-700 px-3 py-2 rounded">Cancel</button>
+                                </div>
+                            </div>
                         </div>
                         <div><label for="productCategory" class="block text-sm font-medium text-gray-700 mb-1">Category</label><select id="productCategory" class="w-full px-4 py-2 border border-gray-300 rounded-md" required><option value="ornament">Ornament</option><option value="beauty">Beauty</option></select></div>
                     </div>
@@ -68,7 +86,33 @@
         </div>
     </div>
 
-    <script type="module" src="assets/js/app.js"></script>
+    <!-- Ensure a deterministic appId in development/emulator so client reads the right siteSettings -->
+    <script>
+        // If the app sets window.__app_id already (server injection), keep it.
+        // Otherwise default to the emulator/dev app id used for local testing.
+        window.__app_id = typeof window.__app_id !== 'undefined' ? window.__app_id : 'tiaras-website';
+    </script>
+    <script>
+        // When running on localhost, force production Firebase for local testing.
+        // This makes the site use the production Firebase project while served locally.
+        // NOTE: this intentionally forces production only for localhost/127.0.0.1 so you
+        // can preview the live site behavior locally. Remove or revert this for normal
+        // development to use the emulator suite.
+        try {
+            const host = (window && window.location && window.location.hostname) || '';
+            if (host === 'localhost' || host === '127.0.0.1') {
+                window.__use_production = true;
+                console.info('Local override: forcing production Firebase for this session (host is localhost)');
+            }
+        } catch (e) { /* ignore */ }
+    </script>
+        <!-- Inject reCAPTCHA site key provided by user (client-side only). Do NOT expose the secret key here. -->
+        <script>
+            // Provided reCAPTCHA site key (used by the client RecaptchaVerifier)
+            window.__recaptcha_site_key = '6Le2VQosAAAAAE0SwHQdNBXHjaV8vKt1GScvokd0';
+        </script>
+    <!-- Cache-busted app bundle to ensure updated JS is fetched during development -->
+    <script type="module" src="assets/js/app.js?v=6"></script>
 </body>
 </html>
 <!--
@@ -80,40 +124,7 @@
             pageContent.innerHTML = `<div class="bg-white"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-2">${title}</h1><p class="text-center text-gray-500 mb-12">${subtitle}</p>${renderProductGrid(productsToDisplay)}</div></div>`;
         }
 
-        function renderTestimonialsPage() {
-            const testimonialFormHTML = `
-                <div class="bg-white p-8 rounded-lg shadow-lg">
-                    <h3 class="text-2xl font-playfair mb-6">Write a Review</h3>
-                    <form id="testimonialForm" class="space-y-4">
-                        <div>
-                            <input type="text" id="testimonialName" placeholder="Your Name" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
-                        </div>
-                        <div>
-                            <textarea id="testimonialMessage" placeholder="Your review..." rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></textarea>
-                        </div>
-                        <div class="flex items-center space-x-2">
-                            <span class="text-gray-600">Rating:</span>
-                            <div id="testimonialRating" class="flex flex-row-reverse justify-end">
-                                <input type="radio" id="star5" name="rating" value="5" class="hidden"/><label for="star5" title="5 stars" class="text-2xl text-gray-300 cursor-pointer hover:text-yellow-400"><i class="fas fa-star"></i></label>
-                                <input type="radio" id="star4" name="rating" value="4" class="hidden"/><label for="star4" title="4 stars" class="text-2xl text-gray-300 cursor-pointer hover:text-yellow-400"><i class="fas fa-star"></i></label>
-                                <input type="radio" id="star3" name="rating" value="3" class="hidden"/><label for="star3" title="3 stars" class="text-2xl text-gray-300 cursor-pointer hover:text-yellow-400"><i class="fas fa-star"></i></label>
-                                <input type="radio" id="star2" name="rating" value="2" class="hidden"/><label for="star2" title="2 stars" class="text-2xl text-gray-300 cursor-pointer hover:text-yellow-400"><i class="fas fa-star"></i></label>
-                                <input type="radio" id="star1" name="rating" value="1" class="hidden" required/><label for="star1" title="1 star" class="text-2xl text-gray-300 cursor-pointer hover:text-yellow-400"><i class="fas fa-star"></i></label>
-                            </div>
-                        </div>
-                        <button type="submit" class="bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Submit Review</button>
-                    </form>
-                </div>
-            `;
-
-            const allTestimonialsHTML = state.testimonials.length > 0 ? state.testimonials.map(testimonial => `
-                <div class="bg-white p-6 rounded-lg shadow-sm">
-                    <div class="text-yellow-400 mb-2 text-lg">
-                        ${'<i class="fas fa-star"></i>'.repeat(testimonial.rating)}
-                        ${'<i class="far fa-star"></i>'.repeat(5 - testimonial.rating)}
-                    </div>
-                    <p class="italic text-gray-600 mb-4">"${testimonial.message}"</p>
-                    <h4 class="font-semibold text-gray-800 uppercase tracking-wider text-sm text-right">- ${testimonial.name}</h4>
+        
                 </div>
             `).join('') : '<p class="text-gray-500 text-center col-span-full">No reviews yet. Be the first to write one!</p>';
 
@@ -121,22 +132,22 @@
                 <div class="bg-gray-50 min-h-screen">
                     <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
                         <h1 class="text-4xl font-playfair text-center mb-12">Customer Testimonials</h1>
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-12">
-                            <div class="lg:col-span-2 space-y-6">
-                               ${allTestimonialsHTML}
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                            <div>
+                                <label for="productCategory" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                                <select id="productCategory" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                                    <option value="ornament">Ornament</option>
+                                    <option value="beauty">Beauty</option>
+                                </select>
                             </div>
-                            <div class="h-fit sticky top-28">
-                               ${testimonialFormHTML}
+                            <div>
+                                <label for="productGroup" class="block text-sm font-medium text-gray-700 mb-1">Product Group (Collection)</label>
+                                <select id="productGroup" class="w-full min-w-0 px-4 py-2 border border-gray-300 rounded-md">
+                                    <option value="">None</option>
+                                   ${state.productGroups.map(g => `<option value="${g.name}">${g.name}</option>`).join('')}
+                                </select>
                             </div>
                         </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function renderProductDetailPage() {
-            const product = state.products.find(p => p.id === state.currentProductId);
-            if (!product) {
                 pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-20"><div class="loader mx-auto"></div><p class="mt-4">Loading Product...</p></div>`;
                 return;
             }
@@ -174,40 +185,7 @@
             pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">Shopping Cart</h1><div class="grid grid-cols-1 lg:grid-cols-3 gap-12"><div class="lg:col-span-2 bg-white p-8 rounded-lg shadow-sm"><div class="divide-y">${cartItemsHTML}</div></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-playfair mb-6">Order Summary</h2><div class="flex justify-between items-center text-lg mb-6"><span>Subtotal (₹)</span><span class="font-semibold">${total.toFixed(2)}</span></div><button data-page="checkout" class="nav-btn w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Proceed to Checkout</button></div></div></div></div>`;
         }
         
-        function renderCheckoutPage() {
-            const cartProductIds = Object.keys(state.cart.items);
-            if (cartProductIds.length === 0) {
-                navigateTo('products');
-                return;
-            }
-
-            let subtotal = 0;
-            const orderItemsHTML = state.products
-                .filter(p => cartProductIds.includes(p.id))
-                .map(product => {
-                    const quantity = state.cart.items[product.id].quantity;
-                    const itemTotal = product.salePrice * quantity;
-                    subtotal += itemTotal;
-                    return `<div class="flex justify-between items-center py-3"><div class="flex items-center space-x-4"><img src="${product.image}" class="w-16 h-16 object-cover rounded-md"><div><p class="font-semibold">${product.name}</p><p class="text-sm text-gray-500">Qty: ${quantity}</p></div></div><p class="font-medium">${itemTotal.toFixed(2)}</p></div>`;
-                }).join('');
-
-            const shipping = 50.00;
-            const gstBreakdown = {};
-            if (state.siteSettings.isGstEnabled) {
-                state.products.filter(p => cartProductIds.includes(p.id)).forEach(product => {
-                    const gstRate = product.gstPercentage || 0;
-                    if (gstRate > 0) {
-                        if (!gstBreakdown[gstRate]) gstBreakdown[gstRate] = 0;
-                        const quantity = state.cart.items[product.id].quantity;
-                        gstBreakdown[gstRate] += product.salePrice * quantity * (gstRate / 100);
-                    }
-                });
-            }
-            const totalGst = Object.values(gstBreakdown).reduce((sum, amount) => sum + amount, 0);
-            const total = subtotal + totalGst + shipping;
-            
-            pageContent.innerHTML = `<div class="bg-gray-50"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><h1 class="text-4xl font-playfair text-center mb-12">Checkout</h1><div class="grid grid-cols-1 lg:grid-cols-2 gap-16"><div><h2 class="text-2xl font-semibold mb-6">Shipping Information</h2><form id="checkoutForm" class="space-y-4"><div><label for="fullName" class="block text-sm font-medium text-gray-700">Full Name</label><input type="text" id="fullName" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="address" class="block text-sm font-medium text-gray-700">Address</label><input type="text" id="address" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div class="grid grid-cols-1 md:grid-cols-3 gap-4"><div><label for="city" class="block text-sm font-medium text-gray-700">City</label><input type="text" id="city" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="state" class="block text-sm font-medium text-gray-700">State</label><input type="text" id="state" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div><div><label for="zip" class="block text-sm font-medium text-gray-700">ZIP Code</label><input type="text" id="zip" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border"></div></div><div class="pt-4 ${state.siteSettings.isGstEnabled ? '' : 'hidden'}"><label class="flex items-center"><input type="checkbox" id="requestGstInvoice" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black"><span class="ml-2 text-sm text-gray-700">I need a GST invoice</span></label></div><div id="gstNumberContainer" class="hidden mt-4"><label for="gstNumber" class="block text-sm font-medium text-gray-700">GST Number</label><input type="text" id="gstNumber" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" placeholder="e.g., 29ABCDE1234F1Z5"></div><div class="pt-8"><button type="submit" class="w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Place Order</button></div></form></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-semibold mb-6">Order Summary</h2><div class="space-y-3 divide-y">${orderItemsHTML}</div><div class="border-t mt-6 pt-6 space-y-3"><div class="flex justify-between"><span>Subtotal (₹)</span><span>${subtotal.toFixed(2)}</span></div> ${Object.keys(gstBreakdown).map(rate => `<div class="flex justify-between"><span>GST (${rate}%) (₹)</span><span>${gstBreakdown[rate].toFixed(2)}</span></div>`).join('')} <div class="flex justify-between"><span>Shipping (₹)</span><span>${shipping.toFixed(2)}</span></div><div class="flex justify-between font-bold text-lg"><span>Total (₹)</span><span>${total.toFixed(2)}</span></div></div></div></div></div></div>`;
-        }
+        
 
         function renderOrderSuccessPage() {
             pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><div class="bg-green-100 text-green-800 p-6 rounded-lg max-w-md mx-auto mb-8"><i class="fas fa-check-circle fa-3x"></i></div><h1 class="text-4xl font-playfair mb-4">Thank You For Your Order!</h1><p class="text-gray-600 mb-2">Your order has been placed successfully.</p><p class="text-gray-800 font-semibold mb-8">Order ID: <span class="font-mono">${state.currentOrderId}</span></p><button data-page="products" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Continue Shopping</button></div>`;
@@ -371,55 +349,57 @@
             endDate.setHours(23, 59, 59, 999);
 
             // --- Purchase & Sales Register ---
-            const salesEntries = state.allOrders
+            const salesEntries = (state.allOrders || [])
                 .filter(order => {
-                    const orderDate = new Date(order.orderDate.seconds * 1000);
+                    const orderDate = _toDate(order.orderDate) || null;
+                    if (!orderDate) return false;
                     return orderDate >= startDate && orderDate <= endDate;
                 })
                 .map(order => ({
-                    date: new Date(order.orderDate.seconds * 1000),
+                    date: _toDate(order.orderDate) || new Date(),
                     id: order.id,
                     invoiceNumber: order.invoiceNumber,
                     type: 'Sale',
-                    details: `To: ${order.shippingInfo.fullName}`,
-                    itemCount: order.items.reduce((acc, item) => acc + item.quantity, 0),
+                    details: `To: ${order.shippingInfo?.fullName || 'Customer'}`,
+                    itemCount: (order.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
                     debit: 0,
-                    credit: order.totalAmount,
+                    credit: order.totalAmount || 0,
                 }));
 
-            const purchaseEntries = state.allPurchases
+            const purchaseEntries = (state.allPurchases || [])
                 .filter(purchase => {
                     // **MODIFIED:** Exclude deleted purchases from register
                     if (purchase.isDeleted) return false;
-
-                    const purchaseDate = new Date(purchase.purchaseDate.seconds * 1000);
+                    const purchaseDate = _toDate(purchase.purchaseDate) || null;
+                    if (!purchaseDate) return false;
                     return purchaseDate >= startDate && purchaseDate <= endDate;
                 })
                 .map(purchase => ({
-                    date: new Date(purchase.purchaseDate.seconds * 1000),
+                    date: _toDate(purchase.purchaseDate) || new Date(),
                     id: purchase.id,
                     invoiceNumber: purchase.invoiceNumber,
                     type: 'Purchase',
-                    details: `From: ${purchase.supplierName}`,
-                    itemCount: purchase.items.reduce((acc, item) => acc + item.quantity, 0),
-                    debit: purchase.totalAmount,
+                    details: `From: ${purchase.supplierName || ''}`,
+                    itemCount: (purchase.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
+                    debit: purchase.totalAmount || 0,
                     credit: 0,
                 }));
             
-            const localSalesEntries = state.allLocalSales
+            const localSalesEntries = (state.allLocalSales || [])
                      .filter(sale => {
-                        const saleDate = new Date(sale.saleDate.seconds * 1000);
+                        const saleDate = _toDate(sale.saleDate) || null;
+                        if (!saleDate) return false;
                         return saleDate >= startDate && saleDate <= endDate;
                     })
                     .map(sale => ({
-                        date: new Date(sale.saleDate.seconds * 1000),
+                        date: _toDate(sale.saleDate) || new Date(),
                         id: sale.id,
                         invoiceNumber: sale.invoiceNumber,
                         type: 'Local Sale',
-                        details: `To: ${sale.customerName}`,
-                        itemCount: sale.items.reduce((acc, item) => acc + item.quantity, 0),
+                        details: `To: ${sale.customerName || ''}`,
+                        itemCount: (sale.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
                         debit: 0,
-                        credit: sale.totalAmount,
+                        credit: sale.totalAmount || 0,
                     }));
 
             let combinedEntries;
@@ -514,12 +494,12 @@
             // --- Other Reports ---
             let totalRevenue = 0;
             let totalCost = 0;
-            state.allOrders.forEach(order => {
-                totalRevenue += order.totalAmount;
-                order.items.forEach(item => {
+            (state.allOrders || []).forEach(order => {
+                totalRevenue += (order.totalAmount || 0);
+                (order.items || []).forEach(item => {
                     const product = state.products.find(p => p.id === item.id);
                     if (product && product.purchasePrice) {
-                        totalCost += product.purchasePrice * item.quantity;
+                        totalCost += product.purchasePrice * (item.quantity || 0);
                     }
                 });
             });
@@ -615,12 +595,12 @@
                                 </tr>
                             </thead>
                              <tbody>
-                               ${state.allOrders.map(o => `
+                               ${(state.allOrders || []).map(o => `
                                             <tr class="border-b">
-                                                 <td class="p-3 font-mono text-xs">${o.invoiceNumber}</td>
-                                                 <td class="p-3">${new Date(o.orderDate.seconds * 1000).toLocaleDateString()}</td>
-                                                 <td class="p-3">${o.shippingInfo.fullName}</td>
-                                                 <td class="p-3 font-semibold">${o.totalAmount.toFixed(2)}</td>
+                                                 <td class="p-3 font-mono text-xs">${o.invoiceNumber || ''}</td>
+                                                 <td class="p-3">${(_toDate(o.orderDate) || new Date()).toLocaleDateString()}</td>
+                                                 <td class="p-3">${o.shippingInfo?.fullName || ''}</td>
+                                                 <td class="p-3 font-semibold">${(o.totalAmount || 0).toFixed ? (o.totalAmount || 0).toFixed(2) : (o.totalAmount || 0)}</td>
                                                  <td class="p-3">
                                                      <button data-page="invoice" data-id="${o.id}" class="nav-btn bg-blue-500 text-white text-xs font-semibold py-1 px-3 rounded-md hover:bg-blue-600">Generate</button>
                                                  </td>
@@ -710,53 +690,91 @@
             const listEl = document.getElementById('adminOrderList');
             if (!listEl) return;
             
-            // --- 1. Filter Logic ---
-            let filteredOrders = [...state.allOrders].sort((a, b) => b.orderDate.seconds - a.orderDate.seconds);
+            // --- 1. Date Range & Filter Logic ---
+            const startDate = new Date(state.ordersStartDate);
+            startDate.setHours(0, 0, 0, 0);
+            const endDate = new Date(state.ordersEndDate);
+            endDate.setHours(23, 59, 59, 999);
+
+            let filteredOrders = [...(state.allOrders || [])]
+                .filter(order => {
+                    const orderDate = _toDate(order.orderDate);
+                    if (!orderDate) return false;
+                    return orderDate >= startDate && orderDate <= endDate;
+                })
+                .sort((a, b) => {
+                    const da = _toDate(a.orderDate) || new Date(0);
+                    const db = _toDate(b.orderDate) || new Date(0);
+                    return db - da;
+                });
 
             if (state.adminOrderFilter !== 'All') {
                 filteredOrders = filteredOrders.filter(order => order.status === state.adminOrderFilter);
             }
             
-            // --- 2. Filter Controls HTML ---
-            const filterControlsHTML = `
-                <div class="flex justify-end items-center mb-6">
-                    <label for="orderStatusFilter" class="text-sm font-medium text-gray-700 mr-3">Filter by Status:</label>
-                    <select id="orderStatusFilter" class="w-40 rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border">
-                        <option value="All" ${state.adminOrderFilter === 'All' ? 'selected' : ''}>All Orders</option>
-                        <option value="Pending" ${state.adminOrderFilter === 'Pending' ? 'selected' : ''}>Pending</option>
-                        <option value="Shipped" ${state.adminOrderFilter === 'Shipped' ? 'selected' : ''}>Shipped</option>
-                        <option value="Delivered" ${state.adminOrderFilter === 'Delivered' ? 'selected' : ''}>Delivered</option>
-                        <option value="Cancelled" ${state.adminOrderFilter === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
-                    </select>
+            // --- 2. Pagination ---
+            const pageSize = Math.max(5, parseInt(state.ordersPageSize || 10));
+            const currentPage = Math.max(1, parseInt(state.ordersPage || 1));
+            const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+            const page = Math.min(currentPage, totalPages);
+            if (page !== state.ordersPage) state.ordersPage = page;
+            const startIdx = (page - 1) * pageSize;
+            const pagedOrders = filteredOrders.slice(startIdx, startIdx + pageSize);
+
+            // --- 3. Date Range & Filter Controls HTML ---
+            const dateRangeHTML = `
+                <div class="flex flex-wrap items-end gap-3 mb-4">
+                    <div>
+                        <label for="ordersStartDate" class="block text-sm font-medium text-gray-700">Start Date</label>
+                        <input type="date" id="ordersStartDate" value="${state.ordersStartDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border" ${state.ordersUseToday ? 'disabled' : ''}>
+                    </div>
+                    <div>
+                        <label for="ordersEndDate" class="block text-sm font-medium text-gray-700">End Date</label>
+                        <input type="date" id="ordersEndDate" value="${state.ordersEndDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border" ${state.ordersUseToday ? 'disabled' : ''}>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="ordersUseToday" ${state.ordersUseToday ? 'checked' : ''} class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black">
+                        <label for="ordersUseToday" class="text-sm text-gray-700">Today</label>
+                    </div>
+                    <div>
+                        <label for="orderStatusFilter" class="block text-sm font-medium text-gray-700">Status</label>
+                        <select id="orderStatusFilter" class="mt-1 w-40 rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border">
+                            <option value="All" ${state.adminOrderFilter === 'All' ? 'selected' : ''}>All Orders</option>
+                            <option value="Pending" ${state.adminOrderFilter === 'Pending' ? 'selected' : ''}>Pending</option>
+                            <option value="Shipped" ${state.adminOrderFilter === 'Shipped' ? 'selected' : ''}>Shipped</option>
+                            <option value="Delivered" ${state.adminOrderFilter === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                            <option value="Cancelled" ${state.adminOrderFilter === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                        </select>
+                    </div>
                 </div>
             `;
 
-            // --- 3. List Content Rendering ---
+            // --- 4. List Content Rendering ---
             let orderListHTML = '';
-            if (filteredOrders.length === 0) {
-                orderListHTML = `<p class="text-gray-500 text-center py-4">No ${state.adminOrderFilter !== 'All' ? state.adminOrderFilter : ''} orders found.</p>`;
+            if (pagedOrders.length === 0) {
+                orderListHTML = `<p class="text-gray-500 text-center py-4">No ${state.adminOrderFilter !== 'All' ? state.adminOrderFilter : ''} orders found for the selected date range.</p>`;
             } else {
-                orderListHTML = filteredOrders.map(order => 
+                orderListHTML = pagedOrders.map(order => 
                     `<div class="bg-white p-4 rounded-lg shadow-sm">
                         <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-center text-xs">
                             <div>
                                 <p class="font-bold text-sm mb-1">Invoice #</p>
                                 <p class="font-mono">${order.invoiceNumber || order.id}</p>
-                                <p>${new Date(order.orderDate.seconds * 1000).toLocaleDateString()}</p>
+                                <p>${(_toDate(order.orderDate) || new Date()).toLocaleDateString()}</p>
                             </div>
                             <div>
                                 <p class="font-bold text-sm mb-1">Customer</p>
-                                <p>${order.shippingInfo.fullName}</p>
-                                <p class="text-gray-600">${order.shippingInfo.city}, ${order.shippingInfo.state}</p>
+                                <p>${order.shippingInfo?.fullName || ''}</p>
+                                <p class="text-gray-600">${order.shippingInfo?.city || ''}, ${order.shippingInfo?.state || ''}</p>
                             </div>
                             <div>
                                 <p class="font-bold text-sm mb-1">Total</p>
-                                <p class="font-semibold text-base">₹${order.totalAmount.toFixed(2)}</p>
+                                <p class="font-semibold text-base">₹${(order.totalAmount || 0).toFixed(2)}</p>
                                 ${order.gstInfo?.applied ? '<span class="text-green-600 text-xs">(GST)</span>' : ''}
                             </div>
                             <div>
                                 <p class="font-bold text-sm mb-1">Items</p>
-                                <p>${order.items.reduce((acc, item) => acc + item.quantity, 0)}</p>
+                                <p>${(order.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0)}</p>
                             </div>
                             <div>
                                 <p class="font-bold text-sm mb-1">Status</p>
@@ -771,10 +789,79 @@
                     </div>`).join('');
             }
             
-            // --- 4. Render Final HTML and Attach Listener ---
-            listEl.innerHTML = filterControlsHTML + orderListHTML;
+            // --- 5. Pagination Controls ---
+            const paginationHTML = `
+                <div class="flex items-center justify-between mt-4 text-sm">
+                    <div class="flex items-center gap-2">
+                        <span>Rows per page:</span>
+                        <select id="ordersPageSize" class="border rounded p-1">
+                            ${[5,10,25,50].map(n => `<option value="${n}" ${pageSize===n?'selected':''}>${n}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span>Showing ${filteredOrders.length === 0 ? 0 : startIdx + 1}–${Math.min(startIdx + pageSize, filteredOrders.length)} of ${filteredOrders.length}</span>
+                        <button id="ordersPrev" class="px-3 py-1 border rounded ${page<=1?'opacity-50 cursor-not-allowed':'hover:bg-gray-100'}">Prev</button>
+                        <span>Page ${page} / ${totalPages}</span>
+                        <button id="ordersNext" class="px-3 py-1 border rounded ${page>=totalPages?'opacity-50 cursor-not-allowed':'hover:bg-gray-100'}">Next</button>
+                    </div>
+                </div>
+            `;
+            
+            // --- 6. Render Final HTML ---
+            listEl.innerHTML = dateRangeHTML + orderListHTML + paginationHTML;
 
-            // Must re-attach status change listener every time the list is re-rendered
+            // --- 7. Attach Event Listeners ---
+            // Date range changes
+            document.getElementById('ordersStartDate')?.addEventListener('change', (e) => {
+                state.ordersStartDate = e.target.value;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+            document.getElementById('ordersEndDate')?.addEventListener('change', (e) => {
+                state.ordersEndDate = e.target.value;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+            
+            // Today checkbox
+            document.getElementById('ordersUseToday')?.addEventListener('change', (e) => {
+                state.ordersUseToday = e.target.checked;
+                if (state.ordersUseToday) {
+                    const today = new Date().toISOString().split('T')[0];
+                    state.ordersStartDate = today;
+                    state.ordersEndDate = today;
+                }
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+
+            // Status filter
+            document.getElementById('orderStatusFilter')?.addEventListener('change', (e) => {
+                state.adminOrderFilter = e.target.value;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+
+            // Pagination
+            document.getElementById('ordersPrev')?.addEventListener('click', () => {
+                if (state.ordersPage > 1) {
+                    state.ordersPage--;
+                    renderAdminOrderList();
+                }
+            });
+            document.getElementById('ordersNext')?.addEventListener('click', () => {
+                if (state.ordersPage < totalPages) {
+                    state.ordersPage++;
+                    renderAdminOrderList();
+                }
+            });
+            document.getElementById('ordersPageSize')?.addEventListener('change', (e) => {
+                state.ordersPageSize = parseInt(e.target.value) || 10;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+
+            // Order status change listeners
             document.querySelectorAll('.admin-order-status-selector').forEach(selector => {
                 selector.addEventListener('change', (e) => {
                     const orderId = e.target.dataset.orderId;
@@ -782,12 +869,6 @@
                     const newStatus = e.target.value;
                     updateOrderStatus(orderId, userId, newStatus);
                 });
-            });
-
-            // Attach filter change listener for the new filter dropdown
-            document.getElementById('orderStatusFilter').addEventListener('change', (e) => {
-                state.adminOrderFilter = e.target.value;
-                renderAdminOrderList(); // Re-render with the new filter
             });
         }
 
@@ -2158,17 +2239,15 @@
                 const supplierName = document.getElementById('supplierName').value;
                 const purchaseDate = document.getElementById('purchaseDate').value;
                 const items = [];
-                let totalAmount = 0;
-
+                // Collect rows including GST% so we can compute GST correctly
                 document.querySelectorAll('.purchase-item-row').forEach(row => {
-                    const productId = row.querySelector('.purchase-product-select').value;
-                    const productName = row.querySelector('.purchase-product-select').options[row.querySelector('.purchase-product-select').selectedIndex].text;
-                    const purchasePrice = parseFloat(row.querySelector('.purchase-price').value);
-                    const quantity = parseInt(row.querySelector('.purchase-quantity').value);
-                    
+                    const productId = row.querySelector('.purchase-product-select')?.value || '';
+                    const productName = (row.querySelector('.purchase-product-select')?.options[row.querySelector('.purchase-product-select')?.selectedIndex]?.text) || '';
+                    const purchasePrice = parseFloat(row.querySelector('.purchase-price')?.value) || 0;
+                    const quantity = parseFloat(row.querySelector('.purchase-quantity')?.value) || 0;
+                    const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
                     if (productId && purchasePrice > 0 && quantity > 0) {
-                        items.push({ productId, productName, purchasePrice, quantity });
-                        totalAmount += purchasePrice * quantity;
+                        items.push({ productId, productName, price: purchasePrice, quantity, gstPercentage, purchasePrice });
                     }
                 });
 
@@ -2176,7 +2255,15 @@
                     showMessage("Please add at least one item to the purchase.");
                     return;
                 }
-                
+
+                // Compute GST totals and grand total respecting the "prices include GST" toggle
+                const pricesIncludeGst = !!(document.getElementById('purchasePricesIncludeGst')?.checked || false);
+                // computeGstForItems expects items with { price, quantity, gstPercentage }
+                const gstItems = items.map(it => ({ price: it.price, quantity: it.quantity, gstPercentage: it.gstPercentage }));
+                const gstComputed = computeGstForItems(gstItems, pricesIncludeGst, window._merchantStateCode || null, window._supplierStateCode || null);
+                // Grand total: if prices include GST, subtotalInc already includes GST; else subtotalEx + totalTax
+                const totalAmount = pricesIncludeGst ? +(gstComputed.subtotalInc || 0) : +(((gstComputed.subtotalEx || 0) + (gstComputed.total || 0)).toFixed(2));
+
                 const invoiceNumber = await getAndIncrementCounter('purchases');
 
                 const purchaseData = {
@@ -2423,6 +2510,7 @@
                         ${productOptions}
                         <option value="new" class="text-blue-500 font-bold">+ Add New Product</option>
                     </select>
+                    <input type="text" class="purchase-hsn mt-2 w-full px-3 py-2 border border-gray-200 rounded-md text-sm" placeholder="HSN / SAC (optional)">
                 </div>
                 <div class="col-span-2">
                     <input type="number" class="purchase-price w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Price" step="0.01">
@@ -2447,6 +2535,11 @@
                 </div>
             `;
             container.appendChild(row);
+            // After adding the row, move keyboard focus to the new product select so Tab order continues there
+            try {
+                const productSelect = row.querySelector('.purchase-product-select');
+                if (productSelect) { setTimeout(() => { try { productSelect.focus(); } catch(_){} }, 0); }
+            } catch(_) {}
         }
 
         function updatePurchaseTotal() {
@@ -2470,9 +2563,10 @@
                 row.querySelector('.purchase-item-total').textContent = `${lineInc.toFixed(2)}`;
                 subtotalEx += lineEx; gstTotal += lineGst; subtotalInc += lineInc;
             });
-            document.getElementById('purchaseSubtotal').textContent = `${(pricesIncludeGst ? subtotalInc : subtotalEx).toFixed(2)}`;
+            // Show exclusive subtotal, GST amount, and grand total (subtotal + GST)
+            document.getElementById('purchaseSubtotal').textContent = `${(subtotalEx).toFixed(2)}`;
             document.getElementById('purchaseGst').textContent = `${gstTotal.toFixed(2)}`;
-            document.getElementById('purchaseTotal').textContent = `${subtotalInc.toFixed(2)}`;
+            document.getElementById('purchaseTotal').textContent = `${(subtotalInc).toFixed(2)}`;
         }
 
         function renderPurchaseHistory() {
@@ -2685,12 +2779,33 @@
         }
 
         function closeNewProductModal() {
-            if(window.newProductTriggerSelect) {
-               window.newProductTriggerSelect.value = ''; // Reset the triggering select
-            }
+            try {
+                // If opened from a product <select>, reset that select back to the placeholder
+                if (window.newProductTriggerSelect) {
+                    try {
+                        const sel = window.newProductTriggerSelect;
+                        if (sel && typeof sel.value !== 'undefined') {
+                            sel.value = '';
+                            try { sel.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+                        }
+                    } catch(_) {}
+                }
+                window.newProductTriggerSelect = null;
+            } catch(_) {}
+            try {
+                // Defensive: reset any lingering selects that still have the 'new' value
+                const lingering = document.querySelectorAll('.purchase-product-select, .local-sale-product-select');
+                lingering.forEach(s => {
+                    try {
+                        if (s && s.value === 'new') { s.value = ''; try { s.dispatchEvent(new Event('change', { bubbles: true })); } catch(_){} }
+                    } catch(_) {}
+                });
+            } catch(_) {}
             const modal = document.getElementById('newProductModal');
-           modal.querySelector('form').reset();
-            modal.classList.add('hidden');
+            if (!modal) return;
+            const form = modal.querySelector('form'); if (form) { try { form.reset(); } catch(_) {} }
+            // Hide and remove display flex if present
+            try { modal.classList.add('hidden'); modal.classList.remove('flex'); } catch(_) { modal.classList.add('hidden'); }
         }
 
        document.getElementById('closeNewProductModalBtn').addEventListener('click', closeNewProductModal);

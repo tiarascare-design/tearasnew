@@ -5,6 +5,23 @@
   "description": "Tiaras Web local project - minimal package.json added to enable tooling checks",
   "scripts": {
     "test": "npx playwright test",
+    "test:unit": "vitest",
     "lint": "echo 'No linter configured'"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "jsdom": "^27.1.0",
+    "vitest": "^1.1.5"
+  },
+  "vitest": {
+    "test": {
+      "environment": "jsdom"
+    }
+  },
+  "dependencies": {
+    "@dataconnect/generated": "file:src/dataconnect-generated",
+    "axios": "^1.13.2",
+    "firebase-admin": "^13.6.0",
+    "puppeteer": "^24.30.0"
   }
 }

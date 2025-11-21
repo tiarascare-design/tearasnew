@@ -1,0 +1,29 @@
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+import { getAuth, onAuthStateChanged, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, signInAnonymously, signInWithCustomToken, GoogleAuthProvider, signInWithPopup, linkWithPopup, signInWithRedirect, getRedirectResult, linkWithRedirect, signInWithCredential, connectAuthEmulator, RecaptchaVerifier, signInWithPhoneNumber, linkWithPhoneNumber } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFirestore, collection, onSnapshot, doc, setDoc, addDoc, deleteDoc, updateDoc, serverTimestamp, query, where, getDocs, getDoc, writeBatch, increment, runTransaction, connectFirestoreEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getFunctions, httpsCallable, connectFunctionsEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
+import { GSTIN_REGEX, getStateCodeFromGstin, computeGstForItems, attachGstinValidation, GST_STATE_CODES } from '../../src/gst.js';
+
+// --- CONFIG & INITIALIZATION ---
+const firebaseConfig = {
+    apiKey: "AIzaSyAYLMFFAzJhiNZbtwXxmeGRMzuar6Af7fE",
+    authDomain: "tiaras-website.firebaseapp.com",
+    projectId: "tiaras-website",
+    storageBucket: "tiaras-website.appspot.com",
+    messagingSenderId: "689602737235",
+    appId: "1:689602737235:web:2659f1cb292de42cce82a6",
+    measurementId: "G-1GCV051MCM"
+};
+
+const finalFirebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : firebaseConfig;
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        
+const ADMIN_UID = "5FA4SZNeMicQz0MC1waRTSUh0lB2";
+
+const app = initializeApp(finalFirebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const functionsSvc = getFunctions(app, 'us-central1');
+
+// If you have a reCAPTCHA site key (from Google reCAPTCHA admin), set it here so
+// RecaptchaVerifier uses
