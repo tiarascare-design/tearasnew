@@ -1,0 +1,23 @@
+/* Simple skeleton loader utilities */
+.skeleton {
+  --skeleton-bg: linear-gradient(90deg, rgba(255,255,255,0), rgba(255,255,255,0.25), rgba(255,255,255,0));
+  background: #f3f4f6;
+  position: relative;
+  overflow: hidden;
+}
+.skeleton::after{
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0) 100%);
+  transform: translateX(-100%);
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer{ to { transform: translateX(100%);} }
+
+/* skeleton helpers */
+.skeleton-text{ height: 1rem; border-radius: .375rem; }
+.skeleton-rect{ height: 8rem; border-radius: .5rem; }
+
+/* mobile-friendly touch targets */
+.touch-target { min-height: 40px; min-width: 40px; display: inline-flex; align-items:center; justify-content:center; }

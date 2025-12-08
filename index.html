@@ -18,6 +18,7 @@
 
     <link rel="preload" href="assets/css/styles.css" as="style">
     <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="stylesheet" href="assets/css/skeleton.css">
     <!-- Inline small favicon as data URI to avoid extra request during local dev -->
     <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2P8z/C/HgAGgwJ/l1mZVgAAAABJRU5ErkJggg==">
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
@@ -101,9 +102,10 @@
     <script defer src="assets/js/inline-boot.js"></script>
     <script defer src="assets/js/event-delegate.js"></script>
     <script defer src="assets/js/lazy-init.js"></script>
-    <!-- Preload the module bundle then load deferred to avoid blocking initial paint -->
-    <link rel="preload" href="assets/js/app.js?v=6" as="script">
-    <script type="module" defer src="assets/js/app.js?v=6"></script>
+    <script defer src="assets/js/skeleton.js"></script>
+    <script defer src="assets/js/load-app.js"></script>
+    <!-- Preload the module bundle (dev fallback) then load via loader which prefers built bundles -->
+    <link rel="preload" href="assets/dist/app.js" as="script">
 </body>
 </html>
 <!--
