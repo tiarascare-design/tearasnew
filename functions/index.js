@@ -312,6 +312,18 @@ exports.createRazorpayOrder = onCall(async (request) => {
   try { return await createRazorpayOrderImpl(request.auth || {}, request.data || {}); } catch (err) { console.error('createRazorpayOrder failed:', err); if (err instanceof HttpsError) throw err; throw new HttpsError('internal', err?.message || 'Unknown error'); }
 });
 
+// Callable to report whether payments are enabled in the Functions runtime.
+// Returns { ok: true, enabled: boolean, keyId?: string }
+exports.getPaymentConfig = onCall(async (request) => {
+  try {
+    const enabled = !!(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
+    return { ok: true, enabled: enabled, keyId: enabled ? process.env.RAZORPAY_KEY_ID : null };
+  } catch (e) {
+    console.error('getPaymentConfig error', e);
+    throw new HttpsError('internal', 'Unable to read payment configuration');
+  }
+});
+
 const verifyRazorpayPaymentImpl = async ({ uid }, data) => {
   // data must include: publicOrderId, orderData, razorpay_order_id, razorpay_payment_id, razorpay_signature
   if (!data || !data.publicOrderId || !data.orderData || !data.razorpay_order_id || !data.razorpay_payment_id || !data.razorpay_signature) {

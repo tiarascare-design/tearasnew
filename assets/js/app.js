@@ -8898,7 +8898,30 @@ document.body.addEventListener('submit', async e => {
 
             // Prepare payload for server-side Razorpay order creation (amount in paise)
             const amountPaise = Math.round(totalAmount * 100);
-            try {
+                try {
+                // Check payment config once and cache the result to avoid repeated failing calls
+                if (!window.__paymentConfigChecked) {
+                    try {
+                        const cfgFn = httpsCallable(functionsSvc, 'getPaymentConfig');
+                        const cfgResp = await cfgFn({});
+                        const cfg = (cfgResp && cfgResp.data) || {};
+                        window.__paymentConfigChecked = true;
+                        window.__razorpay_available = !!cfg.enabled;
+                        if (cfg && cfg.keyId) window.__razorpay_keyId = cfg.keyId;
+                    } catch (cfgErr) {
+                        console.warn('getPaymentConfig failed, assuming payments disabled', cfgErr && cfgErr.message || cfgErr);
+                        window.__paymentConfigChecked = true;
+                        window.__razorpay_available = false;
+                    }
+                }
+
+                if (!window.__razorpay_available) {
+                    showMessage('Payments are currently unavailable. Please try another payment method or contact support.');
+                    // disable common Razorpay UI elements
+                    try { document.querySelectorAll('[data-payment="razorpay"], .pay-with-razorpay, button[data-provider="razorpay"]').forEach(el => { try{ el.disabled = true; }catch(_){}; el.classList && el.classList.add('disabled'); el.setAttribute && el.setAttribute('aria-disabled','true'); }); } catch (_) {}
+                    throw new Error('razorpay_unavailable');
+                }
+
                 const createOrderFn = httpsCallable(functionsSvc, 'createRazorpayOrder');
                 const createResp = await createOrderFn({ amountPaise, currency: 'INR', receipt: publicOrderId, notes: { userId: state.currentUser.uid || null } });
                 const createData = createResp.data || {};
