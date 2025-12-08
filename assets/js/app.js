@@ -8899,6 +8899,27 @@ document.body.addEventListener('submit', async e => {
             // Prepare payload for server-side Razorpay order creation (amount in paise)
             const amountPaise = Math.round(totalAmount * 100);
                 try {
+                // helper: render a small payment status badge
+                function renderPaymentIndicator(available) {
+                    try {
+                        let el = document.getElementById('payment-indicator');
+                        if (!el) {
+                            el = document.createElement('div');
+                            el.id = 'payment-indicator';
+                            el.className = 'payment-indicator';
+                            el.innerHTML = '<span class="pi-text"></span><button class="pi-close" aria-label="Dismiss">×</button>';
+                            document.body.appendChild(el);
+                            const btn = el.querySelector('.pi-close');
+                            if (btn) btn.addEventListener('click', () => { el.style.display = 'none'; });
+                        }
+                        el.classList.toggle('payment-available', !!available);
+                        el.classList.toggle('payment-unavailable', !available);
+                        const txt = el.querySelector('.pi-text');
+                        if (txt) txt.textContent = available ? 'Payments available' : 'Payments unavailable';
+                        el.style.display = 'flex';
+                    } catch (e) { /* ignore */ }
+                }
+
                 // Check payment config once and cache the result to avoid repeated failing calls
                 if (!window.__paymentConfigChecked) {
                     try {
@@ -8908,10 +8929,13 @@ document.body.addEventListener('submit', async e => {
                         window.__paymentConfigChecked = true;
                         window.__razorpay_available = !!cfg.enabled;
                         if (cfg && cfg.keyId) window.__razorpay_keyId = cfg.keyId;
+                        // show indicator to user
+                        renderPaymentIndicator(!!cfg.enabled);
                     } catch (cfgErr) {
                         console.warn('getPaymentConfig failed, assuming payments disabled', cfgErr && cfgErr.message || cfgErr);
                         window.__paymentConfigChecked = true;
                         window.__razorpay_available = false;
+                        renderPaymentIndicator(false);
                     }
                 }
 

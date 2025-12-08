@@ -21,3 +21,11 @@
 
 /* mobile-friendly touch targets */
 .touch-target { min-height: 40px; min-width: 40px; display: inline-flex; align-items:center; justify-content:center; }
+
+/* Payment indicator badge */
+#payment-indicator.payment-indicator{display:none}
+.payment-indicator{position:fixed;right:1rem;bottom:1rem;z-index:1200;display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border-radius:0.5rem;font-size:0.9rem;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,0.15);opacity:0.98}
+.payment-indicator .pi-text{font-weight:600}
+.payment-indicator .pi-close{background:transparent;border:0;color:inherit;font-size:1.1rem;line-height:1;cursor:pointer;padding:0;margin:0}
+.payment-indicator.payment-available{background:linear-gradient(90deg,#10703b,#0ea75f)}
+.payment-indicator.payment-unavailable{background:linear-gradient(90deg,#8b1e1e,#c53030)}
