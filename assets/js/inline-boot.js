@@ -12,6 +12,17 @@ try {
     window.__use_production = true;
     try { console.info('Local override: forcing production Firebase for this session (host is localhost)'); } catch (e) {}
   }
+  // For quick local preview (dev only) inject Tailwind CDN so styles render if the
+  // local Tailwind build hasn't been generated yet. This keeps local dev fast and
+  // prevents layout breakage while preserving production behavior (no CDN).
+  if (host === 'localhost' || host === '127.0.0.1') {
+    try {
+      var s = document.createElement('script');
+      s.src = 'https://cdn.tailwindcss.com';
+      s.dataset.devInjected = '1';
+      document.head.appendChild(s);
+    } catch (e) { /* ignore injection errors */ }
+  }
 } catch (e) { /* ignore */ }
 
 // Public reCAPTCHA site key for client RecaptchaVerifier
