@@ -1,6 +1,0 @@
-2025/11/30-22:00:07.501 970 Creating DB D:\TIARAS\WebTiara\Web\Web\playwright-chrome-profile\Default\IndexedDB\http_localhost_5500.indexeddb.leveldb since it was missing.
-2025/11/30-22:00:07.503 970 Reusing MANIFEST D:\TIARAS\WebTiara\Web\Web\playwright-chrome-profile\Default\IndexedDB\http_localhost_5500.indexeddb.leveldb/MANIFEST-000001
-2025/11/30-22:00:07.512 3ce4 Level-0 table #5: started
-2025/11/30-22:00:07.516 3ce4 Level-0 table #5: 1309 bytes OK
-2025/11/30-22:00:07.517 3ce4 Delete type=0 #3
-2025/11/30-22:00:07.517 970 Manual compaction at level-0 from '\x00\x01\x00\x00\x00' @ 72057594037927935 : 1 .. '\x00\x02\x00\x00\x00' @ 0 : 0; will stop at (end)
