@@ -8895,6 +8895,13 @@ document.body.addEventListener('submit', async e => {
             // Create a public order id first (used as receipt in Razorpay order creation)
             const publicOrderRef = doc(collection(db, ordersColPath));
             const publicOrderId = publicOrderRef.id;
+            // Persist a pending order document immediately so admin and user can see it
+            // while the payment is being completed and verified server-side.
+            try {
+                await setDoc(publicOrderRef, Object.assign({}, orderData, { status: 'Pending', createdVia: 'client.pendingPayment', orderDate: serverTimestamp() }), { merge: true });
+            } catch (e) {
+                console.warn('persisting pending order failed (non-blocking):', e && e.message ? e.message : e);
+            }
 
             // Prepare payload for server-side Razorpay order creation (amount in paise)
             const amountPaise = Math.round(totalAmount * 100);
