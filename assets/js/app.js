@@ -8898,54 +8898,9 @@ document.body.addEventListener('submit', async e => {
 
             // Prepare payload for server-side Razorpay order creation (amount in paise)
             const amountPaise = Math.round(totalAmount * 100);
-                try {
-                // helper: render a small payment status badge
-                function renderPaymentIndicator(available) {
-                    try {
-                        let el = document.getElementById('payment-indicator');
-                        if (!el) {
-                            el = document.createElement('div');
-                            el.id = 'payment-indicator';
-                            el.className = 'payment-indicator';
-                            el.innerHTML = '<span class="pi-text"></span><button class="pi-close" aria-label="Dismiss">×</button>';
-                            document.body.appendChild(el);
-                            const btn = el.querySelector('.pi-close');
-                            if (btn) btn.addEventListener('click', () => { el.style.display = 'none'; });
-                        }
-                        el.classList.toggle('payment-available', !!available);
-                        el.classList.toggle('payment-unavailable', !available);
-                        const txt = el.querySelector('.pi-text');
-                        if (txt) txt.textContent = available ? 'Payments available' : 'Payments unavailable';
-                        el.style.display = 'flex';
-                    } catch (e) { /* ignore */ }
-                }
-
-                // Check payment config once and cache the result to avoid repeated failing calls
-                if (!window.__paymentConfigChecked) {
-                    try {
-                        const cfgFn = httpsCallable(functionsSvc, 'getPaymentConfig');
-                        const cfgResp = await cfgFn({});
-                        const cfg = (cfgResp && cfgResp.data) || {};
-                        window.__paymentConfigChecked = true;
-                        window.__razorpay_available = !!cfg.enabled;
-                        if (cfg && cfg.keyId) window.__razorpay_keyId = cfg.keyId;
-                        // show indicator to user
-                        renderPaymentIndicator(!!cfg.enabled);
-                    } catch (cfgErr) {
-                        console.warn('getPaymentConfig failed, assuming payments disabled', cfgErr && cfgErr.message || cfgErr);
-                        window.__paymentConfigChecked = true;
-                        window.__razorpay_available = false;
-                        renderPaymentIndicator(false);
-                    }
-                }
-
-                if (!window.__razorpay_available) {
-                    showMessage('Payments are currently unavailable. Please try another payment method or contact support.');
-                    // disable common Razorpay UI elements
-                    try { document.querySelectorAll('[data-payment="razorpay"], .pay-with-razorpay, button[data-provider="razorpay"]').forEach(el => { try{ el.disabled = true; }catch(_){}; el.classList && el.classList.add('disabled'); el.setAttribute && el.setAttribute('aria-disabled','true'); }); } catch (_) {}
-                    throw new Error('razorpay_unavailable');
-                }
-
+            try {
+                // show busy indicator while creating payment order
+                showProcessing('Preparing payment...');
                 const createOrderFn = httpsCallable(functionsSvc, 'createRazorpayOrder');
                 const createResp = await createOrderFn({ amountPaise, currency: 'INR', receipt: publicOrderId, notes: { userId: state.currentUser.uid || null } });
                 const createData = createResp.data || {};
@@ -8965,6 +8920,8 @@ document.body.addEventListener('submit', async e => {
                     });
                 }
                 await ensureRzp();
+                // ready to open checkout, hide busy indicator while checkout is shown
+                hideProcessing();
 
                 const options = {
                     key: createData.keyId || '',
@@ -8975,6 +8932,8 @@ document.body.addEventListener('submit', async e => {
                     order_id: createData.orderId,
                     handler: async function (response) {
                         try {
+                            // On successful payment, show busy indicator while verifying and persisting
+                            showProcessing('Finalizing order...');
                             // On successful payment, call server to verify signature and persist the order atomically
                             const verifyFn = httpsCallable(functionsSvc, 'verifyRazorpayPayment');
                             const verifyPayload = {
@@ -8987,12 +8946,17 @@ document.body.addEventListener('submit', async e => {
                             const vresp = await verifyFn(verifyPayload);
                             const vdata = vresp.data || {};
                             if (vdata && vdata.ok) {
+                                hideProcessing();
+                                try { showOrderConfirmation(publicOrderId); } catch (_) {}
+                                // keep existing navigation for full page view
                                 navigateTo('order_success', publicOrderId);
                             } else {
+                                hideProcessing();
                                 console.error('Payment verification failed', vdata);
                                 showMessage('Payment succeeded but verification failed. Please contact support.');
                             }
                         } catch (err) {
+                            hideProcessing();
                             console.error('verifyRazorpayPayment error', err);
                             showMessage('Payment succeeded but server verification failed. Please contact support.');
                         }
@@ -9007,23 +8971,9 @@ document.body.addEventListener('submit', async e => {
 
                 const rzp = new window.Razorpay(options);
                 rzp.open();
-                } catch (err) {
+            } catch (err) {
                 console.error('Payment initialization failed', err);
-                const razorpayMissing = !!(err && (err.code === 'failed-precondition' || (err && err.message && err.message.toString().toLowerCase().includes('razorpay'))));
-                const msg = razorpayMissing
-                    ? 'Payments are currently unavailable. Please try another payment method or contact support.'
-                    : 'Unable to initialize payment. Please try again or use another payment method.';
-                showMessage(msg);
-                try {
-                    if (razorpayMissing) {
-                        window.__razorpay_unavailable = true;
-                        document.querySelectorAll('[data-payment="razorpay"], .pay-with-razorpay, button[data-provider="razorpay"]').forEach(el => {
-                            try { el.disabled = true; } catch(_) {}
-                            el.classList && el.classList.add('disabled');
-                            el.setAttribute && el.setAttribute('aria-disabled','true');
-                        });
-                    }
-                } catch (e) { /* ignore UI-disable errors */ }
+                showMessage('Payment is currently unavailable. Please try Cash on Delivery or contact support.');
             }
         } catch (error) {
             console.error("Error placing order:", error);
@@ -9687,6 +9637,55 @@ function showMessage(msg) {
        messageModal.querySelector('div').classList.remove('scale-95');
      }, 10);
 };
+
+// Processing overlay helpers
+function showProcessing(msg) {
+    try {
+        const el = document.getElementById('processingOverlay');
+        const text = document.getElementById('processingText');
+        if (!el) return;
+        if (text && msg) text.textContent = msg;
+        el.classList.remove('hidden');
+    } catch (e) { console.warn('showProcessing failed', e); }
+}
+
+function hideProcessing() {
+    try {
+        const el = document.getElementById('processingOverlay');
+        if (!el) return;
+        el.classList.add('hidden');
+    } catch (e) { console.warn('hideProcessing failed', e); }
+}
+
+// Order confirmation modal
+function showOrderConfirmation(orderId) {
+    try {
+        const m = document.getElementById('orderConfirmModal');
+        const text = document.getElementById('orderConfirmText');
+        const viewBtn = document.getElementById('orderConfirmViewBtn');
+        const closeBtn = document.getElementById('orderConfirmCloseBtn');
+        if (!m) return;
+        if (text) text.textContent = `Order #${orderId} placed successfully.`;
+        if (viewBtn) {
+            viewBtn.onclick = () => { hideOrderConfirmation(); navigateTo('order_success', orderId); };
+        }
+        if (closeBtn) {
+            closeBtn.onclick = () => { hideOrderConfirmation(); };
+        }
+        m.classList.remove('hidden');
+        setTimeout(() => { m.classList.remove('opacity-0'); m.querySelector('div').classList.remove('scale-95'); }, 10);
+    } catch (e) { console.warn('showOrderConfirmation failed', e); }
+}
+
+function hideOrderConfirmation() {
+    try {
+        const m = document.getElementById('orderConfirmModal');
+        if (!m) return;
+        m.classList.add('opacity-0');
+        m.querySelector('div').classList.add('scale-95');
+        setTimeout(() => { m.classList.add('hidden'); }, 250);
+    } catch (e) { console.warn('hideOrderConfirmation failed', e); }
+}
 
 // Small transient toast for admin summaries and short notices
 function showToast(title, lines = [], opts = {}) {
