@@ -6,15 +6,10 @@
   "scripts": {
     "test": "npx playwright test",
     "test:unit": "vitest",
-    "lint": "echo 'No linter configured'",
-    "security:audit": "node ../scripts/security_audit.js",
-    "build:css": "npx tailwindcss -i src/styles/tailwind.input.css -o assets/css/tailwind.css --minify"
+    "lint": "echo 'No linter configured'"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",
-    "tailwindcss": "^3.5.4",
-    "autoprefixer": "^10.4.14",
-    "postcss": "^8.4.24",
     "jsdom": "^27.1.0",
     "vitest": "^1.1.5"
   },
