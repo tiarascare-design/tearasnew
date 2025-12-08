@@ -32,6 +32,14 @@ class HeaderHandler(SimpleHTTPRequestHandler):
         self.send_header("Referrer-Policy", "strict-origin-when-cross-origin")
         # Minimal permissions policy - disable sensitive features by default
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+        # Add basic cache-control rules for static/versioned assets to enable long-term caching
+        path = getattr(self, 'path', '') or ''
+        # treat query-versioning (?v=) and common static extensions as immutable
+        if ('?v=' in path) or path.lower().endswith(('.js', '.css', '.png', '.jpg', '.jpeg', '.svg', '.webp', '.avif', '.woff2', '.woff')):
+            self.send_header('Cache-Control', 'public, max-age=31536000, immutable')
+        else:
+            # default: no-cache for HTML or dynamic content
+            self.send_header('Cache-Control', 'no-cache, must-revalidate')
         # Do NOT set COEP here to avoid inadvertent cross-origin isolation issues
         super().end_headers()
 

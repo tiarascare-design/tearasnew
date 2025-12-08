@@ -5,14 +5,18 @@
     <!-- Content-Security-Policy is enforced by the dev server in local preview. Remove/adjust for production deployments. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TIARAS - Ornaments & Beauty</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Preconnect to font providers to speed up font loading -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <!-- NOTE: removed Tailwind CDN script for production. Use the local built CSS `assets/css/styles.css`. -->
 
     <!-- Swiper.js Carousel Library -->
     <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
     <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
 
+    <link rel="preload" href="assets/css/styles.css" as="style">
     <link rel="stylesheet" href="assets/css/styles.css">
     <!-- Inline small favicon as data URI to avoid extra request during local dev -->
     <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2P8z/C/HgAGgwJ/l1mZVgAAAABJRU5ErkJggg==">
@@ -94,10 +98,12 @@
     </div>
 
     <!-- Inline boot logic moved to an external script to comply with strict CSP -->
-    <script src="assets/js/inline-boot.js"></script>
-    <script src="assets/js/event-delegate.js"></script>
-    <!-- Cache-busted app bundle to ensure updated JS is fetched during development -->
-    <script type="module" src="assets/js/app.js?v=6"></script>
+    <script defer src="assets/js/inline-boot.js"></script>
+    <script defer src="assets/js/event-delegate.js"></script>
+    <script defer src="assets/js/lazy-init.js"></script>
+    <!-- Preload the module bundle then load deferred to avoid blocking initial paint -->
+    <link rel="preload" href="assets/js/app.js?v=6" as="script">
+    <script type="module" defer src="assets/js/app.js?v=6"></script>
 </body>
 </html>
 <!--
