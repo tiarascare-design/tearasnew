@@ -11352,9 +11352,9 @@ function renderAdminLedgersPage() {
             <h3 class="text-xl font-bold mb-4">Quick Postings</h3>
             <!-- Condensed controls: three buttons that reveal the corresponding form -->
             <div class="mb-4 flex gap-2" role="tablist" aria-label="Quick Postings">
-                <button id="quickPostingBtnSp" type="button" class="px-3 py-2 bg-green-600 text-white rounded" aria-controls="supplierPaymentForm" aria-pressed="true" onclick="showQuickPostingForm('supplierPaymentForm')">Supplier Payment</button>
-                <button id="quickPostingBtnCr" type="button" class="px-3 py-2 bg-indigo-600 text-white rounded" aria-controls="customerReceiptForm" aria-pressed="false" onclick="showQuickPostingForm('customerReceiptForm')">Customer Receipt</button>
-                <button id="quickPostingBtnT" type="button" class="px-3 py-2 bg-gray-700 text-white rounded" aria-controls="cashBankTransferForm" aria-pressed="false" onclick="showQuickPostingForm('cashBankTransferForm')">Cash ↔ Bank Transfer</button>
+                <button id="quickPostingBtnSp" type="button" class="px-3 py-2 bg-green-600 text-white rounded" aria-controls="supplierPaymentForm" aria-pressed="true" data-action="showQuickPostingForm" data-args='["supplierPaymentForm"]'>Supplier Payment</button>
+                <button id="quickPostingBtnCr" type="button" class="px-3 py-2 bg-indigo-600 text-white rounded" aria-controls="customerReceiptForm" aria-pressed="false" data-action="showQuickPostingForm" data-args='["customerReceiptForm"]'>Customer Receipt</button>
+                <button id="quickPostingBtnT" type="button" class="px-3 py-2 bg-gray-700 text-white rounded" aria-controls="cashBankTransferForm" aria-pressed="false" data-action="showQuickPostingForm" data-args='["cashBankTransferForm"]'>Cash ↔ Bank Transfer</button>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 <form id="supplierPaymentForm" class="space-y-3 border rounded p-4">

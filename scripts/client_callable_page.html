@@ -119,8 +119,8 @@
     <input id="email" placeholder="test@example.com" />
     <label>Password</label>
     <input id="password" type="password" placeholder="password" />
-    <button onclick="signIn()">Sign In</button>
-    <button onclick="signOut()">Sign Out</button>
+    <button data-action="signIn">Sign In</button>
+    <button data-action="signOut">Sign Out</button>
     <div id="status">Not signed in</div>
   </div>
 
@@ -129,7 +129,7 @@
     <h3>Create Razorpay Order</h3>
     <label>Amount (paise)</label>
     <input id="amount" value="100" />
-    <button onclick="callCreate()">Create Order</button>
+    <button data-action="callCreate">Create Order</button>
   </div>
 
   <hr />
@@ -143,7 +143,7 @@
   "razorpay_payment_id":"",
   "razorpay_signature":""
 }</textarea>
-    <button onclick="callVerify()">Call Verify</button>
+    <button data-action="callVerify">Call Verify</button>
   </div>
 
   <h3>Result</h3>
