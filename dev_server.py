@@ -17,11 +17,10 @@ class HeaderHandler(SimpleHTTPRequestHandler):
         # Extra diagnostic header to confirm we're serving from the custom handler
         self.send_header("X-Dev-Server", "coop")
         # Security headers: content security policy (development-safe), MIME sniffing, framing and referrer policies
-        # Note: this CSP keeps 'unsafe-inline' for scripts to avoid breaking existing inline event-attributes
-        # in the client templates. It does remove 'unsafe-eval' which improves security without affecting runtime.
+        # We've migrated inline handlers to delegation; remove 'unsafe-inline' to enforce stricter CSP.
         csp = (
             "default-src 'self' https: data:; "
-            "script-src 'self' 'unsafe-inline' https:; "
+            "script-src 'self' https:; "
             "style-src 'self' 'unsafe-inline' https:; "
             "img-src 'self' data: https:; "
             "connect-src 'self' https: ws:; "

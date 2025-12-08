@@ -45,5 +45,59 @@
       if (t.src !== fallback) t.src = fallback;
     } catch (_) {}
   }, true);
+  // Migration helper: convert inline `onclick` and image `onerror` attributes to data- attributes
+  function migrateInlineHandlers(root) {
+    root = root || document;
+    // Migrate onclick attributes
+    var nodes = Array.from(root.querySelectorAll('[onclick]'));
+    nodes.forEach(function (n) {
+      try {
+        var code = n.getAttribute('onclick').trim();
+        // simple pattern: fnName('arg1', 'arg2') or fnName()
+        var m = code.match(/^([a-zA-Z_$][\w$]*)\s*\((.*)\)\s*;?\s*$/);
+        if (m) {
+          var fnName = m[1];
+          var argsText = m[2].trim();
+          var args = [];
+          if (argsText) {
+            // naive split on commas, handle quoted strings
+            try {
+              args = new Function('return [' + argsText + '];')();
+            } catch (_) {
+              args = [argsText];
+            }
+          }
+          n.setAttribute('data-action', fnName);
+          if (args && args.length) n.setAttribute('data-args', JSON.stringify(args));
+          n.removeAttribute('onclick');
+        }
+      } catch (e) {
+        // leave original handler if parsing fails
+        console.debug('migration onclick failed', e);
+      }
+    });
+
+    // Migrate image onerror patterns like: this.onerror=null;this.src='URL';
+    var imgs = Array.from(root.querySelectorAll('img[onerror]'));
+    imgs.forEach(function (img) {
+      try {
+        var code = img.getAttribute('onerror');
+        var m = code.match(/this\.src\s*=\s*['"]([^'"]+)['"]/);
+        if (m) {
+          var url = m[1];
+          img.setAttribute('data-fallback', url);
+          img.removeAttribute('onerror');
+        }
+      } catch (e) {
+        console.debug('migration onerror failed', e);
+      }
+    });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { migrateInlineHandlers(document); });
+  } else {
+    migrateInlineHandlers(document);
+  }
 
 })();
