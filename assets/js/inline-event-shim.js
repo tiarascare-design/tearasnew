@@ -74,8 +74,18 @@
   function scanRoot(root) {
     if (!root) return;
     if (root.nodeType === 1) processElement(root);
-    var els = root.querySelectorAll('[onclick], img[onerror]');
-    for (var i = 0; i < els.length; i++) processElement(els[i]);
+    // Only call querySelectorAll on nodes that support it (Element/Document).
+    if (root && typeof root.querySelectorAll === 'function') {
+      var els = root.querySelectorAll('[onclick], img[onerror]');
+      for (var i = 0; i < els.length; i++) processElement(els[i]);
+      return;
+    }
+    // Fallback: if root is a DocumentFragment or other node, walk its children.
+    if (root && root.childNodes && root.childNodes.length) {
+      for (var k = 0; k < root.childNodes.length; k++) {
+        try { scanRoot(root.childNodes[k]); } catch (e) { /* ignore per-scan errors */ }
+      }
+    }
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', function(){ scanRoot(document); });
