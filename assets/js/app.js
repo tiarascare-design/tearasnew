@@ -8960,9 +8960,23 @@ document.body.addEventListener('submit', async e => {
 
                 const rzp = new window.Razorpay(options);
                 rzp.open();
-            } catch (err) {
+                } catch (err) {
                 console.error('Payment initialization failed', err);
-                showMessage('Unable to initialize payment. Please try again or use another payment method.');
+                const razorpayMissing = !!(err && (err.code === 'failed-precondition' || (err && err.message && err.message.toString().toLowerCase().includes('razorpay'))));
+                const msg = razorpayMissing
+                    ? 'Payments are currently unavailable. Please try another payment method or contact support.'
+                    : 'Unable to initialize payment. Please try again or use another payment method.';
+                showMessage(msg);
+                try {
+                    if (razorpayMissing) {
+                        window.__razorpay_unavailable = true;
+                        document.querySelectorAll('[data-payment="razorpay"], .pay-with-razorpay, button[data-provider="razorpay"]').forEach(el => {
+                            try { el.disabled = true; } catch(_) {}
+                            el.classList && el.classList.add('disabled');
+                            el.setAttribute && el.setAttribute('aria-disabled','true');
+                        });
+                    }
+                } catch (e) { /* ignore UI-disable errors */ }
             }
         } catch (error) {
             console.error("Error placing order:", error);
