@@ -2432,7 +2432,7 @@ function renderAdminPage() {
                         </div>
                         <div>
                             <label class="block text-xs text-gray-600">Bank Address</label>
-                            <input type="text" id="bankAddress" class="border rounded p-2 w-full" placeholder="Branch / Address (optional)">
+                            <input type="text" id="bankAddress" class="border rounded p-2 w-full" placeholder="Branch / Address">
                         </div>
                         <div>
                             <label class="block text-xs text-gray-600">Notes</label>
@@ -3832,11 +3832,14 @@ function renderAdminPurchasesPage() {
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Invoice Number</label>
                         <div class="flex gap-2">
-                            <input type="text" id="purchaseInvoiceNumber" class="w-1/3 px-3 py-2 border border-gray-300 rounded-md bg-gray-50" readonly placeholder="Will be generated on save">
-                            <input type="text" id="supplierInvoiceNumber" class="w-1/3 px-3 py-2 border border-gray-300 rounded-md" placeholder="Supplier invoice # (optional)">
+                                                        <input type="text" id="purchaseInvoiceNumber" class="w-1/3 px-3 py-2 border border-gray-300 rounded-md bg-gray-50" readonly placeholder="Will be generated on save">
+                                                        <div class="w-1/3">
+                                                            <input type="text" id="supplierInvoiceNumber" class="w-full px-3 py-2 border border-gray-300 rounded-md" placeholder="Supplier invoice #" required aria-required="true">
+                                                            <div id="supplierInvoiceError" class="text-red-600 text-sm mt-1 hidden" role="status" aria-live="polite"></div>
+                                                        </div>
                             <input type="hidden" id="purchaseReusedInvoice" value="">
                             <select id="deletedInvoiceSelect" class="w-2/3 px-3 py-2 border border-gray-300 rounded-md">
-                                <option value="">Use deleted invoice (optional)</option>
+                                <option value="">Use deleted invoice</option>
                                 ${((state.allPurchases||[]).filter(p=>p.isDeleted && p.invoiceNumber).map(p => `<option value="${(p.invoiceNumber||'').replace(/\"/g,'&quot;')}">${(p.invoiceNumber||'').replace(/</g,'&lt;')} — ${formatDate(p.deletedAt || p.updatedAt || p.purchaseDate || p.createdAt || new Date())}</option>`).join(''))}
                             </select>
                         </div>
@@ -9949,7 +9952,10 @@ function addPurchaseItemRow() {
                 ${productOptions}
                 <option value="new" class="text-blue-500 font-bold">+ Add New Product</option>
             </select>
-            <input type="text" class="purchase-hsn mt-2 w-full px-3 py-2 border border-gray-200 rounded-md text-sm" placeholder="HSN / SAC (optional)">
+            <div class="purchase-hsn mt-2 w-full px-3 py-2 rounded-md text-sm text-gray-700 hidden" aria-hidden="true">
+                <span class="purchase-hsn-label text-xs text-gray-500 mr-2 hidden">HSN / SAC:</span>
+                <span class="purchase-hsn-code"></span>
+            </div>
         </div>
         <div class="col-span-2">
             <input type="number" class="purchase-price w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Price" step="0.01">
@@ -12831,7 +12837,7 @@ function showPartyEditModal({ type, name, gstin, address, docId, isGstRegistered
                     </div>
                 </div>
                 <div>
-                    <label class="block text-sm text-gray-700 mb-1">Address (optional)</label>
+                    <label class="block text-sm text-gray-700 mb-1">Address</label>
                     <textarea id="partyEditAddress" class="w-full border rounded p-2" rows="3">${(address||'').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
