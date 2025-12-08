@@ -1,0 +1,2812 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TIARAS - Ornaments & Beauty</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700&family=Poppins:wght@300;400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Swiper.js Carousel Library -->
+    <link rel="stylesheet" href="https://unpkg.com/swiper/swiper-bundle.min.css" />
+    <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
+
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+</head>
+<body class="bg-white text-gray-800">
+
+    <div id="top-bars-container"></div>
+
+    <div id="app">
+        <header id="main-header" class="bg-white sticky z-50 border-b border-gray-200" style="top: var(--topbars-height, 0px);"></header>
+
+        <main id="pageContent"></main>
+
+        <footer id="main-footer" class="bg-white border-t border-gray-200"></footer>
+
+    <!-- Generic Message Modal -->
+        <div id="messageModal" class="fixed inset-0 z-[110] bg-black bg-opacity-60 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300 pointer-events-auto">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-sm text-center p-8 transform scale-95 transition-transform duration-300">
+                <p id="messageText" class="text-lg mb-6"></p>
+                <button id="messageOkBtn" class="bg-black text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-gray-800 transition duration-300">OK</button>
+            </div>
+        </div>
+
+        <!-- New Product Modal -->
+    <div id="newProductModal" class="fixed inset-0 z-[100] bg-black bg-opacity-60 items-center justify-center p-4 hidden">
+            <div class="bg-white rounded-lg shadow-2xl w-full max-w-lg p-8 transform transition-all">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-2xl font-playfair">Add New Product (from Purchase)</h3>
+                    <button id="closeNewProductModalBtn" type="button" class="text-gray-400 hover:text-black text-2xl">&times;</button>
+                </div>
+                <form id="newProductForm" class="space-y-4">
+                    <div><label for="productName" class="block text-sm font-medium text-gray-700 mb-1">Product Name</label><input type="text" id="productName" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div>
+                    <div><label for="productDescription" class="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea id="productDescription" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></textarea></div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div><label for="salePrice" class="block text-sm font-medium text-gray-700 mb-1">Sale Price (₹)</label><input type="number" id="salePrice" step="0.01" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div>
+                        <div>
+                            <label for="gstPercentage" class="block text-sm font-medium text-gray-700 mb-1">GST %</label>
+                            <select id="gstPercentage" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                                <option value="0">0%</option>
+                                <option value="5">5%</option>
+                                <option value="12">12%</option>
+                                <option value="18">18%</option>
+                                <option value="28">28%</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div>
+                        <label for="productHsn" class="block text-sm font-medium text-gray-700 mb-1">HSN Code</label>
+                        <input type="text" id="productHsn" class="w-full px-4 py-2 border border-gray-300 rounded-md" maxlength="20" placeholder="HSN / SAC code">
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label for="modalProductGroup" class="block text-sm font-medium text-gray-700 mb-1">Group</label>
+                            <div class="flex items-center gap-2">
+                                <select id="modalProductGroup" class="flex-1 min-w-0 w-full px-4 py-2 border border-gray-300 rounded-md">
+                                    <option value="">— Select group —</option>
+                                </select>
+                                <button type="button" id="showModalNewProductGroupBtn" class="text-sm text-blue-600 hover:underline whitespace-nowrap ml-2 flex-shrink-0">+ Add</button>
+                            </div>
+                            <div id="modalNewProductGroupRow" class="mt-2 hidden">
+                                <div class="flex items-center gap-2">
+                                    <input type="text" id="modalNewProductGroupName" class="flex-1 px-3 py-2 border border-gray-300 rounded-md" placeholder="New group name">
+                                    <button type="button" id="modalAddProductGroupInlineBtn" class="bg-green-600 text-white px-3 py-2 rounded">Add</button>
+                                    <button type="button" id="modalCancelNewProductGroupBtn" class="bg-gray-200 text-gray-700 px-3 py-2 rounded">Cancel</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div><label for="productCategory" class="block text-sm font-medium text-gray-700 mb-1">Category</label><select id="productCategory" class="w-full px-4 py-2 border border-gray-300 rounded-md" required><option value="ornament">Ornament</option><option value="beauty">Beauty</option></select></div>
+                    </div>
+                    <div><label for="productImage" class="block text-sm font-medium text-gray-700 mb-1">Image URL</label><input type="url" id="productImage" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="https://example.com/image.jpg" required></div>
+                    <div class="flex justify-end space-x-4 pt-4">
+                        <button type="button" id="cancelNewProductBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-6 rounded-md hover:bg-gray-300 transition">Cancel</button>
+                        <button type="submit" class="bg-green-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-green-700 transition">Add Product</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Early bootstrap helpers loaded from external file to comply with CSP -->
+    <script src="assets/js/inline-boot.js"></script>
+    <!-- Cache-busted bootstrap loader that defers loading the modular app for better first-paint performance -->
+    <script type="module" src="assets/js/bootstrap.js?v=1"></script>
+    <!-- Fallback injector: ensure register Edit Selected button and wiring exist even if main bundle lacks them -->
+    <script src="assets/js/register-edit-inject.js"></script>
+    <!-- Force-select fallback: capture-phase pointer handlers to reliably select rows when other handlers intercept events -->
+    <script src="assets/js/register-force-select.js"></script>
+</body>
+</html>
+<!--
+                productsToDisplay = productsToDisplay.filter(p => p.productGroup === group);
+                title = group;
+                subtitle = `Browse our ${title} collection`;
+            }
+            
+            pageContent.innerHTML = `<div class="bg-white"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-2">${title}</h1><p class="text-center text-gray-500 mb-12">${subtitle}</p>${renderProductGrid(productsToDisplay)}</div></div>`;
+        }
+
+        
+                </div>
+            `).join('') : '<p class="text-gray-500 text-center col-span-full">No reviews yet. Be the first to write one!</p>';
+
+            pageContent.innerHTML = `
+                <div class="bg-gray-50 min-h-screen">
+                    <div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
+                        <h1 class="text-4xl font-playfair text-center mb-12">Customer Testimonials</h1>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                            <div>
+                                <label for="productCategory" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                                <select id="productCategory" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                                    <option value="ornament">Ornament</option>
+                                    <option value="beauty">Beauty</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="productGroup" class="block text-sm font-medium text-gray-700 mb-1">Product Group (Collection)</label>
+                                <select id="productGroup" class="w-full min-w-0 px-4 py-2 border border-gray-300 rounded-md">
+                                    <option value="">None</option>
+                                   ${state.productGroups.map(g => `<option value="${g.name}">${g.name}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-20"><div class="loader mx-auto"></div><p class="mt-4">Loading Product...</p></div>`;
+                return;
+            }
+
+            const isOutOfStock = !product.stock || product.stock <= 0;
+            const addToCartButton = isOutOfStock
+                ? `<button class="w-full bg-gray-400 text-white font-semibold py-4 px-10 rounded-full uppercase tracking-wider text-sm cursor-not-allowed" disabled>Out of Stock</button>`
+                : `<button data-id="${product.id}" class="add-to-cart-btn-detail w-full bg-black text-white font-semibold py-4 px-10 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all duration-300">Add to Cart</button>`;
+
+
+            pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><div class="grid md:grid-cols-2 gap-16 items-start"><div class="bg-gray-100 p-4 rounded-lg relative"><img src="${product.image}" alt="${product.name}" class="w-full h-auto object-cover rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/600x600/f0f0f0/ccc?text=Image+Not+Found';"> ${isOutOfStock ? `<div class="out-of-stock-overlay"><span class="bg-black text-white font-bold py-2 px-4 rounded-md uppercase">Out of Stock</span></div>` : ''}</div><div><h1 class="text-4xl font-playfair mb-4">${product.name}</h1><p class="text-3xl font-semibold text-gray-800 mb-6">₹${Number(product.salePrice).toFixed(2)}</p><p class="text-gray-600 leading-relaxed mb-8">${product.description}</p><div class="flex items-center space-x-4 mb-8"><label for="quantity" class="font-semibold text-sm">QUANTITY</label><input type="number" id="quantitySelector" value="1" min="1" class="w-20 p-2 border border-gray-300 rounded-md text-center"></div> ${addToCartButton} <div class="mt-12 border-t"><div class="accordion-item border-b"><button class="accordion-header w-full flex justify-between items-center py-4 text-left"><span class="font-semibold uppercase text-sm">Description</span><i class="fas fa-chevron-down transform transition-transform"></i></button><div class="accordion-content pb-4 text-gray-600"><p>${product.description}</p></div></div><div class="accordion-item border-b"><button class="accordion-header w-full flex justify-between items-center py-4 text-left"><span class="font-semibold uppercase text-sm">Shipping & Returns</span><i class="fas fa-chevron-down transform transition-transform"></i></button><div class="accordion-content pb-4 text-gray-600"><p>Free standard shipping on orders over ₹4000. Returns are accepted within 30 days of purchase. Please see our full policy for details.</p></div></div></div></div></div></div>`;
+        }
+
+        function renderCartPage() {
+             if (!state.currentUser || state.currentUser.isAnonymous) {
+                 pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-16"><h2 class="text-3xl font-bold mb-4">Please Log In</h2><p class="text-lg text-gray-600">You need to be logged in to view your cart.</p></div>`;
+                 return;
+             }
+            const cartProductIds = Object.keys(state.cart.items);
+            if (cartProductIds.length === 0) {
+                pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12 text-center py-16"><h2 class="text-3xl font-playfair mb-4">Your Cart is Empty</h2><p class="text-gray-600">Looks like you haven't added anything yet.</p></div>`;
+                return;
+            }
+
+            let total = 0;
+            const cartItemsHTML = state.products
+                .filter(p => cartProductIds.includes(p.id))
+                .map(product => {
+                    const quantity = state.cart.items[product.id].quantity;
+                    const subtotal = product.salePrice * quantity;
+                    total += subtotal;
+                    return `<div class="flex items-center justify-between py-6"><div class="flex items-center space-x-6 flex-1"><img src="${product.image}" class="w-28 h-28 object-cover rounded-md"><div><h3 class="font-semibold text-lg">${product.name}</h3><p class="text-gray-500 text-sm mt-1">₹${Number(product.salePrice).toFixed(2)}</p><div class="flex items-center border rounded-md w-28 mt-4"><button data-id="${product.id}" data-change="-1" class="cart-quantity-stepper p-2">-</button><input type="number" data-id="${product.id}" value="${quantity}" min="1" class="cart-quantity-selector w-12 text-center border-l border-r"><button data-id="${product.id}" data-change="1" class="cart-quantity-stepper p-2">+</button></div></div></div><div class="flex items-center space-x-5"><p class="font-semibold text-lg w-24 text-right">${subtotal.toFixed(2)}</p><button data-id="${product.id}" class="remove-from-cart-btn text-gray-400 hover:text-black text-xl">&times;</button></div></div>`;
+                }).join('');
+
+            pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">Shopping Cart</h1><div class="grid grid-cols-1 lg:grid-cols-3 gap-12"><div class="lg:col-span-2 bg-white p-8 rounded-lg shadow-sm"><div class="divide-y">${cartItemsHTML}</div></div><div class="bg-white p-8 rounded-lg shadow-sm h-fit"><h2 class="text-2xl font-playfair mb-6">Order Summary</h2><div class="flex justify-between items-center text-lg mb-6"><span>Subtotal (₹)</span><span class="font-semibold">${total.toFixed(2)}</span></div><button data-page="checkout" class="nav-btn w-full bg-black text-white font-semibold py-4 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Proceed to Checkout</button></div></div></div></div>`;
+        }
+        
+        
+
+        function renderOrderSuccessPage() {
+            pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><div class="bg-green-100 text-green-800 p-6 rounded-lg max-w-md mx-auto mb-8"><i class="fas fa-check-circle fa-3x"></i></div><h1 class="text-4xl font-playfair mb-4">Thank You For Your Order!</h1><p class="text-gray-600 mb-2">Your order has been placed successfully.</p><p class="text-gray-800 font-semibold mb-8">Order ID: <span class="font-mono">${state.currentOrderId}</span></p><button data-page="products" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Continue Shopping</button></div>`;
+        }
+
+        function renderOrdersPage() {
+            if (!state.currentUser || state.currentUser.isAnonymous) {
+                navigateTo('auth');
+                return;
+            }
+
+            let content = '';
+            if (state.orders.length === 0) {
+                content = `<div class="text-center py-16"><h2 class="text-2xl font-semibold mb-2">No orders yet</h2><p class="text-gray-500">Looks like you haven't placed an order with us.</p></div>`;
+            } else {
+                content = state.orders.map(order => `<div class="bg-white p-6 rounded-lg shadow-sm"><div class="flex justify-between items-start mb-4"><div><p class="font-bold text-lg">Order ID: <span class="font-mono">${order.id}</span></p><p class="text-sm text-gray-500">Date: ${new Date(order.orderDate.seconds * 1000).toLocaleDateString()}</p></div><span class="bg-blue-100 text-blue-800 text-xs font-medium px-2.5 py-0.5 rounded-full">${order.status}</span></div><div class="border-t pt-4">${order.items.map(item => `<div class="flex items-center space-x-4 mb-3"><img src="${item.image}" class="w-12 h-12 rounded-md object-cover"><div><p class="font-medium">${item.name}</p><p class="text-sm text-gray-500">Qty: ${item.quantity} - ₹${item.price.toFixed(2)}</p></div></div>`).join('')}</div><div class="border-t pt-4 mt-4 text-right"><p class="font-semibold text-lg">Total: ₹${order.totalAmount.toFixed(2)}</p></div></div>`).join('');
+            }
+
+            pageContent.innerHTML = `<div class="bg-gray-50 min-h-screen"><div class="container mx-auto px-4 sm:px-6 lg:px-8 py-12"><h1 class="text-4xl font-playfair text-center mb-12">My Orders</h1><div class="max-w-4xl mx-auto space-y-6">${content}</div></div></div>`;
+        }
+        
+        function renderAuthPage() {
+            pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-16"><div class="max-w-md mx-auto bg-white p-10 rounded-lg"><div id="authFormContainer"></div></div></div>`;
+            showAuthForm(true);
+        }
+        
+        function showAuthForm(isLogin) {
+            const container = document.getElementById('authFormContainer');
+            if(!container) return;
+
+            const title = isLogin ? 'Login' : 'Create Account';
+            const switchBtnText = isLogin ? "Create an account" : "Already have an account?";
+            const submitBtnText = isLogin ? 'Sign In' : 'Create';
+
+            container.innerHTML = `<h3 class="text-3xl font-playfair text-center mb-8">${title}</h3><form id="authForm" class="space-y-6"><div><input type="email" id="email" required placeholder="Email" class="w-full px-4 py-3 border-b border-gray-300 focus:outline-none focus:border-black"></div><div><input type="password" id="password" required placeholder="Password" class="w-full px-4 py-3 border-b border-gray-300 focus:outline-none focus:border-black"></div><button type="submit" class="w-full bg-black text-white font-semibold py-3 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition duration-300">${submitBtnText}</button></form><div class="text-center mt-6"><button id="switchAuthMode" class="text-sm text-gray-600 hover:underline">${switchBtnText}</button></div>`;
+
+            document.getElementById('authForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const email = e.target.email.value;
+                const password = e.target.password.value;
+                try {
+                    if (isLogin) {
+                        await signInWithEmailAndPassword(auth, email, password);
+                    } else {
+                        await createUserWithEmailAndPassword(auth, email, password);
+                    }
+                    navigateTo('home');
+                } catch (err) {
+                    showMessage(`Authentication failed: ${err.message}`);
+                }
+            });
+
+            document.getElementById('switchAuthMode').addEventListener('click', () => showAuthForm(!isLogin));
+        }
+
+        function renderProductGrid(productsToRender) {
+            if (productsToRender.length === 0 && state.products.length > 0) return `<p>No products match your criteria.</p>`;
+            if (productsToRender.length === 0) return `<div class="col-span-full flex justify-center items-center h-64"><div class="loader"></div></div>`;
+            return `<div class="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-10">${productsToRender.map(product => {
+                const isOutOfStock = !product.stock || product.stock <= 0;
+                const button = isOutOfStock
+                    ? `<button class="bg-gray-300 text-white font-semibold text-xs py-2 px-6 rounded-full uppercase tracking-wider cursor-not-allowed" disabled>Out of Stock</button>`
+                    : `<button data-id="${product.id}" class="add-to-cart-btn bg-black text-white font-semibold text-xs py-2 px-6 rounded-full uppercase tracking-wider">Add to Cart</button>`;
+                
+                return `<div class="product-card group text-center"><a href="#" data-page="product_detail" data-id="${product.id}" class="nav-btn block product-image-container mb-4 rounded-lg overflow-hidden bg-gray-100"><img src="${product.image}" alt="${product.name}" class="product-image w-full h-full aspect-[4/5] object-cover" onerror="this.onerror=null;this.src='https://placehold.co/400x500/f0f0f0/ccc?text=Image+Not+Found';"> ${isOutOfStock ? `<div class="out-of-stock-overlay"><span class="bg-black text-white font-bold py-1 px-3 rounded-md uppercase text-xs">Out of Stock</span></div>` : ''} </a><h4 class="font-semibold text-gray-800 mb-1">${product.name}</h4><p class="text-gray-600">₹${Number(product.salePrice).toFixed(2)}</p><div class="mt-2">${button}</div></div>`
+            }).join('')}</div>`;
+        }
+        
+        function renderAdminPage() {
+            const isAdmin = state.currentUser && state.currentUser.uid === ADMIN_UID;
+
+            if (!isAdmin) {
+                pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><h1 class="text-4xl font-playfair mb-4">Access Denied</h1><p class="text-gray-600">You do not have permission to view this page.</p><button data-page="home" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Go to Homepage</button></div>`;
+                return;
+            }
+
+            const gstFieldHTML = state.siteSettings.isGstEnabled
+                ? `<div><label for="gstPercentage" class="block text-sm font-medium text-gray-700 mb-1">GST %</label><select id="gstPercentage" class="w-full px-4 py-2 border border-gray-300 rounded-md" required><option value="0">0%</option><option value="5">5%</option><option value="12">12%</option><option value="18">18%</option><option value="28">28%</option></select></div>`
+                : '<input type="hidden" id="gstPercentage" value="0">';
+            const formGridClass = state.siteSettings.isGstEnabled ? 'md:grid-cols-2' : 'md:grid-cols-1';
+
+            const productFormHTML = `
+                <input type="hidden" id="productId">
+                <div><label for="productName" class="block text-sm font-medium text-gray-700 mb-1">Product Name</label><input type="text" id="productName" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div>
+                <div><label for="productDescription" class="block text-sm font-medium text-gray-700 mb-1">Description</label><textarea id="productDescription" rows="4" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></textarea></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div><label for="salePrice" class="block text-sm font-medium text-gray-700 mb-1">Sale Price (₹)</label><input type="number" id="salePrice" step="0.01" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div>
+                    <div class="grid grid-cols-2 gap-4 border p-2 rounded-md bg-gray-50">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500">Avg. Purchase Price</label>
+                            <p id="avgPurchasePriceDisplay" class="font-bold text-gray-800 mt-2">N/A</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500">Last Purchase Price</label>
+                            <p id="lastPurchasePriceDisplay" class="font-bold text-gray-800 mt-2">N/A</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <div>
+                        <label for="productCategory" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                        <select id="productCategory" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                            <option value="ornament">Ornament</option>
+                            <option value="beauty">Beauty</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="productGroup" class="block text-sm font-medium text-gray-700 mb-1">Product Group (Collection)</label>
+                        <select id="productGroup" class="w-full px-4 py-2 border border-gray-300 rounded-md">
+                            <option value="">None</option>
+                           ${state.productGroups.map(g => `<option value="${g.name}">${g.name}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 ${formGridClass} gap-6 mt-6">
+                    ${state.siteSettings.isGstEnabled ? gstFieldHTML : ''}
+                    <div><label for="productImage" class="block text-sm font-medium text-gray-700 mb-1">Image URL</label><input type="url" id="productImage" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="https://example.com/image.jpg" required></div>
+                </div>
+               ${!state.siteSettings.isGstEnabled ? gstFieldHTML : ''}
+                <div class="flex items-center space-x-4 mt-6"><button type="submit" id="productFormSubmitBtn" class="bg-green-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-green-700 transition">Add Product</button><button type="button" id="productFormCancelBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition hidden">Cancel</button></div>`;
+
+            const slideFormHTML = `<input type="hidden" id="slideId"><div><label for="slideHeadline" class="block text-sm font-medium text-gray-700 mb-1">Headline</label><input type="text" id="slideHeadline" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideSubtitle" class="block text-sm font-medium text-gray-700 mb-1">Subtitle</label><input type="text" id="slideSubtitle" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideImageUrl" class="block text-sm font-medium text-gray-700 mb-1">Image URL</label><input type="url" id="slideImageUrl" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div class="grid grid-cols-1 md:grid-cols-2 gap-6"><div><label for="slideButtonText" class="block text-sm font-medium text-gray-700 mb-1">Button Text</label><input type="text" id="slideButtonText" class="w-full px-4 py-2 border border-gray-300 rounded-md" required></div><div><label for="slideButtonLink" class="block text-sm font-medium text-gray-700 mb-1">Button Link</label><input type="text" id="slideButtonLink" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="#" required></div></div><div class="flex items-center space-x-4"><button type="submit" id="slideFormSubmitBtn" class="bg-blue-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-blue-700 transition">Add Slide</button><button type="button" id="slideFormCancelBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition hidden">Cancel</button></div>`;
+
+            const settingsFormHTML = `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><form id="settingsForm"><div class="space-y-8"><div><h3 class="text-2xl font-bold mb-4">Store Settings</h3><div class="space-y-4"><div class="flex items-center justify-between"><span class="text-sm font-medium text-gray-700">Enable GST Calculations</span><label class="toggle-switch"><input type="checkbox" id="gstEnabled" ${state.siteSettings.isGstEnabled ? 'checked' : ''}><span class="toggle-slider"></span></label></div></div></div><div class="space-y-4 pt-4 border-t"><h3 class="text-2xl font-bold mb-4">Business & GST Details</h3><div><label for="merchantGstin" class="block text-sm font-medium text-gray-700 mb-1">Merchant GSTIN</label><input type="text" id="merchantGstin" value="${state.siteSettings.merchantGstin || ''}" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="e.g., 29ABCDE1234F1Z5"></div><div><label for="businessAddress" class="block text-sm font-medium text-gray-700 mb-1">Business Address</label><textarea id="businessAddress" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Full address">${state.siteSettings.businessAddress || ''}</textarea></div></div><div class="mt-8 border-t pt-6"><button type="submit" class="bg-green-600 text-white font-semibold py-2 px-8 rounded-md shadow hover:bg-green-700 transition">Save All Settings</button></div></form></div>`;
+
+            const tabsContent = {
+                orders: `<div><div id="adminOrderList" class="space-y-4"></div></div>`,
+                products: `<div class="bg-white p-8 rounded-lg shadow-lg mb-12"><h3 id="productFormTitle" class="text-2xl font-bold mb-6">Add New Product</h3><form id="productForm" class="space-y-6">${productFormHTML}</form></div><div><h3 class="text-2xl font-bold mb-6">Manage Products</h3><div id="adminProductList" class="space-y-4"></div></div>`,
+                product_groups: `<div id="adminProductGroupsContainer"></div>`,
+                purchases: `<div id="adminPurchasesContainer"></div>`,
+                media: `<div class=\"bg-white p-8 rounded-lg shadow-lg mb-12\"><h3 id=\"slideFormTitle\" class=\"text-2xl font-bold mb-6\">Add New Hero Slide</h3><form id=\"slideForm\" class=\"space-y-6\">${slideFormHTML}</form></div><div class=\"mb-12\"><h3 class=\"text-2xl font-bold mb-6\">Manage Hero Slides</h3><div id=\"adminSlideList\" class=\"space-y-4\"></div></div><div class=\"bg-white p-8 rounded-lg shadow-lg\"><h3 class=\"text-2xl font-bold mb-6\">Manage Gallery Images</h3><div id=\"galleryImageFormContainer\"><label for=\"galleryImageUrl\" class=\"block text-sm font-medium text-gray-700 mb-1\">New Image URL</label><div class=\"flex\"><input type=\"url\" id=\"galleryImageUrl\" class=\"w-full px-4 py-2 border border-r-0 border-gray-300 rounded-l-md\" required placeholder=\"https://example.com/photo.jpg\"><button type=\"button\" id=\"addGalleryImageBtn\" class=\"bg-indigo-600 text-white font-semibold py-2 px-6 rounded-r-md shadow hover:bg-indigo-700 transition\">Add Image</button></div></div><div class=\"mt-8\"><h4 class=\"text-lg font-bold mb-4\">Current Images</h4><div id=\"adminGalleryImageList\" class=\"grid grid-cols-2 md:grid-cols-4 gap-4\"></div></div></div>`,
+                testimonials: `<div><h3 class="text-2xl font-bold mb-6">Manage Testimonials</h3><div id="adminTestimonialsList" class="space-y-4"></div></div>`,
+                reports: `<div id="adminReportsContainer"></div>`,
+                local_sale: `<div id="adminLocalSaleContainer"></div>`,
+                settings: settingsFormHTML,
+            };
+
+            pageContent.innerHTML = `<div class="container mx-auto px-6 py-12"><div class="flex justify-between items-center mb-8"><h2 class="text-4xl font-playfair">Admin Panel</h2><button data-page="home" class="nav-btn bg-gray-800 text-white font-semibold py-2 px-4 rounded-md shadow hover:bg-gray-900 transition duration-300">View Store</button></div><div class="border-b border-gray-200 mb-8"><nav class="-mb-px flex space-x-8 overflow-x-auto" aria-label="Tabs"><a href="#" data-tab="orders" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'orders' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Orders</a><a href="#" data-tab="products" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'products' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Products</a><a href="#" data-tab="product_groups" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'product_groups' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Product Groups</a><a href="#" data-tab="purchases" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'purchases' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Purchases</a><a href="#" data-tab="media" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'media' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Media</a><a href="#" data-tab="testimonials" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'testimonials' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Testimonials</a><a href="#" data-tab="reports" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'reports' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Billing & Reports</a><a href="#" data-tab="local_sale" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'local_sale' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Local Sale</a><a href="#" data-tab="settings" class="admin-tab-btn whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm ${state.adminCurrentTab === 'settings' ? 'border-black text-black' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'}">Settings</a></nav></div><div id="adminTabContent">${tabsContent[state.adminCurrentTab]}</div></div>`;
+
+            if (state.adminCurrentTab === 'orders') renderAdminOrderList();
+            else if (state.adminCurrentTab === 'products') renderAdminProductList();
+            else if (state.adminCurrentTab === 'product_groups') renderAdminProductGroupsPage();
+            else if (state.adminCurrentTab === 'purchases') renderAdminPurchasesPage();
+            else if (state.adminCurrentTab === 'media') { renderAdminSlideList(); renderAdminGalleryList(); }
+            else if (state.adminCurrentTab === 'testimonials') renderAdminTestimonialsList();
+            else if (state.adminCurrentTab === 'reports') renderAdminBillingPage();
+            else if (state.adminCurrentTab === 'local_sale') renderLocalSalePage();
+            else if (state.adminCurrentTab === 'settings') { /* gallery moved to Media */ }
+
+            attachAdminListeners();
+        }
+
+        function renderAdminBillingPage() {
+            const container = document.getElementById('adminReportsContainer');
+            if (!container) return;
+            
+            const startDate = new Date(state.registerStartDate);
+            startDate.setHours(0, 0, 0, 0);
+
+            const endDate = new Date(state.registerEndDate);
+            endDate.setHours(23, 59, 59, 999);
+
+            // --- Purchase & Sales Register ---
+            const salesEntries = (state.allOrders || [])
+                .filter(order => {
+                    const orderDate = _toDate(order.orderDate) || null;
+                    if (!orderDate) return false;
+                    return orderDate >= startDate && orderDate <= endDate;
+                })
+                .map(order => ({
+                    date: _toDate(order.orderDate) || new Date(),
+                    id: order.id,
+                    invoiceNumber: order.invoiceNumber,
+                    type: 'Sale',
+                    details: `To: ${order.shippingInfo?.fullName || 'Customer'}`,
+                    itemCount: (order.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
+                    debit: 0,
+                    credit: order.totalAmount || 0,
+                }));
+
+            const purchaseEntries = (state.allPurchases || [])
+                .filter(purchase => {
+                    // **MODIFIED:** Exclude deleted purchases from register
+                    if (purchase.isDeleted) return false;
+                    const purchaseDate = _toDate(purchase.purchaseDate) || null;
+                    if (!purchaseDate) return false;
+                    return purchaseDate >= startDate && purchaseDate <= endDate;
+                })
+                .map(purchase => ({
+                    date: _toDate(purchase.purchaseDate) || new Date(),
+                    id: purchase.id,
+                    invoiceNumber: purchase.invoiceNumber,
+                    type: 'Purchase',
+                    details: `From: ${purchase.supplierName || ''}`,
+                    itemCount: (purchase.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
+                    debit: purchase.totalAmount || 0,
+                    credit: 0,
+                }));
+            
+            const localSalesEntries = (state.allLocalSales || [])
+                     .filter(sale => {
+                        const saleDate = _toDate(sale.saleDate) || null;
+                        if (!saleDate) return false;
+                        return saleDate >= startDate && saleDate <= endDate;
+                    })
+                    .map(sale => ({
+                        date: _toDate(sale.saleDate) || new Date(),
+                        id: sale.id,
+                        invoiceNumber: sale.invoiceNumber,
+                        type: 'Local Sale',
+                        details: `To: ${sale.customerName || ''}`,
+                        itemCount: (sale.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0),
+                        debit: 0,
+                        credit: sale.totalAmount || 0,
+                    }));
+
+            let combinedEntries;
+            if (state.registerFilter === 'sales') {
+                combinedEntries = [...salesEntries, ...localSalesEntries];
+            } else if (state.registerFilter === 'purchases') {
+                combinedEntries = purchaseEntries;
+            } else {
+                combinedEntries = [...salesEntries, ...purchaseEntries, ...localSalesEntries];
+            }
+            
+            combinedEntries.sort((a, b) => a.date - b.date);
+
+            let runningBalance = 0;
+            const registerRowsHTML = combinedEntries.map(entry => {
+                runningBalance += entry.credit - entry.debit;
+                const typeClass = entry.type === 'Sale' || entry.type === 'Local Sale' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                return `
+                    <tr class="border-b text-xs">
+                        <td class="p-3">${entry.date.toLocaleDateString()}</td>
+                        <td class="p-3 font-mono">${entry.invoiceNumber || entry.id.substring(0,8)}</td>
+                        <td class="p-3">
+                            <span class="px-2 py-1 rounded-full text-xs font-semibold ${typeClass}">
+                                ${entry.type}
+                            </span>
+                        </td>
+                        <td class="p-3">${entry.details}</td>
+                        <td class="p-3 text-center">${entry.itemCount}</td>
+                        <td class="p-3 text-right text-red-600">${entry.debit > 0 ? entry.debit.toFixed(2) : '-'}</td>
+                        <td class="p-3 text-right text-green-600">${entry.credit > 0 ? entry.credit.toFixed(2) : '-'}</td>
+                        <td class="p-3 text-right font-bold">${runningBalance.toFixed(2)}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            const dateRangeSelectorHTML = `
+                <div class="flex items-end space-x-4 mb-4">
+                    <div>
+                        <label for="registerStartDate" class="block text-sm font-medium text-gray-700">Start Date</label>
+                        <input type="date" id="registerStartDate" value="${state.registerStartDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                    </div>
+                    <div>
+                        <label for="registerEndDate" class="block text-sm font-medium text-gray-700">End Date</label>
+                        <input type="date" id="registerEndDate" value="${state.registerEndDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border">
+                    </div>
+                    <button id="applyDateFilterBtn" class="bg-blue-600 text-white font-semibold py-2 px-4 rounded-md hover:bg-blue-700 transition">Apply Filter</button>
+                </div>
+            `;
+
+            const filterButtonsHTML = `
+                <div class="flex space-x-2 mb-4">
+                    <button data-filter="all" class="register-filter-btn px-4 py-1 text-sm rounded-md ${state.registerFilter === 'all' ? 'bg-black text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">All Transactions</button>
+                    <button data-filter="sales" class="register-filter-btn px-4 py-1 text-sm rounded-md ${state.registerFilter === 'sales' ? 'bg-black text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">Sales Only</button>
+                    <button data-filter="purchases" class="register-filter-btn px-4 py-1 text-sm rounded-md ${state.registerFilter === 'purchases' ? 'bg-black text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}">Purchases Only</button>
+                </div>
+            `;
+
+            const registerHTML = `
+                <div id="registerReportContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
+                     <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-2xl font-bold">Purchase & Sales Register</h3>
+                        <div class="flex space-x-2">
+                            <button id="printRegisterBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition text-sm flex items-center gap-2"><i class="fa-solid fa-print"></i> Print</button>
+                            <button id="exportRegisterBtn" class="bg-green-100 text-green-700 font-semibold py-2 px-4 rounded-md hover:bg-green-200 transition text-sm flex items-center gap-2"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+                        </div>
+                    </div>
+                    ${dateRangeSelectorHTML}
+                    ${filterButtonsHTML}
+                    <div class="overflow-x-auto">
+                        <table id="registerTable" class="w-full text-sm text-left">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="p-3">Date</th>
+                                    <th class="p-3">Invoice #</th>
+                                    <th class="p-3">Type</th>
+                                    <th class="p-3">Details</th>
+                                    <th class="p-3 text-center">Items</th>
+                                    <th class="p-3 text-right">Debit (₹)</th>
+                                    <th class="p-3 text-right">Credit (₹)</th>
+                                    <th class="p-3 text-right">Balance (₹)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                               ${registerRowsHTML}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+
+            // --- Other Reports ---
+            let totalRevenue = 0;
+            let totalCost = 0;
+            (state.allOrders || []).forEach(order => {
+                totalRevenue += (order.totalAmount || 0);
+                (order.items || []).forEach(item => {
+                    const product = state.products.find(p => p.id === item.id);
+                    if (product && product.purchasePrice) {
+                        totalCost += product.purchasePrice * (item.quantity || 0);
+                    }
+                });
+            });
+            let totalProfit = totalRevenue - totalCost;
+
+
+            const salesReportHTML = `
+                <div id="salesReportContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-2xl font-bold">Sales Report</h3>
+                        <div>
+                            <button id="printSalesReportBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition text-sm flex items-center gap-2"><i class="fa-solid fa-print"></i> Print</button>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-6">
+                        <div class="bg-gray-50 p-4 rounded-md">
+                            <p class="text-2xl font-bold text-green-600">₹${totalRevenue.toFixed(2)}</p>
+                            <p class="text-sm text-gray-500">Total Revenue</p>
+                        </div>
+                        <div class="bg-gray-50 p-4 rounded-md">
+                            <p class="text-2xl font-bold">${state.allOrders.length}</p>
+                            <p class="text-sm text-gray-500">Total Orders</p>
+                        </div>
+                          <div class="bg-gray-50 p-4 rounded-md">
+                            <p class="text-2xl font-bold text-blue-600">₹${totalProfit.toFixed(2)}</p>
+                            <p class="text-sm text-gray-500">Total Profit</p>
+                        </div>
+                    </div>
+                   </div>
+            `;
+            
+            const inventoryReportHTML = `
+                <div id="inventoryReportContainer" class="bg-white p-8 rounded-lg shadow-lg mb-12">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-2xl font-bold">Inventory Report</h3>
+                        <div class="flex space-x-2">
+                             <button id="printInventoryBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition text-sm flex items-center gap-2"><i class="fa-solid fa-print"></i> Print</button>
+                             <button id="exportInventoryBtn" class="bg-green-100 text-green-700 font-semibold py-2 px-4 rounded-md hover:bg-green-200 transition text-sm flex items-center gap-2"><i class="fa-solid fa-file-csv"></i> Export CSV</button>
+                        </div>
+                    </div>
+                      <div class="overflow-x-auto">
+                           <table id="inventoryTable" class="w-full text-sm text-left">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="p-3">Product Name</th>
+                                    <th class="p-3">Purchase Price (₹)</th>
+                                    <th class="p-3">Sale Price (₹)</th>
+                                    <th class="p-3">Stock Left</th>
+                                    <th class="p-3">Potential Profit (₹)</th>
+                                    <th class="p-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                               ${state.products.map(p => {
+                                    const stock = p.stock || 0;
+                                    const purchasePrice = p.purchasePrice || 0;
+                                    const salePrice = p.salePrice || 0;
+                                    const potentialProfit = (salePrice - purchasePrice) * stock;
+                                    let statusBadge = `<span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">In Stock</span>`;
+                                    if(stock <= 0) {
+                                        statusBadge = `<span class="bg-red-100 text-red-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Out of Stock</span>`;
+                                    } else if (stock < 5) {
+                                        statusBadge = `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Low Stock</span>`;
+                                    }
+                                    return `
+                                            <tr class="border-b">
+                                                 <td class="p-3 font-semibold">${p.name}</td>
+                                                 <td class="p-3">${purchasePrice.toFixed(2)}</td>
+                                                 <td class="p-3">${salePrice.toFixed(2)}</td>
+                                                 <td class="p-3 font-bold">${stock}</td>
+                                                 <td class="p-3 text-green-600 font-semibold">${potentialProfit.toFixed(2)}</td>
+                                                 <td class="p-3">${statusBadge}</td>
+                                            </tr>
+                                           `}).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+            
+            const billingHTML = `
+                <div class="bg-white p-8 rounded-lg shadow-lg">
+                    <h3 class="text-2xl font-bold mb-6">Billing & Invoicing</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="p-3">Invoice #</th>
+                                    <th class="p-3">Date</th>
+                                    <th class="p-3">Customer</th>
+                                    <th class="p-3">Total (₹)</th>
+                                    <th class="p-3">Invoice</th>
+                                </tr>
+                            </thead>
+                             <tbody>
+                               ${(state.allOrders || []).map(o => `
+                                            <tr class="border-b">
+                                                 <td class="p-3 font-mono text-xs">${o.invoiceNumber || ''}</td>
+                                                 <td class="p-3">${(_toDate(o.orderDate) || new Date()).toLocaleDateString()}</td>
+                                                 <td class="p-3">${o.shippingInfo?.fullName || ''}</td>
+                                                 <td class="p-3 font-semibold">${(o.totalAmount || 0).toFixed ? (o.totalAmount || 0).toFixed(2) : (o.totalAmount || 0)}</td>
+                                                 <td class="p-3">
+                                                     <button data-page="invoice" data-id="${o.id}" class="nav-btn bg-blue-500 text-white text-xs font-semibold py-1 px-3 rounded-md hover:bg-blue-600">Generate</button>
+                                                 </td>
+                                            </tr>
+                                        `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            container.innerHTML = registerHTML + salesReportHTML + inventoryReportHTML + billingHTML;
+            attachReportListeners();
+        }
+
+        function renderAdminProductList() {
+            const listEl = document.getElementById('adminProductList');
+            if (!listEl) return;
+            listEl.innerHTML = '';
+            state.products.forEach(product => {
+                const item = document.createElement('div');
+                item.className = 'bg-white p-4 rounded-lg shadow-sm flex items-center justify-between';
+                item.innerHTML = `<div class="flex items-center space-x-4"><img src="${product.image}" alt="${product.name}" class="w-16 h-16 object-cover rounded-md" onerror="this.onerror=null;this.src='https://placehold.co/100x100/f0f0f0/ccc?text=Image';"><div><p class="font-bold">${product.name}</p><p class="text-sm text-gray-500">Sale: ₹${Number(product.salePrice || 0).toFixed(2)} / Cost: ₹${Number(product.purchasePrice || 0).toFixed(2)} / Stock: ${product.stock || 0}</p></div></div><div class="flex space-x-2"><button data-id="${product.id}" class="edit-product-btn bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-pencil"></i></button><button data-id="${product.id}" class="delete-product-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-trash"></i></button></div>`;
+                listEl.appendChild(item);
+            });
+        }
+        
+        function renderAdminProductGroupsPage() {
+            const container = document.getElementById('adminProductGroupsContainer');
+            if (!container) return;
+
+            const groupFormHTML = `
+                <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
+                    <h3 id="groupFormTitle" class="text-2xl font-bold mb-6">Add New Product Group</h3>
+                    <form id="groupForm" class="flex items-center gap-4">
+                        <input type="hidden" id="groupId">
+                        <div class="flex-grow">
+                            <label for="groupName" class="sr-only">Group Name</label>
+                            <input type="text" id="groupName" class="w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Enter group name" required>
+                        </div>
+                        <div class="flex items-center space-x-2">
+                            <button type="submit" id="groupFormSubmitBtn" class="bg-green-600 text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-green-700 transition">Add Group</button>
+                            <button type="button" id="groupFormCancelBtn" class="bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md hover:bg-gray-300 transition hidden">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+
+            const groupListHTML = `
+                <div class="bg-white p-8 rounded-lg shadow-lg">
+                    <h3 class="text-2xl font-bold mb-6">Manage Product Groups</h3>
+                    <div id="adminGroupList" class="space-y-4">
+                        ${state.productGroups.length > 0 ? state.productGroups.map(group => `
+                            <div class="bg-gray-50 p-4 rounded-md flex items-center justify-between">
+                                <p class="font-semibold">${group.name}</p>
+                                <div class="flex space-x-2">
+                                    <button data-id="${group.id}" data-name="${group.name}" class="edit-group-btn bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-pencil"></i></button>
+                                    <button data-id="${group.id}" class="delete-group-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-trash"></i></button>
+                                </div>
+                            </div>
+                        `).join('') : '<p class="text-gray-500">No product groups created yet.</p>'}
+                    </div>
+                </div>
+            `;
+
+            container.innerHTML = groupFormHTML + groupListHTML;
+
+            document.getElementById('groupForm').addEventListener('submit', handleGroupFormSubmit);
+            document.getElementById('groupFormCancelBtn').addEventListener('click', resetGroupForm);
+            document.querySelectorAll('.edit-group-btn').forEach(btn => btn.addEventListener('click', handleEditGroupClick));
+            document.querySelectorAll('.delete-group-btn').forEach(btn => btn.addEventListener('click', handleDeleteGroupClick));
+        }
+
+        function renderAdminSlideList() {
+            const listEl = document.getElementById('adminSlideList');
+            if (!listEl) return;
+            listEl.innerHTML = '';
+            state.heroSlides.forEach(slide => {
+                const item = document.createElement('div');
+                item.className = 'bg-white p-4 rounded-lg shadow-sm flex items-center justify-between';
+                item.innerHTML = `<div class="flex items-center space-x-4"><img src="${slide.imageUrl}" alt="${slide.headline}" class="w-24 h-12 object-cover rounded-md"><div><p class="font-bold">${slide.headline}</p><p class="text-sm text-gray-500">${slide.subtitle}</p></div></div><div class="flex space-x-2"><button data-id="${slide.id}" class="edit-slide-btn bg-blue-500 text-white p-2 rounded-full hover:bg-blue-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-pencil"></i></button><button data-id="${slide.id}" class="delete-slide-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-trash"></i></button></div>`;
+                listEl.appendChild(item);
+            });
+        }
+
+        function renderAdminOrderList() {
+            const listEl = document.getElementById('adminOrderList');
+            if (!listEl) return;
+            
+            // --- 1. Date Range & Filter Logic ---
+            const startDate = new Date(state.ordersStartDate);
+            startDate.setHours(0, 0, 0, 0);
+            const endDate = new Date(state.ordersEndDate);
+            endDate.setHours(23, 59, 59, 999);
+
+            let filteredOrders = [...(state.allOrders || [])]
+                .filter(order => {
+                    const orderDate = _toDate(order.orderDate);
+                    if (!orderDate) return false;
+                    return orderDate >= startDate && orderDate <= endDate;
+                })
+                .sort((a, b) => {
+                    const da = _toDate(a.orderDate) || new Date(0);
+                    const db = _toDate(b.orderDate) || new Date(0);
+                    return db - da;
+                });
+
+            if (state.adminOrderFilter !== 'All') {
+                filteredOrders = filteredOrders.filter(order => order.status === state.adminOrderFilter);
+            }
+            
+            // --- 2. Pagination ---
+            const pageSize = Math.max(5, parseInt(state.ordersPageSize || 10));
+            const currentPage = Math.max(1, parseInt(state.ordersPage || 1));
+            const totalPages = Math.max(1, Math.ceil(filteredOrders.length / pageSize));
+            const page = Math.min(currentPage, totalPages);
+            if (page !== state.ordersPage) state.ordersPage = page;
+            const startIdx = (page - 1) * pageSize;
+            const pagedOrders = filteredOrders.slice(startIdx, startIdx + pageSize);
+
+            // --- 3. Date Range & Filter Controls HTML ---
+            const dateRangeHTML = `
+                <div class="flex flex-wrap items-end gap-3 mb-4">
+                    <div>
+                        <label for="ordersStartDate" class="block text-sm font-medium text-gray-700">Start Date</label>
+                        <input type="date" id="ordersStartDate" value="${state.ordersStartDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border" ${state.ordersUseToday ? 'disabled' : ''}>
+                    </div>
+                    <div>
+                        <label for="ordersEndDate" class="block text-sm font-medium text-gray-700">End Date</label>
+                        <input type="date" id="ordersEndDate" value="${state.ordersEndDate}" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border" ${state.ordersUseToday ? 'disabled' : ''}>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" id="ordersUseToday" ${state.ordersUseToday ? 'checked' : ''} class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black">
+                        <label for="ordersUseToday" class="text-sm text-gray-700">Today</label>
+                    </div>
+                    <div>
+                        <label for="orderStatusFilter" class="block text-sm font-medium text-gray-700">Status</label>
+                        <select id="orderStatusFilter" class="mt-1 w-40 rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border">
+                            <option value="All" ${state.adminOrderFilter === 'All' ? 'selected' : ''}>All Orders</option>
+                            <option value="Pending" ${state.adminOrderFilter === 'Pending' ? 'selected' : ''}>Pending</option>
+                            <option value="Shipped" ${state.adminOrderFilter === 'Shipped' ? 'selected' : ''}>Shipped</option>
+                            <option value="Delivered" ${state.adminOrderFilter === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                            <option value="Cancelled" ${state.adminOrderFilter === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                        </select>
+                    </div>
+                </div>
+            `;
+
+            // --- 4. List Content Rendering ---
+            let orderListHTML = '';
+            if (pagedOrders.length === 0) {
+                orderListHTML = `<p class="text-gray-500 text-center py-4">No ${state.adminOrderFilter !== 'All' ? state.adminOrderFilter : ''} orders found for the selected date range.</p>`;
+            } else {
+                orderListHTML = pagedOrders.map(order => 
+                    `<div class="bg-white p-4 rounded-lg shadow-sm">
+                        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 items-center text-xs">
+                            <div>
+                                <p class="font-bold text-sm mb-1">Invoice #</p>
+                                <p class="font-mono">${order.invoiceNumber || order.id}</p>
+                                <p>${(_toDate(order.orderDate) || new Date()).toLocaleDateString()}</p>
+                            </div>
+                            <div>
+                                <p class="font-bold text-sm mb-1">Customer</p>
+                                <p>${order.shippingInfo?.fullName || ''}</p>
+                                <p class="text-gray-600">${order.shippingInfo?.city || ''}, ${order.shippingInfo?.state || ''}</p>
+                            </div>
+                            <div>
+                                <p class="font-bold text-sm mb-1">Total</p>
+                                <p class="font-semibold text-base">₹${(order.totalAmount || 0).toFixed(2)}</p>
+                                ${order.gstInfo?.applied ? '<span class="text-green-600 text-xs">(GST)</span>' : ''}
+                            </div>
+                            <div>
+                                <p class="font-bold text-sm mb-1">Items</p>
+                                <p>${(order.items || []).reduce((acc, item) => acc + (item.quantity || 0), 0)}</p>
+                            </div>
+                            <div>
+                                <p class="font-bold text-sm mb-1">Status</p>
+                                <select data-order-id="${order.id}" data-user-id="${order.userId}" class="admin-order-status-selector w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border">
+                                    <option value="Pending" ${order.status === 'Pending' ? 'selected' : ''}>Pending</option>
+                                    <option value="Shipped" ${order.status === 'Shipped' ? 'selected' : ''}>Shipped</option>
+                                    <option value="Delivered" ${order.status === 'Delivered' ? 'selected' : ''}>Delivered</option>
+                                    <option value="Cancelled" ${order.status === 'Cancelled' ? 'selected' : ''}>Cancelled</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>`).join('');
+            }
+            
+            // --- 5. Pagination Controls ---
+            const paginationHTML = `
+                <div class="flex items-center justify-between mt-4 text-sm">
+                    <div class="flex items-center gap-2">
+                        <span>Rows per page:</span>
+                        <select id="ordersPageSize" class="border rounded p-1">
+                            ${[5,10,25,50].map(n => `<option value="${n}" ${pageSize===n?'selected':''}>${n}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span>Showing ${filteredOrders.length === 0 ? 0 : startIdx + 1}–${Math.min(startIdx + pageSize, filteredOrders.length)} of ${filteredOrders.length}</span>
+                        <button id="ordersPrev" class="px-3 py-1 border rounded ${page<=1?'opacity-50 cursor-not-allowed':'hover:bg-gray-100'}">Prev</button>
+                        <span>Page ${page} / ${totalPages}</span>
+                        <button id="ordersNext" class="px-3 py-1 border rounded ${page>=totalPages?'opacity-50 cursor-not-allowed':'hover:bg-gray-100'}">Next</button>
+                    </div>
+                </div>
+            `;
+            
+            // --- 6. Render Final HTML ---
+            listEl.innerHTML = dateRangeHTML + orderListHTML + paginationHTML;
+
+            // --- 7. Attach Event Listeners ---
+            // Date range changes
+            document.getElementById('ordersStartDate')?.addEventListener('change', (e) => {
+                state.ordersStartDate = e.target.value;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+            document.getElementById('ordersEndDate')?.addEventListener('change', (e) => {
+                state.ordersEndDate = e.target.value;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+            
+            // Today checkbox
+            document.getElementById('ordersUseToday')?.addEventListener('change', (e) => {
+                state.ordersUseToday = e.target.checked;
+                if (state.ordersUseToday) {
+                    const today = new Date().toISOString().split('T')[0];
+                    state.ordersStartDate = today;
+                    state.ordersEndDate = today;
+                }
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+
+            // Status filter
+            document.getElementById('orderStatusFilter')?.addEventListener('change', (e) => {
+                state.adminOrderFilter = e.target.value;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+
+            // Pagination
+            document.getElementById('ordersPrev')?.addEventListener('click', () => {
+                if (state.ordersPage > 1) {
+                    state.ordersPage--;
+                    renderAdminOrderList();
+                }
+            });
+            document.getElementById('ordersNext')?.addEventListener('click', () => {
+                if (state.ordersPage < totalPages) {
+                    state.ordersPage++;
+                    renderAdminOrderList();
+                }
+            });
+            document.getElementById('ordersPageSize')?.addEventListener('change', (e) => {
+                state.ordersPageSize = parseInt(e.target.value) || 10;
+                state.ordersPage = 1;
+                renderAdminOrderList();
+            });
+
+            // Order status change listeners
+            document.querySelectorAll('.admin-order-status-selector').forEach(selector => {
+                selector.addEventListener('change', (e) => {
+                    const orderId = e.target.dataset.orderId;
+                    const userId = e.target.dataset.userId;
+                    const newStatus = e.target.value;
+                    updateOrderStatus(orderId, userId, newStatus);
+                });
+            });
+        }
+
+        function renderAdminGalleryList() {
+            const listEl = document.getElementById('adminGalleryImageList');
+            if (!listEl) return;
+            if (state.galleryImages.length === 0) {
+                listEl.innerHTML = `<p class="text-gray-500 text-center col-span-full py-4">No gallery images have been added yet.</p>`;
+                return;
+            }
+            listEl.innerHTML = state.galleryImages.map(image => `<div class="relative group"><img src="${image.imageUrl}" class="w-full h-full object-cover rounded-lg aspect-square"><div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition-all flex items-center justify-center"><button data-id="${image.id}" class="delete-gallery-image-btn bg-red-500 text-white rounded-full w-10 h-10 opacity-0 group-hover:opacity-100 transition-opacity"><i class="fa-solid fa-trash"></i></button></div></div>`).join('');
+        }
+
+        function renderAdminTestimonialsList() {
+            const listEl = document.getElementById('adminTestimonialsList');
+            if (!listEl) return;
+            if (state.allTestimonials.length === 0) {
+                listEl.innerHTML = `<p class="text-gray-500 text-center py-4">No testimonials submitted yet.</p>`;
+                return;
+            }
+            const sortedTestimonials = [...state.allTestimonials].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+            listEl.innerHTML = sortedTestimonials.map(t => {
+                const approvedBadge = t.approved
+                    ? `<span class="bg-green-100 text-green-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Approved</span>`
+                    : `<span class="bg-yellow-100 text-yellow-800 text-xs font-medium px-2.5 py-0.5 rounded-full">Pending</span>`;
+                return `
+                    <div class="bg-white p-4 rounded-lg shadow-sm">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <div class="flex items-center gap-4">
+                                <p class="font-bold">${t.name}</p>
+                                ${approvedBadge}
+                                </div>
+                                <div class="text-yellow-400 mt-1">
+                                    ${'<i class="fas fa-star"></i>'.repeat(t.rating)}
+                                    ${'<i class="far fa-star"></i>'.repeat(5 - t.rating)}
+                                </div>
+                                <p class="text-gray-600 mt-2 text-sm italic">"${t.message}"</p>
+                            </div>
+                            <div class="flex space-x-2">
+                                ${!t.approved ? `<button data-id="${t.id}" class="approve-testimonial-btn bg-green-500 text-white p-2 rounded-full hover:bg-green-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-check"></i></button>` : ''}
+                                <button data-id="${t.id}" class="delete-testimonial-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-10 h-10 flex items-center justify-center"><i class="fa-solid fa-trash"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function renderInvoicePage() {
+            const order = state.allOrders.find(o => o.id === state.currentOrderId);
+            if (!order) {
+                pageContent.innerHTML = `<div class="container mx-auto p-8 text-center"><p>Order not found.</p></div>`;
+                return;
+            }
+
+            const subtotal = order.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+            const merchantAddressLine = state.siteSettings.businessAddress.split(',').join('<br>');
+            
+            pageContent.innerHTML = `
+            <div class="bg-gray-100 p-8">
+                <div id="invoice-container" class="max-w-4xl mx-auto bg-white p-12 shadow-lg">
+                    <div class="flex justify-between items-start mb-12">
+                        <div>
+                            <h1 class="text-4xl font-playfair font-bold">TIARAS</h1>
+                            <p class="text-sm text-gray-500">${merchantAddressLine}</p>
+                            ${state.siteSettings.isGstEnabled && state.siteSettings.merchantGstin ? `<p class="text-sm mt-2"><strong>GSTIN:</strong> ${state.siteSettings.merchantGstin}</p>` : ''}
+                        </div>
+                        <div class="text-right">
+                            <h2 class="text-2xl font-semibold uppercase text-gray-400">Invoice</h2>
+                            <p class="text-sm"><strong>Invoice #:</strong> ${order.invoiceNumber || order.id}</p>
+                            <p class="text-sm"><strong>Date:</strong> ${new Date(order.orderDate.seconds * 1000).toLocaleDateString()}</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-8 mb-12">
+                        <div>
+                            <h4 class="font-semibold mb-2">Billed To:</h4>
+                           <p>${order.shippingInfo.fullName}</p>
+                           <p>${order.shippingInfo.address}</p>
+                           <p>${order.shippingInfo.city}, ${order.shippingInfo.state} ${order.shippingInfo.zip}</p>
+                           ${order.gstInfo?.requested ? `<p class="mt-2 font-semibold"><strong>GSTIN:</strong> ${order.gstInfo.number}</p>` : ''}
+                        </div>
+                    </div>
+                    <table class="w-full text-left mb-12">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="p-3 text-sm font-semibold">Item</th>
+                                <th class="p-3 text-sm font-semibold text-center">Quantity</th>
+                                <th class="p-3 text-sm font-semibold text-right">Unit Price (₹)</th>
+                                 <th class="p-3 text-sm font-semibold text-right">GST</th>
+                                <th class="p-3 text-sm font-semibold text-right">Total (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                           ${order.items.map(item => `
+                                    <tr class="border-b">
+                                         <td class="p-3">${item.name}</td>
+                                         <td class="p-3 text-center">${item.quantity}</td>
+                                         <td class="p-3 text-right">${item.price.toFixed(2)}</td>
+                                         <td class="p-3 text-right">${item.gstPercentage}%</td>
+                                         <td class="p-3 text-right">${((item.price * item.quantity) * (1 + item.gstPercentage/100)).toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                        </tbody>
+                    </table>
+                    <div class="flex justify-end">
+                        <div class="w-full max-w-sm ml-auto space-y-2 text-sm">
+                            <div class="flex justify-between"><span>Subtotal (₹):</span><span>${subtotal.toFixed(2)}</span></div>
+                           ${Object.keys(order.gstBreakdown.rates || {}).map(rate => 
+                                 `<div class="flex justify-between"><span>GST (${rate}%) (₹):</span><span>${order.gstBreakdown.rates[rate].toFixed(2)}</span></div>`).join('')} <div class="flex justify-between"><span>Shipping (₹)</span><span>${(order.totalAmount - subtotal - (order.gstBreakdown?.total || 0)).toFixed(2)}</span></div>
+                            <div class="flex justify-between font-bold text-lg border-t pt-2 mt-2"><span>Grand Total (₹):</span><span>${order.totalAmount.toFixed(2)}</span></div>
+                        </div>
+                    </div>
+                       <div class="mt-16 text-center text-xs text-gray-500">
+                               <p>Thank you for your business!</p>
+                       </div>
+                </div>
+                <div class="text-center mt-8">
+                       <button id="printInvoiceBtn" class="bg-black text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-gray-800 transition">Print Invoice</button>
+                </div>
+            </div>
+            `;
+           document.getElementById('printInvoiceBtn').addEventListener('click', () => window.print());
+        }
+
+        function renderAdminPurchasesPage() {
+            const container = document.getElementById('adminPurchasesContainer');
+            if (!container) return;
+
+            const purchaseFormHTML = `
+                <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
+                    <h3 class="text-2xl font-bold mb-6">Add New Purchase Entry</h3>
+                    <form id="purchaseForm" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <label for="supplierName" class="block text-sm font-medium text-gray-700 mb-1">Supplier Name</label>
+                                <input type="text" id="supplierName" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                            </div>
+                            <div>
+                                <label for="purchaseDate" class="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
+                                <input type="date" id="purchaseDate" class="w-full px-4 py-2 border border-gray-300 rounded-md" required value="${new Date().toISOString().split('T')[0]}">
+                            </div>
+                        </div>
+                        <div class="flex items-center justify-between bg-gray-50 border rounded-md p-3">
+                            <div class="text-sm text-gray-700">Supplier prices include GST?</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="purchasePricesIncludeGst" ${state.siteSettings?.pricesIncludeGst ? 'checked' : ''}>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="flex items-center justify-between bg-gray-50 border rounded-md p-3 mt-2">
+                            <div class="text-sm text-gray-700">Show HSN / SAC?</div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="purchaseShowHsn">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div>
+                            <h4 class="text-lg font-semibold mb-2">Items</h4>
+                            <div class="grid grid-cols-12 gap-4 text-xs font-bold text-gray-500 mb-2 px-2">
+                                <div class="col-span-4">Product</div>
+                                <div class="col-span-2">Cost/Unit (₹)</div>
+                                <div class="col-span-2">Quantity</div>
+                                <div class="col-span-1">GST %</div>
+                                <div class="col-span-2 text-right">Total (₹)</div>
+                            </div>
+                            <div id="purchaseItemsContainer" class="space-y-2"></div>
+                            <button type="button" id="addPurchaseItemBtn" class="mt-4 bg-blue-100 text-blue-700 font-semibold text-sm py-2 px-4 rounded-md hover:bg-blue-200 transition">+ Add Item</button>
+                        </div>
+                        <div class="border-t pt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 items-start">
+                              <div class="text-right sm:text-left">
+                                  <div class="text-gray-600">Subtotal (₹)</div>
+                                  <div id="purchaseSubtotal" class="font-semibold">0.00</div>
+                              </div>
+                              <div class="text-right sm:text-left">
+                                  <div class="text-gray-600">GST (₹)</div>
+                                  <div id="purchaseGst" class="font-semibold">0.00</div>
+                              </div>
+                              <div class="text-right">
+                                  <div class="text-gray-600">Grand Total (₹)</div>
+                                  <div id="purchaseTotal" class="font-bold text-xl">0.00</div>
+                              </div>
+                        </div>
+                        <div class="flex justify-end">
+                            <button type="submit" class="bg-green-600 text-white font-semibold py-3 px-8 rounded-md shadow hover:bg-green-700 transition">Record Purchase</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            
+            const purchaseHistoryHTML = `
+                <div class="bg-white p-8 rounded-lg shadow-lg">
+                    <h3 class="text-2xl font-bold mb-6">Purchase History</h3>
+                    <div id="purchaseHistoryContainer" class="space-y-4">
+                        </div>
+                </div>
+            `;
+
+            container.innerHTML = purchaseFormHTML + purchaseHistoryHTML;
+            addPurchaseItemRow(); // Add the first row initially
+            renderPurchaseHistory(); // Render the history list
+
+            // Attach listeners specific to this page
+            document.getElementById('addPurchaseItemBtn').addEventListener('click', addPurchaseItemRow);
+            container.addEventListener('input', e => {
+                if (e.target.classList.contains('purchase-price') || e.target.classList.contains('purchase-quantity')) {
+                    updatePurchaseTotal();
+                }
+            });
+            container.addEventListener('click', e => {
+                if (e.target.closest('.remove-purchase-item-btn')) {
+                    if (document.querySelectorAll('.purchase-item-row').length > 1) {
+                        e.target.closest('.purchase-item-row').remove();
+                        updatePurchaseTotal();
+                    } else {
+                        showMessage("You must have at least one item in a purchase.");
+                    }
+                }
+            });
+             container.addEventListener('change', e => {
+                if (e.target.classList.contains('purchase-product-select') && e.target.value === 'new') {
+                    openNewProductModal(e.target);
+                }
+            });
+        }
+
+        function renderLocalSalePage() {
+            const container = document.getElementById('adminLocalSaleContainer');
+            if (!container) return;
+
+            const saleFormHTML = `
+                <div class="bg-white p-8 rounded-lg shadow-lg mb-12">
+                    <h3 class="text-2xl font-bold mb-6">Create Local Sale Invoice</h3>
+                    <form id="localSaleForm" class="space-y-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                             <div>
+                                 <label for="customerName" class="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
+                                 <input type="text" id="customerName" class="w-full px-4 py-2 border border-gray-300 rounded-md" required>
+                             </div>
+                            <div>
+                                <label for="saleDate" class="block text-sm font-medium text-gray-700 mb-1">Sale Date</label>
+                                <input type="date" id="saleDate" class="w-full px-4 py-2 border border-gray-300 rounded-md" required value="${new Date().toISOString().split('T')[0]}">
+                            </div>
+                        </div>
+                        <div class="pt-4 ${state.siteSettings.isGstEnabled ? '' : 'hidden'}">
+                            <label class="flex items-center">
+                                <input type="checkbox" id="localSaleGstInvoice" class="h-4 w-4 rounded border-gray-300 text-black focus:ring-black">
+                                <span class="ml-2 text-sm text-gray-700">Customer needs a GST invoice</span>
+                            </label>
+                          </div>
+                        <div id="localSaleGstNumberContainer" class="hidden">
+                            <label for="localSaleGstNumber" class="block text-sm font-medium text-gray-700">Customer GST Number</label>
+                            <input type="text" id="localSaleGstNumber" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-black focus:ring-black sm:text-sm p-2 border" placeholder="e.g., 29ABCDE1234F1Z5">
+                        </div>
+                        <div>
+                            <h4 class="text-lg font-semibold mb-2">Items</h4>
+                            <div class="grid grid-cols-12 gap-4 text-xs font-bold text-gray-500 mb-2 px-2">
+                                <div class="col-span-6">Product</div>
+                                <div class="col-span-2">Quantity</div>
+                                <div class="col-span-3 text-right">Total (₹)</div>
+                            </div>
+                            <div id="localSaleItemsContainer" class="space-y-2"></div>
+                            <button type="button" id="addLocalSaleItemBtn" class="mt-4 bg-blue-100 text-blue-700 font-semibold text-sm py-2 px-4 rounded-md hover:bg-blue-200 transition">+ Add Item</button>
+                        </div>
+                        <div class="border-t pt-4">
+                            <div class="w-full max-w-sm ml-auto space-y-2 text-sm">
+                                <div class="flex justify-between"><span>Subtotal (₹):</span><span id="localSaleSubtotal">0.00</span></div>
+                                <div id="localSaleGstBreakdown"></div>
+                                <div class="flex justify-between font-bold text-base border-t pt-2 mt-2"><span>Grand Total (₹):</span><span id="localSaleTotal">0.00</span></div>
+                            </div>
+                        </div>
+                        <div class="flex justify-end">
+                            <button type="submit" class="bg-green-600 text-white font-semibold py-3 px-8 rounded-md shadow hover:bg-green-700 transition">Generate & Finalize Invoice</button>
+                        </div>
+                    </form>
+                </div>
+            `;
+            
+            container.innerHTML = saleFormHTML;
+            addLocalSaleItemRow(); // Add the first row
+
+            // Attach listeners
+            document.getElementById('addLocalSaleItemBtn').addEventListener('click', addLocalSaleItemRow);
+            
+            const form = document.getElementById('localSaleForm');
+            form.addEventListener('input', e => {
+                if (e.target.classList.contains('local-sale-quantity')) {
+                    updateLocalSaleTotals();
+                }
+            });
+            form.addEventListener('change', e => {
+                if (e.target.classList.contains('local-sale-product-select')) {
+                    updateLocalSaleTotals();
+                }
+            });
+            form.addEventListener('click', e => {
+                if (e.target.closest('.remove-local-sale-item-btn')) {
+                    if (document.querySelectorAll('.local-sale-item-row').length > 1) {
+                        e.target.closest('.local-sale-item-row').remove();
+                        updateLocalSaleTotals();
+                    }
+                }
+            });
+
+            const gstCheckbox = document.getElementById('localSaleGstInvoice');
+            const gstContainer = document.getElementById('localSaleGstNumberContainer');
+            gstCheckbox.addEventListener('change', () => {
+                gstContainer.classList.toggle('hidden', !gstCheckbox.checked);
+                document.getElementById('localSaleGstNumber').required = gstCheckbox.checked;
+            });
+
+            form.addEventListener('submit', handleGenerateLocalInvoice);
+        }
+
+        function renderPurchaseInvoicePage() {
+            const purchase = state.allPurchases.find(p => p.id === state.currentOrderId);
+            if (!purchase) {
+                pageContent.innerHTML = `<div class="container mx-auto p-8 text-center"><p>Purchase record not found.</p></div>`;
+                return;
+            }
+
+            pageContent.innerHTML = `
+            <div class="bg-gray-100 p-8">
+                <div id="invoice-container" class="max-w-4xl mx-auto bg-white p-12 shadow-lg">
+                    <div class="flex justify-between items-start mb-12">
+                        <div>
+                            <h1 class="text-4xl font-playfair font-bold">Purchase Invoice</h1>
+                            <p class="text-sm text-gray-500">Record for TIARAS</p>
+                        </div>
+                        <div class="text-right">
+                            <h2 class="text-2xl font-semibold uppercase text-gray-400">RECEIPT</h2>
+                            <p class="text-sm"><strong>Invoice #:</strong> ${purchase.invoiceNumber || purchase.id}</p>
+                            <p class="text-sm"><strong>Date:</strong> ${new Date(purchase.purchaseDate.seconds * 1000).toLocaleDateString()}</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-8 mb-12">
+                        <div>
+                            <h4 class="font-semibold mb-2">Supplier:</h4>
+                           <p>${purchase.supplierName}</p>
+                        </div>
+                    </div>
+                    <table class="w-full text-left mb-12">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="p-3 text-sm font-semibold">Item</th>
+                                <th class="p-3 text-sm font-semibold text-center">Quantity</th>
+                                <th class="p-3 text-sm font-semibold text-right">Unit Cost (₹)</th>
+                                <th class="p-3 text-sm font-semibold text-right">Total (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                           ${purchase.items.map(item => `
+                                    <tr class="border-b">
+                                         <td class="p-3">${item.productName}</td>
+                                         <td class="p-3 text-center">${item.quantity}</td>
+                                         <td class="p-3 text-right">${item.purchasePrice.toFixed(2)}</td>
+                                         <td class="p-3 text-right">${(item.purchasePrice * item.quantity).toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                        </tbody>
+                    </table>
+                    <div class="flex justify-end">
+                        <div class="w-full max-w-xs space-y-2">
+                            <div class="flex justify-between font-bold text-lg border-t pt-2 mt-2"><span>Grand Total (₹):</span><span>${purchase.totalAmount.toFixed(2)}</span></div>
+                        </div>
+                    </div>
+                       <div class="mt-16 text-center text-xs text-gray-500">
+                               <p>This is a record of a purchase entry.</p>
+                       </div>
+                </div>
+                <div class="text-center mt-8">
+                       <button id="printInvoiceBtn" class="bg-black text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-gray-800 transition">Print Record</button>
+                </div>
+            </div>
+            `;
+           document.getElementById('printInvoiceBtn').addEventListener('click', () => window.print());
+        }
+
+        function renderLocalSaleInvoicePage() {
+            const saleData = state.allLocalSales.find(s => s.id === state.currentOrderId) || state.localSaleData;
+            if (!saleData) {
+                pageContent.innerHTML = `<div class="container mx-auto p-8 text-center"><p>No invoice data found. Please create a sale first.</p></div>`;
+                navigateTo('admin'); // redirect back
+                return;
+            }
+            
+            const saleDate = saleData.saleDate.seconds ? new Date(saleData.saleDate.seconds * 1000) : saleData.saleDate;
+            const merchantAddressLine = state.siteSettings.businessAddress.split(',').join('<br>');
+
+
+            pageContent.innerHTML = `
+            <div class="bg-gray-100 p-8">
+                <div id="invoice-container" class="max-w-4xl mx-auto bg-white p-12 shadow-lg">
+                    <div class="flex justify-between items-start mb-12">
+                        <div>
+                            <h1 class="text-4xl font-playfair font-bold">TIARAS</h1>
+                            <p class="text-sm text-gray-500">${merchantAddressLine}</p>
+                            ${state.siteSettings.isGstEnabled && state.siteSettings.merchantGstin ? `<p class="text-sm mt-2"><strong>GSTIN:</strong> ${state.siteSettings.merchantGstin}</p>` : ''}
+                        </div>
+                        <div class="text-right">
+                            <h2 class="text-2xl font-semibold uppercase text-gray-400">Local Sale Invoice</h2>
+                            <p class="text-sm"><strong>Invoice #:</strong> ${saleData.invoiceNumber || saleData.id}</p>
+                            <p class="text-sm"><strong>Date:</strong> ${saleDate.toLocaleDateString()}</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-8 mb-12">
+                        <div>
+                            <h4 class="font-semibold mb-2">Billed To:</h4>
+                           <p>${saleData.customerName}</p>
+                            ${saleData.gstInfo?.requested && saleData.gstInfo.number ? `<p class="mt-2 font-semibold"><strong>GSTIN:</strong> ${saleData.gstInfo.number}</p>` : ''}
+                        </div>
+                    </div>
+                    <table class="w-full text-left mb-12">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="p-3 text-sm font-semibold">Item</th>
+                                <th class="p-3 text-sm font-semibold text-center">Quantity</th>
+                                <th class="p-3 text-sm font-semibold text-right">Unit Price (₹)</th>
+                                <th class="p-3 text-sm font-semibold text-right">GST</th>
+                                <th class="p-3 text-sm font-semibold text-right">Total (₹)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                           ${saleData.items.map(item => `
+                                    <tr class="border-b">
+                                         <td class="p-3">${item.name}</td>
+                                         <td class="p-3 text-center">${item.quantity}</td>
+                                         <td class="p-3 text-right">${item.price.toFixed(2)}</td>
+                                         <td class="p-3 text-right">${item.gstPercentage}%</td>
+                                         <td class="p-3 text-right">${((item.price * item.quantity) * (1 + item.gstPercentage/100)).toFixed(2)}</td>
+                                    </tr>
+                                `).join('')}
+                        </tbody>
+                    </table>
+                    <div class="flex justify-end">
+                        <div class="w-full max-w-xs space-y-2">
+                            <div class="flex justify-between"><span>Subtotal (₹):</span><span>${subtotal.toFixed(2)}</span></div>
+                           ${Object.keys(saleData.gstBreakdown.rates || {}).map(rate => 
+                                 `<div class="flex justify-between"><span>GST (${rate}%) (₹):</span><span>${saleData.gstBreakdown.rates[rate].toFixed(2)}</span></div>`).join('')}
+                            <div class="flex justify-between font-bold text-lg border-t pt-2 mt-2"><span>Grand Total (₹):</span><span>${saleData.totalAmount.toFixed(2)}</span></div>
+                        </div>
+                    </div>
+                       <div class="mt-16 text-center text-xs text-gray-500">
+                               <p>Thank you for your business!</p>
+                       </div>
+                </div>
+                <div class="text-center mt-8">
+                    <button id="printInvoiceBtn" class="bg-black text-white font-semibold py-2 px-6 rounded-md shadow hover:bg-gray-800 transition">Print Invoice</button>
+                    <button data-page="admin" data-tab="local_sale" id="backToLocalSale" class="ml-4 admin-tab-btn nav-btn bg-gray-200 text-gray-700 font-semibold py-2 px-6 rounded-md hover:bg-gray-300 transition">Back to Sale</button>
+                </div>
+            </div>
+            `;
+           document.getElementById('printInvoiceBtn').addEventListener('click', () => window.print());
+           document.getElementById('backToLocalSale').addEventListener('click', (e) => {
+               e.preventDefault();
+               state.adminCurrentTab = 'local_sale';
+               navigateTo('admin');
+           });
+        }
+        
+        // --- DATA & FIRESTORE LOGIC ---
+        const productsColPath = `artifacts/${appId}/public/data/products`;
+        const productGroupsColPath = `artifacts/${appId}/public/data/productGroups`;
+        const slidesColPath = `artifacts/${appId}/public/data/heroSlides`;
+        const ordersColPath = `artifacts/${appId}/public/data/orders`;
+        const galleryImagesColPath = `artifacts/${appId}/public/data/galleryImages`;
+        const testimonialsColPath = `artifacts/${appId}/public/data/testimonials`;
+        const purchasesColPath = `artifacts/${appId}/public/data/purchases`;
+        const localSalesColPath = `artifacts/${appId}/public/data/localSales`;
+        const siteSettingsDocPath = `artifacts/${appId}/public/data/siteSettings/main`;
+        const countersDocPath = `artifacts/${appId}/public/data/counters/invoiceCounters`;
+
+
+        async function getAndIncrementCounter(counterType) {
+            const counterRef = doc(db, countersDocPath);
+            const year = new Date().getFullYear();
+            const fieldName = `${counterType}_${year}`;
+            
+            try {
+                const newCount = await runTransaction(db, async (transaction) => {
+                    const counterDoc = await transaction.get(counterRef);
+                    if (!counterDoc.exists()) {
+                       transaction.set(counterRef, { [fieldName]: 1 });
+                       return 1;
+                    }
+                    const currentCount = counterDoc.data()[fieldName] || 0;
+                    const nextCount = currentCount + 1;
+                   transaction.update(counterRef, { [fieldName]: nextCount });
+                    return nextCount;
+                });
+                return `${newCount}/${year}`;
+            } catch (e) {
+                console.error("Counter transaction failed: ", e);
+                // Fallback to a timestamp-based ID if counter fails
+                return `ERR-${Date.now()}`;
+            }
+        }
+
+
+        function listenToProducts() {
+            if (state.listeners.products) return; 
+            state.listeners.products = onSnapshot(collection(db, productsColPath), snapshot => {
+                state.products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (['home', 'products', 'product_detail', 'cart', 'checkout', 'admin'].includes(state.currentPage)) {
+                    renderApp();
+                }
+            }, error => { console.error("Product listener error:", error); });
+        }
+
+        function listenToProductGroups() {
+            if (state.listeners.productGroups) return;
+            state.listeners.productGroups = onSnapshot(collection(db, productGroupsColPath), snapshot => {
+                state.productGroups = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })).sort((a, b) => a.name.localeCompare(b.name));
+                if (state.currentPage === 'admin' || state.currentPage === 'home' || state.currentPage === 'products') {
+                    renderApp();
+                }
+            }, error => { console.error("Product groups listener error:", error); });
+        }
+
+        function listenToHeroSlides() {
+            if (state.listeners.heroSlides) return;
+            state.listeners.heroSlides = onSnapshot(collection(db, slidesColPath), snapshot => {
+                state.heroSlides = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'home') {
+                    renderHomePage();
+                } else if (state.currentPage === 'admin' && state.adminCurrentTab === 'media') {
+                    renderAdminSlideList();
+                }
+            }, error => { console.error("Hero slides listener error:", error); });
+        }
+
+        function listenToGalleryImages() {
+            if (state.listeners.galleryImages) return;
+            state.listeners.galleryImages = onSnapshot(query(collection(db, galleryImagesColPath)), snapshot => {
+                state.galleryImages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'home') {
+                    renderHomePage();
+                } else if (state.currentPage === 'admin' && state.adminCurrentTab === 'media') {
+                    renderAdminGalleryList();
+                }
+            }, error => { console.error("Gallery images listener error:", error); });
+        }
+        
+        function listenToSiteSettings() {
+            if(state.listeners.siteSettings) return;
+            state.listeners.siteSettings = onSnapshot(doc(db, siteSettingsDocPath), (docSnap) => {
+                if (docSnap.exists()) {
+                    state.siteSettings = { ...state.siteSettings, ...docSnap.data() };
+                }
+                renderTopBars();
+            }, error => {
+                console.error("Site settings listener error:", error);
+            });
+        }
+
+        function listenToTestimonials() {
+            if (state.listeners.testimonials) return;
+            const q = query(collection(db, testimonialsColPath), where("approved", "==", true));
+            state.listeners.testimonials = onSnapshot(q, snapshot => {
+                state.testimonials = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'home' || state.currentPage === 'testimonials') {
+                    renderApp();
+                }
+            }, error => { console.error("Testimonials listener error:", error); });
+        }
+
+        function listenToAllTestimonials() {
+            if (state.listeners.allTestimonials) state.listeners.allTestimonials();
+            state.listeners.allTestimonials = onSnapshot(query(collection(db, testimonialsColPath)), snapshot => {
+                state.allTestimonials = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'admin' && state.adminCurrentTab === 'testimonials') {
+                    renderAdminTestimonialsList();
+                }
+            }, error => {
+                console.error("Admin testimonials listener error:", error);
+            });
+        }
+
+        function listenToAllPurchases() {
+            if (state.listeners.allPurchases) state.listeners.allPurchases();
+            // **MODIFIED:** Listen to ALL purchases, including deleted ones, for comprehensive internal records/logic
+            state.listeners.allPurchases = onSnapshot(query(collection(db, purchasesColPath)), snapshot => {
+                state.allPurchases = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'admin' && (state.adminCurrentTab === 'purchases' || state.adminCurrentTab === 'reports')) {
+                    renderApp();
+                }
+            }, error => {
+                console.error("Admin purchases listener error:", error);
+            });
+        }
+        
+        function listenToAllLocalSales() {
+            if (state.listeners.allLocalSales) state.listeners.allLocalSales();
+            state.listeners.allLocalSales = onSnapshot(query(collection(db, localSalesColPath)), snapshot => {
+                state.allLocalSales = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'admin' && state.adminCurrentTab === 'reports') {
+                    renderApp();
+                }
+            }, error => {
+                console.error("Admin local sales listener error:", error);
+            });
+        }
+
+        function listenToCart(userId) {
+            if (state.listeners.cart) state.listeners.cart();
+            const cartRef = doc(db, `artifacts/${appId}/users/${userId}/cart`, 'user_cart');
+            state.listeners.cart = onSnapshot(cartRef, (doc) => {
+                state.cart = doc.exists() ? doc.data() : { items: {} };
+                renderHeader(); 
+                if (state.currentPage === 'cart' || state.currentPage === 'checkout') renderApp();
+            });
+        }
+
+        function listenToUserOrders(userId) {
+            if (state.listeners.orders) return;
+            const userOrdersPath = `artifacts/${appId}/users/${userId}/orders`;
+            state.listeners.orders = onSnapshot(query(collection(db, userOrdersPath)), snapshot => {
+                state.orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'orders') renderApp();
+            });
+        }
+
+        function listenToAllOrders() {
+            if (state.listeners.allOrders) state.listeners.allOrders;
+            state.listeners.allOrders = onSnapshot(query(collection(db, ordersColPath)), snapshot => {
+                state.allOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                if (state.currentPage === 'admin') renderApp();
+            }, error => {
+                console.error("Admin orders listener error:", error);
+                showMessage("Error loading all orders for admin.");
+            });
+        }
+        
+        async function updateCart(productId, quantity) {
+             if (!state.currentUser || state.currentUser.isAnonymous) {
+                 showMessage("Please log in to manage your cart.");
+                 navigateTo('auth');
+                 return;
+             }
+            const cartRef = doc(db, `artifacts/${appId}/users/${state.currentUser.uid}/cart`, 'user_cart');
+            const newItems = { ...state.cart.items };
+            if (quantity > 0) newItems[productId] = { quantity: quantity };
+            else delete newItems[productId];
+            await setDoc(cartRef, { items: newItems }, { merge: true });
+        }
+        
+        async function addToCart(productId, quantity = 1) {
+            if (!state.currentUser || state.currentUser.isAnonymous) {
+                showMessage("Please log in to add items to your cart.");
+                navigateTo('auth');
+                return;
+            }
+            const product = state.products.find(p => p.id === productId);
+            if (!product || (product.stock || 0) < quantity) {
+                showMessage("Sorry, this item is out of stock or not available in the requested quantity.");
+                return;
+            }
+            const currentQuantity = state.cart.items[productId]?.quantity || 0;
+            const newQuantity = currentQuantity + quantity;
+            await updateCart(productId, newQuantity);
+            showMessage("Item added to cart!");
+        }
+
+        // --- ADMIN PRODUCT GROUP HANDLERS ---
+        function resetGroupForm() {
+            const form = document.getElementById('groupForm');
+            if (!form) return;
+            form.reset();
+            document.getElementById('groupId').value = '';
+            const submitBtn = document.getElementById('groupFormSubmitBtn');
+            document.getElementById('groupFormTitle').textContent = 'Add New Product Group';
+            submitBtn.textContent = 'Add Group';
+            submitBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+            document.getElementById('groupFormCancelBtn').classList.add('hidden');
+        }
+
+        async function handleGroupFormSubmit(e) {
+            e.preventDefault();
+            const groupId = document.getElementById('groupId').value;
+            const groupName = document.getElementById('groupName').value;
+            if (!groupName) return;
+
+            const groupData = { name: groupName };
+
+            try {
+                if (groupId) {
+                    const oldGroup = state.productGroups.find(g => g.id === groupId);
+                    if (oldGroup && oldGroup.name !== groupName) {
+                        const batch = writeBatch(db);
+                        const q = query(collection(db, productsColPath), where("productGroup", "==", oldGroup.name));
+                        const querySnapshot = await getDocs(q);
+                        querySnapshot.forEach((doc) => {
+                            batch.update(doc.ref, { productGroup: groupName });
+                        });
+                        await batch.commit();
+                    }
+                    await setDoc(doc(db, productGroupsColPath, groupId), groupData);
+                    showMessage('Product group updated successfully!');
+                } else {
+                    await addDoc(collection(db, productGroupsColPath), groupData);
+                    showMessage('Product group added successfully!');
+                }
+                resetGroupForm();
+            } catch (error) {
+                console.error("Error saving product group:", error);
+                showMessage("Failed to save product group.");
+            }
+        }
+
+        function handleEditGroupClick(e) {
+            const btn = e.currentTarget;
+            const groupId = btn.dataset.id;
+            const groupName = btn.dataset.name;
+            
+            document.getElementById('groupId').value = groupId;
+            document.getElementById('groupName').value = groupName;
+
+            const submitBtn = document.getElementById('groupFormSubmitBtn');
+            document.getElementById('groupFormTitle').textContent = 'Edit Product Group';
+            submitBtn.textContent = 'Update Group';
+            submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+            submitBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            document.getElementById('groupFormCancelBtn').classList.remove('hidden');
+            document.getElementById('groupFormTitle').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        async function handleDeleteGroupClick(e) {
+            const btn = e.currentTarget;
+            const groupId = btn.dataset.id;
+            
+            try {
+                const groupToDelete = state.productGroups.find(g => g.id === groupId);
+                if (groupToDelete) {
+                     const batch = writeBatch(db);
+                     const q = query(collection(db, productsColPath), where("productGroup", "==", groupToDelete.name));
+                     const querySnapshot = await getDocs(q);
+                     querySnapshot.forEach((doc) => {
+                          batch.update(doc.ref, { productGroup: "" }); // Set to empty string
+                     });
+                     await batch.commit();
+                }
+
+                await deleteDoc(doc(db, productGroupsColPath, groupId));
+                showMessage('Product group deleted and products updated.');
+            } catch (error) {
+                console.error("Error deleting group:", error);
+                showMessage('Failed to delete product group.');
+            }
+        }
+
+
+        function attachAdminListeners() {
+            // Helper function to reset the product form
+            function resetProductForm() {
+                const form = document.getElementById('productForm');
+                if (!form) return;
+                form.reset();
+                document.getElementById('productId').value = '';
+                document.getElementById('avgPurchasePriceDisplay').textContent = 'N/A';
+                document.getElementById('lastPurchasePriceDisplay').textContent = 'N/A';
+                const submitBtn = document.getElementById('productFormSubmitBtn');
+                document.getElementById('productFormTitle').textContent = 'Add New Product';
+                submitBtn.textContent = 'Add Product';
+                submitBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                document.getElementById('productFormCancelBtn').classList.add('hidden');
+            }
+
+            // Helper function to reset the slide form
+            function resetSlideForm() {
+                const form = document.getElementById('slideForm');
+                if (!form) return;
+                form.reset();
+                document.getElementById('slideId').value = '';
+                const submitBtn = document.getElementById('slideFormSubmitBtn');
+                document.getElementById('slideFormTitle').textContent = 'Add New Hero Slide';
+                submitBtn.textContent = 'Add Slide';
+                submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                submitBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                document.getElementById('slideFormCancelBtn').classList.add('hidden');
+            }
+            
+            // Product form submission
+            const productForm = document.getElementById('productForm');
+            if (productForm) {
+                productForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const productId = document.getElementById('productId').value;
+                    const gstPercentageEl = document.getElementById('gstPercentage');
+                    const productData = {
+                        name: document.getElementById('productName').value,
+                        description: document.getElementById('productDescription').value,
+                        salePrice: parseFloat(document.getElementById('salePrice').value) || 0,
+                        gstPercentage: gstPercentageEl ? parseInt(gstPercentageEl.value) : 0,
+                        category: document.getElementById('productCategory').value,
+                        productGroup: document.getElementById('productGroup').value,
+                        image: document.getElementById('productImage').value,
+                    };
+
+                    try {
+                        if (productId) {
+                            productData.updatedAt = serverTimestamp();
+                            await setDoc(doc(db, productsColPath, productId), productData, { merge: true });
+                            showMessage('Product updated successfully!');
+                        } else {
+                            productData.createdAt = serverTimestamp();
+                            productData.purchasePrice = 0;
+                            productData.lastPurchasePrice = 0;
+                            productData.stock = 0;
+                            await addDoc(collection(db, productsColPath), productData);
+                            showMessage('Product added successfully!');
+                        }
+                        resetProductForm();
+                    } catch (error) {
+                       console.error("Error saving product:", error);
+                       showMessage("Failed to save product.");
+                    }
+                });
+            }
+            
+            // Product form cancel button
+            const productFormCancelBtn = document.getElementById('productFormCancelBtn');
+            if (productFormCancelBtn) {
+               productFormCancelBtn.addEventListener('click', resetProductForm);
+            }
+
+            // Slide form submission
+            const slideForm = document.getElementById('slideForm');
+            if (slideForm) {
+               slideForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    const slideId = document.getElementById('slideId').value;
+                    const slideData = {
+                        headline: document.getElementById('slideHeadline').value,
+                        subtitle: document.getElementById('slideSubtitle').value,
+                        imageUrl: document.getElementById('slideImageUrl').value,
+                        buttonText: document.getElementById('slideButtonText').value,
+                        buttonLink: document.getElementById('slideButtonLink').value,
+                    };
+
+                    try {
+                        if (slideId) {
+                            await setDoc(doc(db, slidesColPath, slideId), slideData);
+                            showMessage('Slide updated successfully!');
+                        } else {
+                            await addDoc(collection(db, slidesColPath), slideData);
+                            showMessage('Slide added successfully!');
+                        }
+                        resetSlideForm();
+                    } catch (error) {
+                       console.error("Error saving slide:", error);
+                       showMessage("Failed to save slide.");
+                    }
+                });
+            }
+
+            // Slide form cancel button
+            const slideFormCancelBtn = document.getElementById('slideFormCancelBtn');
+            if (slideFormCancelBtn) {
+               slideFormCancelBtn.addEventListener('click', resetSlideForm);
+            }
+
+            const settingsForm = document.getElementById('settingsForm');
+            if(settingsForm) {
+               settingsForm.addEventListener('submit', async (e) => {
+                    e.preventDefault();
+                    console.log('Saving settings...');
+                    // Build settings payload safely: only include scrolling bar values if the inputs exist
+                    const newSettings = {};
+                    const scrollingBarTextEl = document.getElementById('scrollingBarText');
+                    const scrollingBarVisibleEl = document.getElementById('scrollingBarVisible');
+                    if (scrollingBarTextEl) newSettings.scrollingBarText = scrollingBarTextEl.value;
+                    if (scrollingBarVisibleEl) newSettings.isScrollingBarVisible = scrollingBarVisibleEl.checked;
+                    // GST and other settings
+                    const gstEnabledEl = document.getElementById('gstEnabled');
+                    if (gstEnabledEl) newSettings.isGstEnabled = gstEnabledEl.checked;
+                    const merchantGstinEl = document.getElementById('merchantGstin');
+                    if (merchantGstinEl) newSettings.merchantGstin = merchantGstinEl.value;
+                    const businessAddressEl = document.getElementById('businessAddress');
+                    if (businessAddressEl) newSettings.businessAddress = businessAddressEl.value;
+                    try {
+                        await setDoc(doc(db, siteSettingsDocPath), newSettings, { merge: true });
+                        showMessage("Settings saved successfully!");
+                        console.log('Settings saved:', newSettings);
+                    } catch (error) {
+                       console.error("Error saving settings: ", error);
+                       showMessage("Failed to save settings.");
+                    }
+                });
+            }
+
+            const gstEnabledToggle = document.getElementById('gstEnabled');
+            if (gstEnabledToggle) {
+               gstEnabledToggle.addEventListener('change', async (e) => {
+                    const isChecked = e.target.checked;
+                    try {
+                        await setDoc(doc(db, siteSettingsDocPath), { 
+                            isGstEnabled: isChecked
+                        }, { merge: true });
+                        showMessage(`GST Calculations are now ${isChecked ? 'Enabled' : 'Disabled'}.`);
+                    } catch (error) {
+                        console.error("Error updating GST setting: ", error);
+                        showMessage("Failed to update GST setting.");
+                    }
+                });
+            }
+
+            const scrollingBarToggle = document.getElementById('scrollingBarVisible');
+            if (scrollingBarToggle) {
+               scrollingBarToggle.addEventListener('change', async (e) => {
+                    const isChecked = e.target.checked;
+                    const text = document.getElementById('scrollingBarText').value;
+                    try {
+                        await setDoc(doc(db, siteSettingsDocPath), { 
+                            isScrollingBarVisible: isChecked,
+                            scrollingBarText: text
+                        }, { merge: true });
+                        showMessage(`Scrolling bar settings updated.`);
+                    } catch (error) {
+                       console.error("Error updating scrolling bar settings: ", error);
+                       showMessage("Failed to update settings.");
+                    }
+                });
+            }
+
+            const addGalleryImageBtn = document.getElementById('addGalleryImageBtn');
+            if(addGalleryImageBtn) {
+               addGalleryImageBtn.addEventListener('click', async () => {
+                    const imageUrlInput = document.getElementById('galleryImageUrl');
+                    const imageUrl = imageUrlInput.value;
+                    if (!imageUrl) return;
+                    try {
+                        await addDoc(collection(db, galleryImagesColPath), {
+                            imageUrl: imageUrl,
+                            createdAt: serverTimestamp()
+                        });
+                        imageUrlInput.value = '';
+                        showMessage("Gallery image added!");
+                    } catch (error) {
+                       console.error("Error adding gallery image: ", error);
+                        showMessage("Could not add image.");
+                    }
+                });
+            }
+            
+            // NOTE: The event listeners for .admin-order-status-selector are now handled inside renderAdminOrderList to ensure they are re-attached after filtering/rendering.
+
+        }
+        
+        // --- REPORTING HELPERS ---
+        function exportTableToCSV(tableId, filename) {
+            const table = document.getElementById(tableId);
+            if (!table) {
+                console.error('Table not found for export');
+                return;
+            }
+
+            let csv = [];
+            const rows = table.querySelectorAll('tr');
+
+            for (const row of rows) {
+                const rowData = [];
+                const cols = row.querySelectorAll('td, th');
+                for (const col of cols) {
+                    let data = col.innerText.replace(/(\r\n|\n|\r)/gm, '').replace(/(\s\s)/gm, ' ');
+                    data = data.replace(/"/g, '""');
+                    rowData.push(`"${data}"`);
+                }
+                csv.push(rowData.join(','));
+            }
+
+            const csvContent = "data:text/csv;charset=utf-8," + csv.join('\n');
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", filename);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function printReport(reportContainerId, reportTitle) {
+            const reportContainer = document.getElementById(reportContainerId);
+            if (!reportContainer) {
+                console.error('Report container not found for printing');
+                return;
+            }
+
+            const reportHtml = reportContainer.innerHTML;
+            const printWindow = window.open('', '_blank', 'height=600,width=800');
+
+           printWindow.document.write('<html><head><title>' + reportTitle + '</title>');
+            printWindow.document.write(`
+                <style>
+                    body { font-family: 'Poppins', sans-serif; margin: 2rem; }
+                    table { width: 100%; border-collapse: collapse; }
+                    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                    th { background-color: #f2f2f2; }
+                    h1, h2, h3 { font-family: 'Playfair Display', serif; }
+                    .flex, .grid { display: block; } /* Simplify layout for printing */
+                </style>
+            `);
+           printWindow.document.write('</head><body>');
+           printWindow.document.write(`<h1>${reportTitle}</h1>`);
+           printWindow.document.write(`<p>Date: ${new Date().toLocaleDateString()}</p><hr/>`);
+           printWindow.document.write(reportHtml);
+           printWindow.document.write('</body></html>');
+
+            printWindow.document.close();
+            printWindow.focus();
+            setTimeout(() => {
+                printWindow.print();
+                printWindow.close();
+            }, 250);
+        }
+
+        function attachReportListeners() {
+           document.getElementById('applyDateFilterBtn')?.addEventListener('click', () => {
+                state.registerStartDate = document.getElementById('registerStartDate').value;
+                state.registerEndDate = document.getElementById('registerEndDate').value;
+                renderAdminBillingPage();
+            });
+            
+           document.querySelectorAll('.register-filter-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    state.registerFilter = e.currentTarget.dataset.filter;
+                    renderAdminBillingPage();
+                });
+            });
+
+           document.getElementById('printRegisterBtn')?.addEventListener('click', () => printReport('registerReportContainer', 'Purchase & Sales Register'));
+           document.getElementById('exportRegisterBtn')?.addEventListener('click', () => exportTableToCSV('registerTable', 'purchase-sales-register.csv'));
+            
+           document.getElementById('printSalesReportBtn')?.addEventListener('click', () => printReport('salesReportContainer', 'Sales Report'));
+
+            document.getElementById('printInventoryBtn')?.addEventListener('click', () => printReport('inventoryReportContainer', 'Inventory Report'));
+           document.getElementById('exportInventoryBtn')?.addEventListener('click', () => exportTableToCSV('inventoryTable', 'inventory-report.csv'));
+        }
+
+        document.body.addEventListener('click', async e => {
+            const navBtn = e.target.closest('.nav-btn');
+            if (navBtn) {
+                e.preventDefault();
+                navigateTo(navBtn.dataset.page, navBtn.dataset.id, navBtn.dataset.category, navBtn.dataset.group);
+            }
+            
+            const addToCartBtn = e.target.closest('.add-to-cart-btn');
+            if(addToCartBtn) { addToCart(addToCartBtn.dataset.id, 1); }
+            
+            const addToCartBtnDetail = e.target.closest('.add-to-cart-btn-detail');
+            if(addToCartBtnDetail) {
+                const quantity = document.getElementById('quantitySelector') ? parseInt(document.getElementById('quantitySelector').value) : 1;
+               addToCart(addToCartBtnDetail.dataset.id, quantity);
+            }
+
+            const removeFromCartBtn = e.target.closest('.remove-from-cart-btn');
+            if (removeFromCartBtn) { updateCart(removeFromCartBtn.dataset.id, 0); }
+
+            const logoutBtn = e.target.closest('#logoutBtn');
+            if (logoutBtn) { 
+                e.preventDefault(); 
+                await signOut(auth);
+                navigateTo('home');
+            }
+
+            const accordionHeader = e.target.closest('.accordion-header');
+            if (accordionHeader) {
+                const content = accordionHeader.nextElementSibling;
+                const icon = accordionHeader.querySelector('i');
+                if(content.style.maxHeight) {
+                    content.style.maxHeight = null;
+                    if (icon) icon.style.transform = 'rotate(0deg)';
+                } else {
+                    content.style.maxHeight = content.scrollHeight + 'px';
+                    if (icon) icon.style.transform = 'rotate(180deg)';
+                }
+            }
+
+            const adminTabBtn = e.target.closest('.admin-tab-btn');
+            if (adminTabBtn) {
+                e.preventDefault();
+                const tab = adminTabBtn.dataset.tab;
+                if (tab !== state.adminCurrentTab) {
+                    state.adminCurrentTab = tab;
+                    renderAdminPage(); 
+                }
+            }
+
+            // Edit Product
+            const editProductBtn = e.target.closest('.edit-product-btn');
+            if (editProductBtn) {
+                const productId = editProductBtn.dataset.id;
+                const product = state.products.find(p => p.id === productId);
+                if (product) {
+                    document.getElementById('productId').value = product.id;
+                    document.getElementById('productName').value = product.name;
+                    document.getElementById('productDescription').value = product.description;
+                    document.getElementById('salePrice').value = product.salePrice || 0;
+                     if(document.getElementById('gstPercentage')) {
+                          document.getElementById('gstPercentage').value = product.gstPercentage || 0;
+                     }
+                    document.getElementById('productCategory').value = product.category;
+                    document.getElementById('productGroup').value = product.productGroup || '';
+                    document.getElementById('productImage').value = product.image;
+
+                    document.getElementById('avgPurchasePriceDisplay').textContent = product.purchasePrice ? `₹${product.purchasePrice.toFixed(2)}` : 'N/A';
+                    document.getElementById('lastPurchasePriceDisplay').textContent = product.lastPurchasePrice ? `₹${product.lastPurchasePrice.toFixed(2)}` : 'N/A';
+                    
+                    const submitBtn = document.getElementById('productFormSubmitBtn');
+                    document.getElementById('productFormTitle').textContent = 'Edit Product';
+                    submitBtn.textContent = 'Update Product';
+                    submitBtn.classList.remove('bg-green-600', 'hover:bg-green-700');
+                    submitBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                    document.getElementById('productFormCancelBtn').classList.remove('hidden');
+                    document.getElementById('productFormTitle').scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+            
+            // Delete Product
+            const deleteProductBtn = e.target.closest('.delete-product-btn');
+            if (deleteProductBtn) {
+                try {
+                    await deleteDoc(doc(db, productsColPath, deleteProductBtn.dataset.id));
+                    showMessage('Product deleted.');
+                } catch (error) {
+                    showMessage('Error deleting product.');
+                    console.error("Error deleting product:", error);
+                }
+            }
+
+            // Edit Slide
+            const editSlideBtn = e.target.closest('.edit-slide-btn');
+            if (editSlideBtn) {
+                const slideId = editSlideBtn.dataset.id;
+                const slide = state.heroSlides.find(s => s.id === slideId);
+                if (slide) {
+                    document.getElementById('slideId').value = slide.id;
+                    document.getElementById('slideHeadline').value = slide.headline;
+                    document.getElementById('slideSubtitle').value = slide.subtitle;
+                    document.getElementById('slideImageUrl').value = slide.imageUrl;
+                    document.getElementById('slideButtonText').value = slide.buttonText;
+                    document.getElementById('slideButtonLink').value = slide.buttonLink;
+                    
+                    const submitBtn = document.getElementById('slideFormSubmitBtn');
+                    document.getElementById('slideFormTitle').textContent = 'Edit Slide';
+                    submitBtn.textContent = 'Update Slide';
+                    submitBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                    submitBtn.classList.add('bg-green-600', 'hover:bg-green-700');
+                    document.getElementById('slideFormCancelBtn').classList.remove('hidden');
+                    document.getElementById('slideFormTitle').scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+            
+            // Delete Slide
+            const deleteSlideBtn = e.target.closest('.delete-slide-btn');
+            if (deleteSlideBtn) {
+                try {
+                    await deleteDoc(doc(db, slidesColPath, deleteSlideBtn.dataset.id));
+                    showMessage('Slide deleted.');
+                } catch (error) {
+                    showMessage('Error deleting slide.');
+                    console.error("Error deleting slide:", error);
+                }
+            }
+
+            // Delete Gallery Image
+            const deleteGalleryImageBtn = e.target.closest('.delete-gallery-image-btn');
+            if (deleteGalleryImageBtn) {
+                try {
+                    await deleteDoc(doc(db, galleryImagesColPath, deleteGalleryImageBtn.dataset.id));
+                    showMessage('Image deleted from gallery.');
+                } catch (error) {
+                    showMessage('Error deleting image.');
+                    console.error("Error deleting image:", error);
+                }
+            }
+
+            // Approve Testimonial
+            const approveTestimonialBtn = e.target.closest('.approve-testimonial-btn');
+            if (approveTestimonialBtn) {
+                try {
+                     const testimonialRef = doc(db, testimonialsColPath, approveTestimonialBtn.dataset.id);
+                    await updateDoc(testimonialRef, { approved: true });
+                    showMessage('Testimonial approved.');
+                } catch (error) {
+                    showMessage('Error approving testimonial.');
+                    console.error("Error approving testimonial:", error);
+                }
+            }
+
+            // Delete Testimonial
+            const deleteTestimonialBtn = e.target.closest('.delete-testimonial-btn');
+            if (deleteTestimonialBtn) {
+                try {
+                    await deleteDoc(doc(db, testimonialsColPath, deleteTestimonialBtn.dataset.id));
+                    showMessage('Testimonial deleted.');
+                } catch (error) {
+                    showMessage('Error deleting testimonial.');
+                    console.error("Error deleting testimonial:", error);
+                }
+            }
+            
+            // **NEW:** Soft Delete Purchase
+            const softDeletePurchaseBtn = e.target.closest('.soft-delete-purchase-btn');
+            if (softDeletePurchaseBtn) {
+                const purchaseId = softDeletePurchaseBtn.dataset.id;
+                if (confirm('Are you sure you want to delete this purchase entry? This action cannot be undone and will affect inventory records!')) {
+                    await softDeletePurchase(purchaseId);
+                }
+            }
+        });
+
+        document.body.addEventListener('change', e => {
+            const quantitySelector = e.target.closest('.cart-quantity-selector');
+            if(quantitySelector) {
+                const newQuantity = parseInt(quantitySelector.value);
+                if (newQuantity > 0) {
+                   updateCart(quantitySelector.dataset.id, newQuantity);
+                }
+            }
+
+            const quantityStepper = e.target.closest('.cart-quantity-stepper');
+            if (quantityStepper) {
+                const input = quantityStepper.parentElement.querySelector('input');
+                const currentQuantity = parseInt(input.value);
+                const change = parseInt(quantityStepper.dataset.change);
+                const newQuantity = currentQuantity + change;
+                 if (newQuantity > 0) {
+                   updateCart(input.dataset.id, newQuantity);
+                }
+            }
+        });
+
+       document.body.addEventListener('submit', async e => {
+            if (e.target.id === 'checkoutForm') {
+                e.preventDefault();
+                const cartProductIds = Object.keys(state.cart.items);
+                if (cartProductIds.length === 0) return;
+
+                const items = state.products
+                    .filter(p => cartProductIds.includes(p.id))
+                    .map(product => ({
+                        id: product.id,
+                        name: product.name,
+                        price: product.salePrice,
+                        gstPercentage: product.gstPercentage || 0,
+                        image: product.image,
+                        quantity: state.cart.items[product.id].quantity
+                    }));
+
+                // Check stock before processing
+                for (const item of items) {
+                    const product = state.products.find(p => p.id === item.id);
+                    if (!product || (product.stock || 0) < item.quantity) {
+                        showMessage(`Sorry, ${item.name} is out of stock or not available in the requested quantity.`);
+                        return;
+                    }
+                }
+
+                let subtotal = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+                const shipping = 50.00;
+                const gstBreakdown = { rates: {}, total: 0 };
+                
+                if (state.siteSettings.isGstEnabled) {
+                    items.forEach(item => {
+                        if(item.gstPercentage > 0) {
+                            const rate = item.gstPercentage;
+                            if (!gstBreakdown.rates[rate]) gstBreakdown.rates[rate] = 0;
+                            const itemGst = item.price * item.quantity * (rate / 100);
+                            gstBreakdown.rates[rate] += itemGst;
+                            gstBreakdown.total += itemGst;
+                        }
+                    });
+                }
+
+                const totalAmount = subtotal + gstBreakdown.total + shipping;
+
+                let gstInfo = { requested: false };
+                if (state.siteSettings.isGstEnabled) {
+                    const requestGstInvoice = document.getElementById('requestGstInvoice').checked;
+                    if (requestGstInvoice) {
+                        gstInfo.requested = true;
+                        gstInfo.number = document.getElementById('gstNumber').value;
+                    }
+                }
+
+                const shippingInfo = {
+                    fullName: document.getElementById('fullName').value,
+                    address: document.getElementById('address').value,
+                    city: document.getElementById('city').value,
+                    state: document.getElementById('state').value,
+                    zip: document.getElementById('zip').value,
+                };
+                
+                const invoiceNumber = await getAndIncrementCounter('sales');
+
+                const orderData = {
+                    userId: state.currentUser.uid,
+                    invoiceNumber,
+                    items,
+                    totalAmount,
+                    shippingInfo,
+                    gstBreakdown,
+                    gstInfo, // For the customer's GSTIN if provided
+                    status: 'Pending',
+                    orderDate: serverTimestamp()
+                };
+
+                try {
+                    // Start a batch write to update stock and create orders
+                    const batch = writeBatch(db);
+
+                    // Decrement stock for each item
+                    items.forEach(item => {
+                        const productRef = doc(db, productsColPath, item.id);
+                       batch.update(productRef, { stock: increment(-item.quantity) });
+                    });
+                    
+                    // Create public order
+                    const publicOrderRef = doc(collection(db, ordersColPath));
+                    batch.set(publicOrderRef, orderData);
+
+                     // Create user-specific order
+                    const userOrderPath = `artifacts/${appId}/users/${state.currentUser.uid}/orders`;
+                    const userOrderRef = doc(db, userOrderPath, publicOrderRef.id);
+                    batch.set(userOrderRef, orderData);
+
+                    // Clear the cart
+                    const cartRef = doc(db, `artifacts/${appId}/users/${state.currentUser.uid}/cart`, 'user_cart');
+                    batch.set(cartRef, { items: {} });
+
+                    // Commit all operations atomically
+                    await batch.commit();
+
+                    navigateTo('order_success', publicOrderRef.id);
+                } catch (error) {
+                    console.error("Error placing order:", error);
+                    showMessage("There was an issue placing your order. Please try again.");
+                }
+            }
+
+            if (e.target.id === 'testimonialForm') {
+                e.preventDefault();
+                const name = document.getElementById('testimonialName').value;
+                const message = document.getElementById('testimonialMessage').value;
+                const ratingInput = document.querySelector('input[name="rating"]:checked');
+
+                if (!ratingInput) {
+                    showMessage("Please select a rating.");
+                    return;
+                }
+                const rating = parseInt(ratingInput.value);
+
+                const testimonialData = {
+                    name,
+                    message,
+                    rating,
+                    createdAt: serverTimestamp(),
+                    approved: false
+                };
+
+                try {
+                    await addDoc(collection(db, testimonialsColPath), testimonialData);
+                    showMessage("Thank you! Your review has been submitted for approval.");
+                    e.target.reset();
+                } catch (error) {
+                    console.error("Error submitting testimonial:", error);
+                    showMessage("Sorry, there was an error submitting your review.");
+                }
+            }
+            
+            if (e.target.id === 'purchaseForm') {
+                e.preventDefault();
+                const supplierName = document.getElementById('supplierName').value;
+                const purchaseDate = document.getElementById('purchaseDate').value;
+                const items = [];
+                // Collect rows including GST% so we can compute GST correctly
+                document.querySelectorAll('.purchase-item-row').forEach(row => {
+                    const productId = row.querySelector('.purchase-product-select')?.value || '';
+                    const productName = (row.querySelector('.purchase-product-select')?.options[row.querySelector('.purchase-product-select')?.selectedIndex]?.text) || '';
+                    const purchasePrice = parseFloat(row.querySelector('.purchase-price')?.value) || 0;
+                    const quantity = parseFloat(row.querySelector('.purchase-quantity')?.value) || 0;
+                    const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
+                    if (productId && purchasePrice > 0 && quantity > 0) {
+                        items.push({ productId, productName, price: purchasePrice, quantity, gstPercentage, purchasePrice });
+                    }
+                });
+
+                if (items.length === 0) {
+                    showMessage("Please add at least one item to the purchase.");
+                    return;
+                }
+
+                // Compute GST totals and grand total respecting the "prices include GST" toggle
+                const pricesIncludeGst = !!(document.getElementById('purchasePricesIncludeGst')?.checked || false);
+                // computeGstForItems expects items with { price, quantity, gstPercentage }
+                const gstItems = items.map(it => ({ price: it.price, quantity: it.quantity, gstPercentage: it.gstPercentage }));
+                const gstComputed = computeGstForItems(gstItems, pricesIncludeGst, window._merchantStateCode || null, window._supplierStateCode || null);
+                // Grand total: if prices include GST, subtotalInc already includes GST; else subtotalEx + totalTax
+                const totalAmount = pricesIncludeGst ? +(gstComputed.subtotalInc || 0) : +(((gstComputed.subtotalEx || 0) + (gstComputed.total || 0)).toFixed(2));
+
+                const invoiceNumber = await getAndIncrementCounter('purchases');
+
+                const purchaseData = {
+                    supplierName,
+                    invoiceNumber,
+                    purchaseDate: new Date(purchaseDate),
+                    items,
+                    totalAmount,
+                    // **NEW FIELD:** Mark as not deleted
+                    isDeleted: false,
+                    createdAt: serverTimestamp()
+                };
+
+                try {
+                    const batch = writeBatch(db);
+                    
+                    const purchaseRef = doc(collection(db, purchasesColPath));
+                    batch.set(purchaseRef, purchaseData);
+
+                    for (const item of items) {
+                        const allItemPurchases = state.allPurchases.filter(p => p.items.some(i => i.productId === item.productId));
+                        
+                        let totalCost = item.purchasePrice * item.quantity;
+                        let totalQuantity = item.quantity;
+
+                       allItemPurchases.forEach(p => {
+                            p.items.forEach(i => {
+                                if (i.productId === item.productId) {
+                                    totalCost += i.purchasePrice * i.quantity;
+                                   totalQuantity += i.quantity;
+                                }
+                            });
+                        });
+                        
+                        const productRef = doc(db, productsColPath, item.productId);
+                        const currentProduct = state.products.find(p => p.id === item.productId);
+                        const newStock = (currentProduct.stock || 0) + item.quantity;
+
+                        const newAveragePrice = totalQuantity > 0 ? totalCost / totalQuantity : item.purchasePrice;
+                        const lastPurchasePrice = item.purchasePrice;
+
+                       batch.update(productRef, { 
+                            stock: newStock,
+                            purchasePrice: newAveragePrice,
+                            lastPurchasePrice: lastPurchasePrice,
+                        });
+                    }
+
+                    await batch.commit();
+                    showMessage("Purchase recorded successfully!");
+                    e.target.reset();
+                   document.getElementById('purchaseItemsContainer').innerHTML = '';
+                    addPurchaseItemRow();
+                } catch (error) {
+                        console.error("Error saving purchase:", error);
+                        showMessage("Failed to save purchase entry.");
+                }
+            }
+
+            if (e.target.id === 'newProductForm') {
+                e.preventDefault();
+                const gstPercentageEl = e.target.querySelector('#gstPercentage');
+                const productData = {
+                    name: e.target.querySelector('#productName').value,
+                    description: e.target.querySelector('#productDescription').value,
+                    purchasePrice: 0, // This is now calculated
+                    lastPurchasePrice: 0,
+                    salePrice: parseFloat(e.target.querySelector('#salePrice').value) || 0,
+                    stock: 0, // Stock will be added via the purchase entry
+                    gstPercentage: gstPercentageEl ? parseInt(gstPercentageEl.value) : 0,
+                    category: e.target.querySelector('#productCategory').value,
+                    image: e.target.querySelector('#productImage').value,
+                    createdAt: serverTimestamp()
+                };
+
+                try {
+                    const newProdDoc = await addDoc(collection(db, productsColPath), productData);
+                    showMessage('New product added! You can now select it.');
+                    
+                    // Update the select that triggered this
+                    const lastSelect = window.newProductTriggerSelect;
+                    if(lastSelect) {
+                        const newOption = new Option(productData.name, newProdDoc.id);
+                        newOption.selected = true;
+                       lastSelect.add(newOption, lastSelect.options[lastSelect.options.length - 1]);
+                    }
+
+                    closeNewProductModal();
+                } catch (error) {
+                    console.error("Error adding new product:", error);
+                    showMessage("Failed to add new product.");
+                }
+            }
+        });
+        
+        const messageModal = document.getElementById('messageModal');
+        const messageText = document.getElementById('messageText');
+        const messageOkBtn = document.getElementById('messageOkBtn');
+
+        function showMessage(msg) {
+            if(!messageModal || !messageText) return;
+            messageText.textContent = msg;
+           messageModal.classList.remove('hidden');
+            setTimeout(() => {
+               messageModal.classList.remove('opacity-0');
+               messageModal.querySelector('div').classList.remove('scale-95');
+             }, 10);
+        };
+
+        if (messageOkBtn) {
+           messageOkBtn.addEventListener('click', () => {
+                if(!messageModal) return;
+               messageModal.classList.add('opacity-0');
+               messageModal.querySelector('div').classList.add('scale-95');
+                setTimeout(() => messageModal.classList.add('hidden'), 300);
+            });
+        }
+        
+        async function updateOrderStatus(orderId, userId, status) {
+            try {
+                const publicOrderRef = doc(db, ordersColPath, orderId);
+                await updateDoc(publicOrderRef, { status: status });
+
+                const userOrderPath = `artifacts/${appId}/users/${userId}/orders`;
+                const userOrderRef = doc(db, userOrderPath, orderId);
+                await updateDoc(userOrderRef, { status: status });
+                
+                showMessage(`Order ${orderId} status updated to ${status}.`);
+            } catch (error) {
+                console.error("Error updating order status:", error);
+                showMessage("Failed to update order status.");
+            }
+        }
+
+        // **NEW:** Soft Delete Purchase Function
+        async function softDeletePurchase(purchaseId) {
+            const purchaseRef = doc(db, purchasesColPath, purchaseId);
+            const purchase = state.allPurchases.find(p => p.id === purchaseId);
+            if (!purchase) {
+                showMessage('Purchase record not found.');
+                return;
+            }
+
+            try {
+                const batch = writeBatch(db);
+
+                // 1. Soft delete the purchase record
+                batch.update(purchaseRef, { isDeleted: true });
+
+                // 2. Adjust product stock (decrement)
+                for (const item of purchase.items) {
+                    const productRef = doc(db, productsColPath, item.productId);
+                    batch.update(productRef, { stock: increment(-item.quantity) });
+                }
+
+                // NOTE: For simplicity, average purchase price is not recalculated as it's complex and prone to errors.
+                // A full accounting system would need to reverse the weighted average calculation.
+                // We'll leave the purchasePrice field as is for now.
+
+                await batch.commit();
+                showMessage(`Purchase ${purchaseId} marked as deleted and stock has been reversed.`);
+            } catch (error) {
+                console.error("Error soft-deleting purchase:", error);
+                showMessage("Failed to delete purchase entry and reverse stock.");
+            }
+        }
+
+        // --- AUTHENTICATION & INITIALIZATION ---
+        function initializeAppAndListeners() {
+            let initialAuthResolved = false;
+            let publicListenersAttached = false;
+
+            onAuthStateChanged(auth, async (user) => {
+                if (!user && !initialAuthResolved) {
+                    initialAuthResolved = true;
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                        return;
+                    } catch (error) {
+                       console.error("Initial sign-in failed:", error);
+                       showMessage("Could not connect to the service.");
+                        return;
+                    }
+                }
+                
+                initialAuthResolved = true;
+                state.currentUser = user;
+
+                if (user && !publicListenersAttached) {
+                    publicListenersAttached = true;
+                    listenToProducts();
+                    listenToProductGroups();
+                    listenToHeroSlides();
+                    listenToGalleryImages();
+                    listenToSiteSettings();
+                    listenToTestimonials();
+                }
+
+                // Handle user-specific listeners
+                if (state.listeners.cart) { state.listeners.cart(); state.listeners.cart = null; }
+                if (state.listeners.orders) { state.listeners.orders(); state.listeners.orders = null; }
+                if (state.listeners.allOrders) { state.listeners.allOrders(); state.listeners.allOrders = null; }
+                if (state.listeners.allTestimonials) { state.listeners.allTestimonials(); state.listeners.allTestimonials = null; }
+                if (state.listeners.allPurchases) { state.listeners.allPurchases(); state.listeners.allPurchases = null; }
+                if (state.listeners.allLocalSales) { state.listeners.allLocalSales(); state.listeners.allLocalSales = null; }
+
+
+                if (user && !user.isAnonymous) {
+                    listenToCart(user.uid);
+                                       listenToUserOrders(user.uid);
+                    if (user.uid === ADMIN_UID) {
+                        listenToAllOrders();
+                       listenToAllTestimonials();
+                        listenToAllPurchases();
+                       listenToAllLocalSales();
+                    }
+                } else {
+                    state.cart = { items: {} };
+                    state.orders = [];
+                    state.allOrders = [];
+                }
+                
+                renderApp();
+            });
+        }
+        
+        // --- PURCHASE FORM HELPERS ---
+        function addPurchaseItemRow() {
+            const container = document.getElementById('purchaseItemsContainer');
+            if(!container) return;
+
+            const productOptions = state.products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+
+            const row = document.createElement('div');
+            row.className = 'grid grid-cols-12 gap-4 items-center purchase-item-row';
+            row.innerHTML = `
+                <div class="col-span-4">
+                    <select class="purchase-product-select w-full px-4 py-2 border border-gray-300 rounded-md">
+                        <option value="">Select a Product</option>
+                        ${productOptions}
+                        <option value="new" class="text-blue-500 font-bold">+ Add New Product</option>
+                    </select>
+                    <div class="purchase-hsn mt-2 w-full px-3 py-2 rounded-md text-sm text-gray-700 hidden" aria-hidden="true">
+                        <span class="purchase-hsn-label text-xs text-gray-500 mr-2 hidden">HSN / SAC:</span>
+                        <span class="purchase-hsn-code"></span>
+                    </div>
+                </div>
+                <div class="col-span-2">
+                    <input type="number" class="purchase-price w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Price" step="0.01">
+                </div>
+                <div class="col-span-2">
+                    <input type="number" class="purchase-quantity w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Qty">
+                </div>
+                <div class="col-span-1">
+                    <select class="purchase-gst w-full px-2 py-2 border border-gray-300 rounded-md">
+                        <option value="0">0%</option>
+                        <option value="5">5%</option>
+                        <option value="12">12%</option>
+                        <option value="18" selected>18%</option>
+                        <option value="28">28%</option>
+                    </select>
+                </div>
+                <div class="col-span-2">
+                    <p class="purchase-item-total text-right font-semibold">0.00</p>
+                </div>
+                <div class="col-span-1 text-right">
+                    <button type="button" class="remove-purchase-item-btn text-red-500 hover:text-red-700">&times;</button>
+                </div>
+            `;
+            container.appendChild(row);
+            // After adding the row, move keyboard focus to the new product select so Tab order continues there
+            try {
+                const productSelect = row.querySelector('.purchase-product-select');
+                if (productSelect) { setTimeout(() => { try { productSelect.focus(); } catch(_){} }, 0); }
+            } catch(_) {}
+        }
+
+        function updatePurchaseTotal() {
+            const pricesIncludeGst = document.getElementById('purchasePricesIncludeGst')?.checked || false;
+            let subtotalEx = 0, gstTotal = 0, subtotalInc = 0;
+            document.querySelectorAll('.purchase-item-row').forEach(row => {
+                const price = parseFloat(row.querySelector('.purchase-price').value) || 0;
+                const quantity = parseInt(row.querySelector('.purchase-quantity').value) || 0;
+                const gstPercentage = parseFloat(row.querySelector('.purchase-gst')?.value) || 0;
+                let lineEx, lineGst, lineInc;
+                if (pricesIncludeGst) {
+                    lineInc = price * quantity;
+                    const factor = 1 + (gstPercentage / 100);
+                    lineEx = factor > 0 ? (lineInc / factor) : lineInc;
+                    lineGst = lineInc - lineEx;
+                } else {
+                    lineEx = price * quantity;
+                    lineGst = lineEx * (gstPercentage / 100);
+                    lineInc = lineEx + lineGst;
+                }
+                row.querySelector('.purchase-item-total').textContent = `${lineInc.toFixed(2)}`;
+                subtotalEx += lineEx; gstTotal += lineGst; subtotalInc += lineInc;
+            });
+            // Show exclusive subtotal, GST amount, and grand total (subtotal + GST)
+            document.getElementById('purchaseSubtotal').textContent = `${(subtotalEx).toFixed(2)}`;
+            document.getElementById('purchaseGst').textContent = `${gstTotal.toFixed(2)}`;
+            document.getElementById('purchaseTotal').textContent = `${(subtotalInc).toFixed(2)}`;
+        }
+
+        function renderPurchaseHistory() {
+            const container = document.getElementById('purchaseHistoryContainer');
+            if (!container) return;
+            
+            // **MODIFIED:** Filter to only show NON-DELETED purchases
+            const nonDeletedPurchases = state.allPurchases.filter(p => !p.isDeleted);
+
+            if (nonDeletedPurchases.length === 0) {
+                container.innerHTML = `<p class="text-gray-500 text-center">No purchase history found.</p>`;
+                return;
+            }
+            
+            const historyHTML = nonDeletedPurchases.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)).map(purchase => `
+                <div class="bg-gray-50 p-4 rounded-lg text-sm">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                           <p><strong>Supplier:</strong> ${purchase.supplierName}</p>
+                            <p class="text-xs text-gray-500">Invoice #: ${purchase.invoiceNumber || purchase.id}</p>
+                        </div>
+                        <div class="text-right flex items-center space-x-3">
+                            <div>
+                                <p class="font-bold">Total (₹): ${purchase.totalAmount.toFixed(2)}</p>
+                                <button data-page="purchase_invoice" data-id="${purchase.id}" class="nav-btn text-xs text-blue-500 hover:underline">View Record</button>
+                            </div>
+                            <button data-id="${purchase.id}" class="soft-delete-purchase-btn bg-red-500 text-white p-2 rounded-full hover:bg-red-600 w-8 h-8 flex items-center justify-center" title="Delete Entry & Reverse Stock"><i class="fa-solid fa-trash-can-arrow-up text-xs"></i></button>
+                        </div>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-2">Date: ${new Date(purchase.purchaseDate.seconds * 1000).toLocaleDateString()}</p>
+                    <details>
+                        <summary class="cursor-pointer text-blue-500 text-xs">View Items (${purchase.items.length})</summary>
+                        <ul class="list-disc pl-5 mt-2 text-xs">
+                           ${purchase.items.map(item => `<li>${item.productName} - ${item.quantity} x ${item.purchasePrice.toFixed(2)}</li>`).join('')}
+                        </ul>
+                    </details>
+                </div>
+            `).join('');
+
+            container.innerHTML = historyHTML;
+        }
+
+        // --- LOCAL SALE HELPERS ---
+        function addLocalSaleItemRow() {
+            const container = document.getElementById('localSaleItemsContainer');
+            if(!container) return;
+
+            // Show product with its current stock
+            const productOptions = state.products.map(p => `<option value="${p.id}">${p.name} (Stock: ${p.stock || 0})</option>`).join('');
+
+            const row = document.createElement('div');
+            row.className = 'grid grid-cols-12 gap-4 items-center local-sale-item-row';
+            row.innerHTML = `
+                <div class="col-span-6">
+                    <select class="local-sale-product-select w-full px-4 py-2 border border-gray-300 rounded-md">
+                        <option value="">Select a Product</option>
+                        ${productOptions}
+                    </select>
+                </div>
+                <div class="col-span-2">
+                    <input type="number" class="local-sale-quantity w-full px-4 py-2 border border-gray-300 rounded-md" placeholder="Qty" value="1" min="1">
+                </div>
+                <div class="col-span-3">
+                    <p class="local-sale-item-total text-right font-semibold">0.00</p>
+                </div>
+                <div class="col-span-1 text-right">
+                    <button type="button" class="remove-local-sale-item-btn text-red-500 hover:text-red-700 text-xl">&times;</button>
+                </div>
+            `;
+            container.appendChild(row);
+        }
+
+        function updateLocalSaleTotals() {
+            let subtotal = 0;
+            const gstBreakdown = {};
+
+           document.querySelectorAll('.local-sale-item-row').forEach(row => {
+                const productId = row.querySelector('.local-sale-product-select').value;
+                const quantity = parseInt(row.querySelector('.local-sale-quantity').value) || 0;
+                const product = state.products.find(p => p.id === productId);
+
+                let itemTotal = 0;
+                if (product && quantity > 0) {
+                    itemTotal = product.salePrice * quantity;
+                    subtotal += itemTotal;
+
+                    if (state.siteSettings.isGstEnabled && item.gstPercentage > 0) {
+                        const rate = item.gstPercentage;
+                        if (!gstBreakdown.rates[rate]) gstBreakdown.rates[rate] = 0;
+                        const itemGst = itemTotal * (rate / 100);
+                       gstBreakdown.rates[rate] += itemGst;
+                        gstBreakdown.total += itemGst;
+                    }
+                }
+               row.querySelector('.local-sale-item-total').textContent = `${itemTotal.toFixed(2)}`;
+            });
+
+            const totalGst = Object.values(gstBreakdown).reduce((sum, amount) => sum + amount, 0);
+            const total = subtotal + totalGst;
+
+           document.getElementById('localSaleSubtotal').textContent = `${subtotal.toFixed(2)}`;
+            const gstBreakdownEl = document.getElementById('localSaleGstBreakdown');
+            gstBreakdownEl.innerHTML = Object.keys(gstBreakdown).map(rate => 
+                `<div class="flex justify-between"><span>GST (${rate}%) (₹):</span><span>${gstBreakdown[rate].toFixed(2)}</span></div>`
+            ).join('');
+           document.getElementById('localSaleTotal').textContent = `${total.toFixed(2)}`;
+        }
+
+        async function handleGenerateLocalInvoice(e) {
+            e.preventDefault();
+            const items = [];
+            let subtotal = 0;
+            const gstBreakdown = { rates: {}, total: 0 };
+            let stockError = false;
+
+            document.querySelectorAll('.local-sale-item-row').forEach(row => {
+                const productId = row.querySelector('.local-sale-product-select').value;
+                const quantity = parseInt(row.querySelector('.local-sale-quantity').value) || 0;
+                const product = state.products.find(p => p.id === productId);
+
+                if (product && quantity > 0) {
+                    if ((product.stock || 0) < quantity) {
+                        showMessage(`Not enough stock for ${product.name}. Only ${product.stock || 0} available.`);
+                        stockError = true;
+                    }
+                    const itemSubtotal = product.salePrice * quantity;
+                    subtotal += itemSubtotal;
+                    
+                    const item = {
+                        id: product.id,
+                        name: product.name,
+                        price: product.salePrice,
+                        quantity: quantity,
+                        gstPercentage: product.gstPercentage || 0,
+                    };
+                    items.push(item);
+                    
+                    if (state.siteSettings.isGstEnabled && item.gstPercentage > 0) {
+                        const rate = item.gstPercentage;
+                        if (!gstBreakdown.rates[rate]) gstBreakdown.rates[rate] = 0;
+                        const itemGst = itemSubtotal * (rate / 100);
+                        gstBreakdown.rates[rate] += itemGst;
+                        gstBreakdown.total += itemGst;
+                    }
+                }
+               row.querySelector('.local-sale-item-total').textContent = `${itemTotal.toFixed(2)}`;
+            });
+
+            if (stockError) return;
+            if (items.length === 0) {
+                showMessage("Please add at least one item to the invoice.");
+                return;
+            }
+
+            const totalAmount = subtotal + gstBreakdown.total;
+
+            let gstInfo = { requested: false, number: '' };
+            const isGstInvoice = document.getElementById('localSaleGstInvoice').checked;
+            if (isGstInvoice) {
+                gstInfo.requested = true;
+                gstInfo.number = document.getElementById('localSaleGstNumber').value;
+            }
+            
+            const invoiceNumber = await getAndIncrementCounter('localSales');
+
+            // Store data for the invoice page and for saving
+            const localSaleDocData = {
+                invoiceNumber,
+                customerName: document.getElementById('customerName').value,
+                saleDate: new Date(document.getElementById('saleDate').value),
+                items,
+                subtotal,
+                gstBreakdown,
+                totalAmount,
+                gstInfo,
+                createdAt: serverTimestamp()
+            };
+            
+            state.localSaleData = localSaleDocData; // for immediate navigation
+
+            // Batch write to update stock and save local sale record
+            try {
+                const batch = writeBatch(db);
+                items.forEach(item => {
+                    const productRef = doc(db, productsColPath, item.id);
+                    batch.update(productRef, { stock: increment(-item.quantity) });
+                });
+                
+                // Save the local sale to its own collection
+                const localSaleRef = doc(collection(db, localSalesColPath));
+                batch.set(localSaleRef, localSaleDocData);
+
+                await batch.commit();
+                
+                state.localSaleData.id = localSaleRef.id;
+                
+                // Navigate to invoice page
+                navigateTo('local_sale_invoice', localSaleRef.id);
+
+            } catch (error) {
+                console.error("Error finalizing local sale:", error);
+                showMessage("Failed to finalize sale. Invoice not generated.");
+            }
+        }
+
+
+        function openNewProductModal(triggeringSelect) {
+            window.newProductTriggerSelect = triggeringSelect; // Save the select element
+           document.getElementById('newProductModal').classList.remove('hidden');
+        }
+
+        function closeNewProductModal() {
+            try {
+                // If opened from a product <select>, reset that select back to the placeholder
+                if (window.newProductTriggerSelect) {
+                    try {
+                        const sel = window.newProductTriggerSelect;
+                        if (sel && typeof sel.value !== 'undefined') {
+                            sel.value = '';
+                            try { sel.dispatchEvent(new Event('change', { bubbles: true })); } catch(_) {}
+                        }
+                    } catch(_) {}
+                }
+                window.newProductTriggerSelect = null;
+            } catch(_) {}
+            try {
+                // Defensive: reset any lingering selects that still have the 'new' value
+                const lingering = document.querySelectorAll('.purchase-product-select, .local-sale-product-select');
+                lingering.forEach(s => {
+                    try {
+                        if (s && s.value === 'new') { s.value = ''; try { s.dispatchEvent(new Event('change', { bubbles: true })); } catch(_){} }
+                    } catch(_) {}
+                });
+            } catch(_) {}
+            const modal = document.getElementById('newProductModal');
+            if (!modal) return;
+            const form = modal.querySelector('form'); if (form) { try { form.reset(); } catch(_) {} }
+            // Hide and remove display flex if present
+            try { modal.classList.add('hidden'); modal.classList.remove('flex'); } catch(_) { modal.classList.add('hidden'); }
+        }
+
+       document.getElementById('closeNewProductModalBtn').addEventListener('click', closeNewProductModal);
+       document.getElementById('cancelNewProductBtn').addEventListener('click', closeNewProductModal);
+        
+    initializeAppAndListeners();
+    -->
+</body>
+</html>
