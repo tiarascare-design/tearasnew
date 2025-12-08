@@ -1,1 +1,38 @@
 node_modules
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+venv/
+.venv/
+mycodebase/venv/
+
+# Byte-compiled / optimized / DLL files
+*.so
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Playwright / browser profiles and reports
+playwright-chrome-profile/
+playwright-report/
+
+# Test artifacts and results
+test-results/
+*.log
+*.webm
+
+# Firebase service account (do NOT commit)
+tiaras-website-firebase-adminsdk-*.json
+
+# Misc
+.DS_Store
+Thumbs.db
