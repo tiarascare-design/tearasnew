@@ -6,7 +6,8 @@
   "scripts": {
     "test": "npx playwright test",
     "test:unit": "vitest",
-    "lint": "echo 'No linter configured'"
+    "lint": "echo 'No linter configured'",
+    "security:audit": "node ../scripts/security_audit.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

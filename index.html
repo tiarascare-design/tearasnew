@@ -2,6 +2,8 @@
 <html lang="en" class="scroll-smooth">
 <head>
     <meta charset="UTF-8">
+    <!-- Development CSP: allow inline scripts/styles for local preview only. Remove for production. -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; connect-src 'self' https: ws:;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TIARAS - Ornaments & Beauty</title>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -13,6 +15,8 @@
     <script src="https://unpkg.com/swiper/swiper-bundle.min.js"></script>
 
     <link rel="stylesheet" href="assets/css/styles.css">
+    <!-- Inline small favicon as data URI to avoid extra request during local dev -->
+    <link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIW2P8z/C/HgAGgwJ/l1mZVgAAAABJRU5ErkJggg==">
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 </head>
 <body class="bg-white text-gray-800">
@@ -90,31 +94,8 @@
         </div>
     </div>
 
-    <!-- Ensure a deterministic appId in development/emulator so client reads the right siteSettings -->
-    <script>
-        // If the app sets window.__app_id already (server injection), keep it.
-        // Otherwise default to the emulator/dev app id used for local testing.
-        window.__app_id = typeof window.__app_id !== 'undefined' ? window.__app_id : 'tiaras-website';
-    </script>
-    <script>
-        // When running on localhost, force production Firebase for local testing.
-        // This makes the site use the production Firebase project while served locally.
-        // NOTE: this intentionally forces production only for localhost/127.0.0.1 so you
-        // can preview the live site behavior locally. Remove or revert this for normal
-        // development to use the emulator suite.
-        try {
-            const host = (window && window.location && window.location.hostname) || '';
-            if (host === 'localhost' || host === '127.0.0.1') {
-                window.__use_production = true;
-                console.info('Local override: forcing production Firebase for this session (host is localhost)');
-            }
-        } catch (e) { /* ignore */ }
-    </script>
-        <!-- Inject reCAPTCHA site key provided by user (client-side only). Do NOT expose the secret key here. -->
-        <script>
-            // Provided reCAPTCHA site key (used by the client RecaptchaVerifier)
-            window.__recaptcha_site_key = '6Le2VQosAAAAAE0SwHQdNBXHjaV8vKt1GScvokd0';
-        </script>
+    <!-- Inline boot logic moved to an external script to comply with strict CSP -->
+    <script src="assets/js/inline-boot.js"></script>
     <!-- Cache-busted app bundle to ensure updated JS is fetched during development -->
     <script type="module" src="assets/js/app.js?v=6"></script>
 </body>

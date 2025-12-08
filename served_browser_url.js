@@ -1544,20 +1544,32 @@ function renderHomePage() {
         </div>
     `;
 
-    new Swiper('.hero-swiper .swiper', {
-        loop: true,
-        autoplay: { delay: 5000, disableOnInteraction: false },
-        pagination: { el: '.hero-swiper .swiper-pagination', clickable: true },
-        navigation: { nextEl: '.hero-swiper .swiper-button-next', prevEl: '.hero-swiper .swiper-button-prev' },
-    });
+    (function(){
+        function initConditionalLoop(selector, options){
+            try{
+                const el = document.querySelector(selector);
+                const slideCount = el ? el.querySelectorAll('.swiper-slide').length : 0;
+                const spv = options && options.slidesPerView ? options.slidesPerView : 1;
+                if (slideCount < spv) options = Object.assign({}, options, { loop: false });
+            }catch(e){}
+            return new Swiper(selector, options);
+        }
 
-    new Swiper('.reviews-swiper', {
-        loop: true,
-        autoplay: { delay: 4000, disableOnInteraction: false },
-        slidesPerView: 1,
-        spaceBetween: 30,
-        pagination: { el: '.reviews-pagination', clickable: true },
-    });
+        initConditionalLoop('.hero-swiper .swiper', {
+            loop: true,
+            autoplay: { delay: 5000, disableOnInteraction: false },
+            pagination: { el: '.hero-swiper .swiper-pagination', clickable: true },
+            navigation: { nextEl: '.hero-swiper .swiper-button-next', prevEl: '.hero-swiper .swiper-button-prev' },
+        });
+
+        initConditionalLoop('.reviews-swiper', {
+            loop: true,
+            autoplay: { delay: 4000, disableOnInteraction: false },
+            slidesPerView: 1,
+            spaceBetween: 30,
+            pagination: { el: '.reviews-pagination', clickable: true },
+        });
+    })();
 }
 
 function renderProductsPage(category = null, group = null) {
