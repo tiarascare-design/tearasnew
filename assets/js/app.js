@@ -517,11 +517,33 @@ state.bankSort = { key: 'date', dir: 'desc' };
 if (typeof renderAdminOrderList !== 'function') {
     function renderAdminOrderList() {
         try {
-            console.warn('renderAdminOrderList: fallback stub invoked');
+            console.warn('renderAdminOrderList: fallback renderer invoked');
             const listEl = document.getElementById('adminOrderList') || document.getElementById('adminOrderContainer');
             if (!listEl) return;
-            listEl.innerHTML = `<div class="bg-white p-6 rounded-md text-sm text-gray-700">Orders view is currently unavailable. Please reload or check the console for errors.</div>`;
-        } catch (e) { console.error('renderAdminOrderList stub error', e); }
+            const orders = Array.isArray(state.allOrders) ? state.allOrders : [];
+            if (!orders.length) {
+                listEl.innerHTML = `<div class="bg-white p-6 rounded-md text-sm text-gray-700">No orders found.</div>`;
+                return;
+            }
+
+            const rows = orders.map(o => {
+                const id = o.id || '';
+                const invoice = o.invoiceNumber || id;
+                const customer = (o.shippingInfo && (o.shippingInfo.fullName || o.shippingInfo.name)) || (o.customerEmail || o.customerName) || 'Guest';
+                const total = (o.totalAmount != null) ? formatMoney(o.totalAmount) : (o.subtotal != null ? formatMoney(o.subtotal) : '0.00');
+                const status = o.status || 'Unknown';
+                const date = formatDate(o.orderDate || o.createdAt || o.order_date);
+                return `<tr class="border-t hover:bg-gray-50"><td class="p-2 font-mono text-sm">${escape(id)}</td><td class="p-2">${escape(invoice)}</td><td class="p-2">${escape(customer)}</td><td class="p-2 text-right">₹${total}</td><td class="p-2">${escape(status)}</td><td class="p-2">${date}</td><td class="p-2"><button data-action="view-order" data-id="${escape(id)}" class="px-2 py-1 bg-gray-100 rounded text-sm">View</button></td></tr>`;
+            }).join('');
+
+            listEl.innerHTML = `
+                <div class="bg-white p-4 rounded-md shadow-sm overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="bg-gray-100"><tr><th class="p-2">Order ID</th><th class="p-2">Invoice</th><th class="p-2">Customer</th><th class="p-2 text-right">Total</th><th class="p-2">Status</th><th class="p-2">Date</th><th class="p-2">&nbsp;</th></tr></thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>`;
+        } catch (e) { console.error('renderAdminOrderList fallback error', e); }
     }
 }
 
