@@ -5576,6 +5576,19 @@ function listenToAllOrders() {
     }, error => {
         console.error("Admin orders listener error:", error);
         showMessage("Error loading all orders for admin.");
+        // Fallback: try a one-time read in case real-time listeners are blocked but reads are allowed
+        (async () => {
+            try {
+                const snap = await getDocs(query(collection(db, ordersColPath)));
+                const epoch = getEpochMs('orders');
+                state.allOrders = snap.docs
+                    .map(d => ({ id: d.id, ...d.data() }))
+                    .filter(o => { if (o.isDeleted) return false; const ts = o.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0; return ts >= epoch; });
+                if (state.currentPage === 'admin') renderApp();
+            } catch (e2) {
+                console.error('Admin orders getDocs fallback failed', e2);
+            }
+        })();
     });
 }
         
