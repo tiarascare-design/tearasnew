@@ -2322,6 +2322,17 @@ function tooltipHTML(text) {
 }
 
 function renderAdminPage() {
+    // Diagnostic: show basic admin debug info at top for troubleshooting
+    try {
+        const dbgId = 'adminDebugPanel';
+        let dbg = document.getElementById(dbgId);
+        if (!dbg) {
+            dbg = document.createElement('div'); dbg.id = dbgId; dbg.className = 'mb-4 p-3 rounded bg-yellow-50 text-sm text-yellow-800 border border-yellow-200';
+            try { document.body.insertBefore(dbg, document.body.firstChild); } catch(_) {}
+        }
+        try { dbg.innerText = `adminDebug: isAdmin=${String(state.isAdmin)} currentUser=${JSON.stringify(state.currentUser||{})} allOrders=${(state.allOrders||[]).length}`; } catch(_) {}
+    } catch (_) {}
+
     if (!state.isAdmin) {
         pageContent.innerHTML = `<div class="container mx-auto px-4 sm:px-6 lg:px-8 py-20 text-center"><h1 class="text-4xl font-playfair mb-4">Access Denied</h1><p class="text-gray-600">You do not have permission to view this page.</p><button data-page="home" class="nav-btn mt-8 bg-black text-white font-semibold py-3 px-8 rounded-full uppercase tracking-wider text-sm hover:bg-gray-800 transition-all">Go to Homepage</button></div>`;
         return;
