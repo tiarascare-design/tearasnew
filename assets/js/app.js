@@ -521,8 +521,15 @@ if (typeof renderAdminOrderList !== 'function') {
             const listEl = document.getElementById('adminOrderList') || document.getElementById('adminOrderContainer');
             if (!listEl) return;
             const orders = Array.isArray(state.allOrders) ? state.allOrders : [];
+            const epochUsed = getEpochMs('orders');
+            const siteEpoch = state.siteSettings?.visibilityEpochs?.orders || null;
             if (!orders.length) {
-                listEl.innerHTML = `<div class="bg-white p-6 rounded-md text-sm text-gray-700">No orders found.</div>`;
+                listEl.innerHTML = `
+                    <div class="bg-white p-6 rounded-md text-sm text-gray-700">
+                        <div class="mb-2">No orders found.</div>
+                        <div class="text-xs text-gray-500">Diagnostic: epochUsed=${epochUsed}${siteEpoch ? ` (siteSettings.orders=${siteEpoch})` : ''}</div>
+                    </div>`;
+                console.debug('renderAdminOrderList: no orders', { epochUsed, siteEpoch, ordersLength: orders.length });
                 return;
             }
 
