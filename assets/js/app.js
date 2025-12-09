@@ -5576,6 +5576,14 @@ function listenToAllOrders() {
     }, error => {
         console.error("Admin orders listener error:", error);
         showMessage("Error loading all orders for admin.");
+        // Update admin orders area with diagnostic info so it's visible in the UI
+        try {
+            const container = document.getElementById('adminOrderList') || document.getElementById('adminOrderContainer');
+            if (container) {
+                container.innerHTML = `<div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 text-sm text-yellow-900">Admin orders listener error: ${escapeHtml(String(error && error.message || error))}. Attempting fallback read...</div>`;
+            }
+        } catch (_) {}
+
         // Fallback: try a one-time read in case real-time listeners are blocked but reads are allowed
         (async () => {
             try {
@@ -5584,9 +5592,21 @@ function listenToAllOrders() {
                 state.allOrders = snap.docs
                     .map(d => ({ id: d.id, ...d.data() }))
                     .filter(o => { if (o.isDeleted) return false; const ts = o.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0; return ts >= epoch; });
+                try {
+                    const container = document.getElementById('adminOrderList') || document.getElementById('adminOrderContainer');
+                    if (container) {
+                        container.innerHTML = `<div class="bg-green-50 border-l-4 border-green-400 p-4 text-sm text-green-900">getDocs fallback: fetched ${state.allOrders.length} orders.</div>`;
+                    }
+                } catch (_) {}
                 if (state.currentPage === 'admin') renderApp();
             } catch (e2) {
                 console.error('Admin orders getDocs fallback failed', e2);
+                try {
+                    const container = document.getElementById('adminOrderList') || document.getElementById('adminOrderContainer');
+                    if (container) {
+                        container.innerHTML = `<div class="bg-red-50 border-l-4 border-red-400 p-4 text-sm text-red-900">getDocs fallback failed: ${escapeHtml(String(e2 && e2.message || e2))}</div>`;
+                    }
+                } catch (_) {}
             }
         })();
     });
