@@ -5576,6 +5576,8 @@ function listenToAllOrders() {
             .map(doc => ({ id: doc.id, ...doc.data() }))
             .filter(o => {
                 if (o.isDeleted) return false;
+                // Admin users should see all orders regardless of visibility epoch
+                if (state.isAdmin) return true;
                 const ts = o.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0;
                 return ts >= epoch;
             });
@@ -5598,7 +5600,12 @@ function listenToAllOrders() {
                 const epoch = getEpochMs('orders');
                 state.allOrders = snap.docs
                     .map(d => ({ id: d.id, ...d.data() }))
-                    .filter(o => { if (o.isDeleted) return false; const ts = o.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0; return ts >= epoch; });
+                    .filter(o => {
+                        if (o.isDeleted) return false;
+                        if (state.isAdmin) return true;
+                        const ts = o.orderDate?.seconds ? o.orderDate.seconds * 1000 : 0;
+                        return ts >= epoch;
+                    });
                 try {
                     const container = document.getElementById('adminOrderList') || document.getElementById('adminOrderContainer');
                     if (container) {
